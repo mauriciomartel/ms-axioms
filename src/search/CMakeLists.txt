@@ -92,6 +92,8 @@ create_fast_downward_library(
         abstract_task
         axioms
         command_line
+        component
+        component_internals
         evaluation_context
         evaluation_result
         evaluator
@@ -655,6 +657,14 @@ create_fast_downward_library(
         default_value_axioms_task
         domain_transition_graph
         priority_queues
+        task_properties
+)
+create_fast_downward_library(
+    NAME cost_adapted_heuristic
+    HELP "The cost adapted heuristic"
+    SOURCES heuristics/cost_adapted_heuristic
+    DEPENDS
+        core_tasks
         task_properties
 )
 

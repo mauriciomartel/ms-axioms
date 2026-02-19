@@ -5,12 +5,17 @@
 using namespace std;
 
 namespace operator_counting {
+ConstraintGenerator::ConstraintGenerator(
+    const std::shared_ptr<AbstractTask> &task)
+    : TaskSpecificComponent(task) {
+}
+
 void ConstraintGenerator::initialize_constraints(
     const shared_ptr<AbstractTask> &, lp::LinearProgram &) {
 }
 
 static class ConstraintGeneratorCategoryPlugin
-    : public plugins::TypedCategoryPlugin<ConstraintGenerator> {
+    : public plugins::TypedCategoryPlugin<TaskIndependentConstraintGenerator> {
 public:
     ConstraintGeneratorCategoryPlugin()
         : TypedCategoryPlugin("ConstraintGenerator") {

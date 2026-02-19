@@ -16,8 +16,11 @@
 using namespace std;
 
 namespace landmarks {
-LandmarkFactory::LandmarkFactory(utils::Verbosity verbosity)
-    : log(get_log_for_verbosity(verbosity)), landmark_graph(nullptr) {
+LandmarkFactory::LandmarkFactory(
+    const shared_ptr<AbstractTask> &task, utils::Verbosity verbosity)
+    : TaskSpecificComponent(task),
+      log(get_log_for_verbosity(verbosity)),
+      landmark_graph(nullptr) {
 }
 
 void LandmarkFactory::resize_operators_providing_effect(
@@ -156,6 +159,8 @@ void LandmarkFactory::log_landmark_graph_info(
   function will also get access to a TaskProxy. Then we need to ensure that the
   TaskProxy used by the Exploration object is the same as the TaskProxy object
   passed to this function.
+
+  issue559: update comment above after switching to task-independent classes.
 */
 shared_ptr<LandmarkGraph> LandmarkFactory::compute_landmark_graph(
     const shared_ptr<AbstractTask> &task) {
@@ -200,9 +205,10 @@ bool get_use_orders_arguments_from_options(const plugins::Options &opts) {
 }
 
 static class LandmarkFactoryCategoryPlugin
-    : public plugins::TypedCategoryPlugin<LandmarkFactory> {
+    : public plugins::TypedCategoryPlugin<TaskIndependentLandmarkFactory> {
 public:
-    LandmarkFactoryCategoryPlugin() : TypedCategoryPlugin("LandmarkFactory") {
+    LandmarkFactoryCategoryPlugin()
+        : TypedCategoryPlugin("LandmarkFactory") {
         document_synopsis(
             "A landmark factory specification is either a newly created "
             "instance or a landmark factory that has been defined previously. "

@@ -2,8 +2,11 @@
 
 #include "distances.h"
 #include "factored_transition_system.h"
+#include "label_reduction.h"                  // issue559 necessary for concept?
 #include "merge_and_shrink_algorithm.h"
 #include "merge_and_shrink_representation.h"
+#include "merge_strategy_factory.h"           // issue559 necessary for concept?
+#include "shrink_strategy.h"                  // issue559 necessary for concept?
 #include "transition_system.h"
 #include "types.h"
 
@@ -21,14 +24,15 @@ using utils::ExitCode;
 
 namespace merge_and_shrink {
 MergeAndShrinkHeuristic::MergeAndShrinkHeuristic(
+    const shared_ptr<AbstractTask> &task,
     const shared_ptr<MergeStrategyFactory> &merge_strategy,
     const shared_ptr<ShrinkStrategy> &shrink_strategy,
     const shared_ptr<LabelReduction> &label_reduction,
     bool prune_unreachable_states, bool prune_irrelevant_states, int max_states,
     int max_states_before_merge, int threshold_before_merge,
-    double main_loop_max_time, const shared_ptr<AbstractTask> &transform,
-    bool cache_estimates, const string &description, utils::Verbosity verbosity)
-    : Heuristic(transform, cache_estimates, description, verbosity) {
+    double main_loop_max_time, bool cache_estimates, const string &description,
+    utils::Verbosity verbosity)
+    : Heuristic(task, cache_estimates, description, verbosity) {
     log << "Initializing merge-and-shrink heuristic..." << endl;
     MergeAndShrinkAlgorithm algorithm(
         merge_strategy, shrink_strategy, label_reduction,
@@ -138,9 +142,9 @@ int MergeAndShrinkHeuristic::compute_heuristic(const State &ancestor_state) {
 }
 
 class MergeAndShrinkHeuristicFeature
-    : public plugins::TypedFeature<Evaluator, MergeAndShrinkHeuristic> {
+    : public plugins::TaskIndependentFeature<TaskIndependentEvaluator> {
 public:
-    MergeAndShrinkHeuristicFeature() : TypedFeature("merge_and_shrink") {
+    MergeAndShrinkHeuristicFeature() : TaskIndependentFeature("merge_and_shrink") {
         document_title("Merge-and-shrink heuristic");
         document_synopsis(
             "This heuristic implements the algorithm described in the following "
@@ -243,9 +247,9 @@ public:
         document_property("preferred operators", "no");
     }
 
-    virtual shared_ptr<MergeAndShrinkHeuristic> create_component(
+    virtual shared_ptr<TaskIndependentEvaluator> create_component(
         const plugins::Options &opts) const override {
-        return plugins::make_shared_from_arg_tuples<MergeAndShrinkHeuristic>(
+        return make_shared_component<MergeAndShrinkHeuristic, Evaluator>(
             get_merge_and_shrink_algorithm_arguments_from_options(opts),
             get_heuristic_arguments_from_options(opts));
     }

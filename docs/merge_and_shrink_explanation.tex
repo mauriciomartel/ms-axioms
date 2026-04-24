@@ -1,0 +1,272 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{parskip}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue},
+  commentstyle=\color{gray},
+  stringstyle=\color{teal},
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!8},
+  columns=fullflexible,
+}
+
+\title{Merge-and-Shrink Algorithm:\\Implementation Overview}
+\author{ms-axioms / Fast Downward}
+\date{}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Overview}
+
+The merge-and-shrink (M\&S) framework builds an admissible heuristic for
+cost-optimal classical planning by constructing a compressed abstract
+representation of the planning task.  Starting from one atomic transition
+system per planning variable, the algorithm iteratively:
+
+\begin{enumerate}
+  \item \textbf{Shrinks} two chosen systems to keep their sizes manageable, then
+  \item \textbf{Merges} them into a single system via synchronized product.
+\end{enumerate}
+
+The resulting abstract system encodes goal distances that lower-bound the true
+cost to the goal, yielding an admissible (and, under standard conditions,
+consistent) heuristic.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Key Source Files}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{File} & \textbf{Role} \\
+\midrule
+\texttt{merge\_and\_shrink\_algorithm.cc} & Algorithm orchestration \\
+\texttt{factored\_transition\_system.cc} & Manages the collection of factors \\
+\texttt{transition\_system.cc} & Individual abstract state space \\
+\texttt{shrink\_bisimulation.cc} & Primary shrink strategy \\
+\texttt{label\_reduction.cc} & Merges redundant action labels \\
+\texttt{merge\_and\_shrink\_heuristic.cc} & Planner-facing heuristic interface \\
+\texttt{merge\_and\_shrink\_representation.cc} & Abstract state lookup tables \\
+\texttt{distances.cc} & BFS for init/goal distances \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Algorithm Flow}
+
+The entry point is \texttt{MergeAndShrinkAlgorithm::build\_factored\_transition\_system()}.
+After creating one atomic transition system per variable and optionally pruning
+unreachable or dead-end states, it runs the main loop:
+
+\begin{lstlisting}[caption={Main loop pseudocode}]
+while |active factors| > 1:
+    (i1, i2)  <- merge_strategy.get_next()          # 1. select pair
+    label_reduction.reduce(i1, i2)                   # 2. optional, before shrink
+    shrink_before_merge(TS[i1], TS[i2])              # 3. shrink both
+    label_reduction.reduce(i1, i2)                   # 4. optional, before merge
+    i  <- fts.merge(i1, i2)                          # 5. synchronized product
+    prune(TS[i])                                     # 6. remove dead states
+    if not fts.is_factor_solvable(i): break          # 7. early termination
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Merge Strategies}
+
+The merge strategy decides \emph{which} pair of factors to combine next.
+Three families are implemented.
+
+\subsection{Precomputed (\texttt{merge\_strategy\_precomputed.cc})}
+
+A \texttt{MergeTree} --- a full binary tree over variables --- is constructed
+before the loop and consulted at each step.  The next merge is always the
+leftmost sibling-leaf pair in the remaining tree.  The canonical choice is a
+\emph{linear} tree ordered by reverse level in the causal graph.
+
+\subsection{Stateless (\texttt{merge\_strategy\_stateless.cc})}
+
+Pairs are chosen dynamically using a \texttt{MergeSelector} that scores every
+candidate pair and keeps only those that maximise the score.  Available scoring
+functions include:
+
+\begin{itemize}
+  \item \textbf{Goal relevance} --- prefer factors that share goal variables.
+  \item \textbf{DFP} --- the classic Dräger--Finkbeiner--Podelski criterion.
+  \item \textbf{MIASM} --- maximise abstract state space size reduction.
+  \item \textbf{Total order} --- tie-breaking by a fixed variable ordering.
+\end{itemize}
+
+\subsection{SCC-based (\texttt{merge\_strategy\_sccs.cc})}
+
+Merges are first restricted to strongly connected components of the causal
+graph, which are processed in topological order.  A configurable fallback
+strategy handles merges across SCCs.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Shrink Strategies}
+
+Before merging, each factor is reduced so the product stays within the
+\texttt{max\_states} budget.  All strategies compute a
+\emph{state equivalence relation} --- a partition of states into equivalence
+classes --- which is then applied to the transition system.
+
+\subsection{Size Computation (\texttt{utils.cc})}
+
+Let $s_1, s_2$ be the current sizes and $M$ the hard limit.  Target sizes
+$(t_1, t_2)$ satisfy:
+
+\begin{align}
+  t_i &\leq \texttt{max\_states\_before\_merge} \\
+  t_1 \cdot t_2 &\leq M
+\end{align}
+
+If both $s_i > \sqrt{M}$, both targets are set to $\lfloor\sqrt{M}\rfloor$.
+Otherwise the larger one is reduced to $\lfloor M / s_{\min} \rfloor$.
+
+\subsection{Bisimulation (\texttt{shrink\_bisimulation.cc})}
+
+The strongest strategy.  States $s, s'$ are bisimilar if they have identical
+goal-distance $h$ and, for every abstract transition $(s, \ell, t)$, there
+exists a transition $(s', \ell, t')$ with $t \sim t'$, and vice versa.
+
+\paragraph{Algorithm.}
+\begin{enumerate}
+  \item \textbf{Initialise groups.}  States are partitioned by $h$-value:
+        goal states form group~0; states with $h = i > 0$ form group~$i$;
+        dead-end states ($h = \infty$) get a dedicated group.
+  \item \textbf{Compute signatures.}  Each state $s$ gets a signature
+        \[
+          \sigma(s) = \bigl(h(s),\; \text{group}(s),\;
+            \{(\ell, \text{group}(t)) : (s,\ell,t) \in T\}\bigr).
+        \]
+  \item \textbf{Refine.}  States with identical signatures are merged into one
+        group.  Repeat until a fixpoint is reached.
+\end{enumerate}
+
+With \texttt{greedy=true}, only $h$-optimal transitions are included in the
+signatures, preserving at least one optimal plan while allowing more aggressive
+merging.
+
+\subsection{Bucket-based (\texttt{shrink\_fh.cc}, \texttt{shrink\_random.cc})}
+
+Simpler strategies that group states into buckets by $(f, h)$ values or
+randomly, then merge states within each bucket to meet the target size.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Label Reduction (\texttt{label\_reduction.cc})}
+
+Action labels that induce \emph{identical transitions} across all relevant
+factors can be merged without changing the abstract distances.  This reduces
+the branching factor of every transition system at no precision cost.
+
+Three application timings are supported:
+
+\begin{itemize}
+  \item \texttt{TWO\_TRANSITION\_SYSTEMS} --- only for the next merge pair.
+  \item \texttt{ALL\_TRANSITION\_SYSTEMS} --- across all active factors.
+  \item \texttt{ALL\_TRANSITION\_SYSTEMS\_WITH\_FIXPOINT} --- iteratively until
+        no further reduction is possible.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Distance Computation (\texttt{distances.cc})}
+
+After each merge, two breadth-first searches are run on the new factor:
+
+\begin{itemize}
+  \item \textbf{Forward BFS} from the initial abstract state computes
+        $\mathit{init\_distance}(s)$ for every state $s$.
+  \item \textbf{Backward BFS} from all goal states computes
+        $\mathit{goal\_distance}(s)$ (i.e.\ $h(s)$).
+\end{itemize}
+
+States with $\mathit{init\_distance} = \infty$ are unreachable;
+states with $\mathit{goal\_distance} = \infty$ are dead ends.
+Both can be pruned to keep the factor compact.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Abstract State Representation (\texttt{merge\_and\_shrink\_representation.cc})}
+
+After the algorithm terminates, the heuristic is stored as a tree of lookup
+tables mirroring the merge tree:
+
+\begin{itemize}
+  \item \textbf{Leaf nodes} (\texttt{MergeAndShrinkRepresentationLeaf}) map
+        concrete variable values to abstract states via a flat array.
+  \item \textbf{Internal nodes} (\texttt{MergeAndShrinkRepresentationMerge})
+        combine two children through a 2-D table indexed by the children's
+        abstract state indices.
+\end{itemize}
+
+Once the algorithm finishes, \texttt{set\_distances()} replaces every abstract
+state index with its goal distance, so that evaluating the heuristic for a
+concrete state is a pure table lookup with no search.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Configuration Example}
+
+The recommended configuration uses SCC-based merging, non-greedy bisimulation
+shrinking, and label reduction before shrinking:
+
+\begin{lstlisting}[caption={Recommended M\&S configuration}]
+astar(merge_and_shrink(
+    merge_strategy=merge_sccs(
+        order_of_sccs=topological,
+        merge_selector=score_based_filtering(
+            scoring_functions=[goal_relevance(), dfp(), total_order()])),
+    shrink_strategy=shrink_bisimulation(greedy=false),
+    label_reduction=exact(before_shrinking=true, before_merging=false),
+    max_states=50000,
+    threshold_before_merge=1))
+\end{lstlisting}
+
+To run this on the Miconic benchmark included in the repository:
+
+\begin{lstlisting}[language=bash, caption={Running on Miconic s1-0}]
+./fast-downward.py \
+    misc/tests/benchmarks/miconic/domain.pddl \
+    misc/tests/benchmarks/miconic/s1-0.pddl \
+    --search "astar(merge_and_shrink(
+        merge_strategy=merge_sccs(
+            order_of_sccs=topological,
+            merge_selector=score_based_filtering(
+                scoring_functions=[goal_relevance(),dfp(),total_order()])),
+        shrink_strategy=shrink_bisimulation(greedy=false),
+        label_reduction=exact(before_shrinking=true,before_merging=false),
+        max_states=50000,
+        threshold_before_merge=1))"
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Algorithm Properties}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Property} & \textbf{Value} \\
+\midrule
+Admissibility & Guaranteed (no pruning of reachable optimal states) \\
+Consistency & Guaranteed under standard conditions \\
+Completeness & May terminate early; uses partial abstractions as heuristics \\
+Input & STRIPS/ADL tasks without axioms \\
+Size control & \texttt{max\_states}, \texttt{max\_states\_before\_merge} \\
+Time control & \texttt{main\_loop\_max\_time} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}

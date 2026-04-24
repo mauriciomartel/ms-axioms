@@ -19,7 +19,7 @@
   columns=fullflexible,
 }
 
-\title{Merge-and-Shrink Algorithm:\\Implementation Overview}
+\title{Merge-and-Shrink Algorithm and Axioms:\\Implementation Overview}
 \author{ms-axioms / Fast Downward}
 \date{}
 
@@ -262,11 +262,202 @@ To run this on the Miconic benchmark included in the repository:
 Admissibility & Guaranteed (no pruning of reachable optimal states) \\
 Consistency & Guaranteed under standard conditions \\
 Completeness & May terminate early; uses partial abstractions as heuristics \\
-Input & STRIPS/ADL tasks without axioms \\
+Input & STRIPS/ADL tasks (axiom support via \texttt{DefaultValueAxiomsTask}) \\
 Size control & \texttt{max\_states}, \texttt{max\_states\_before\_merge} \\
 Time control & \texttt{main\_loop\_max\_time} \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Axioms}
+
+Classical planning tasks may include \emph{derived variables} whose values are
+not set by operator effects but are instead inferred by \emph{axiom rules}.
+An axiom rule is a Horn clause of the form
+
+\[
+  \text{head} \leftarrow c_1 \wedge c_2 \wedge \cdots \wedge c_k,
+\]
+
+where the head assigns a value to a derived variable and each condition $c_i$
+is a fact over any variable (regular or derived).  The planner evaluates all
+applicable axioms after every state transition to obtain the complete state.
+
+\subsection{Key Source Files}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{File} & \textbf{Role} \\
+\midrule
+\texttt{axioms.h / axioms.cc} & Core evaluator and data structures \\
+\texttt{tasks/default\_value\_axioms\_task.cc} & Explicit negation-by-failure rules \\
+\texttt{tasks/root\_task.cc} & Evaluates axioms on the initial state \\
+\texttt{task\_proxy.h} & Planning-task API for derived variables \\
+\texttt{translate/axiom\_rules.py} & Stratification during translation \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Data Structures (\texttt{axioms.h})}
+
+Three structures make up the evaluator:
+
+\begin{description}
+  \item[\texttt{AxiomLiteral}] Represents a single fact $\langle\mathit{var},
+        \mathit{val}\rangle$ of a derived variable.  It carries a list
+        \texttt{condition\_of} pointing to every rule that mentions this fact as
+        a condition, enabling forward propagation without a full scan.
+
+  \item[\texttt{AxiomRule}] Represents one Horn clause.  It stores the target
+        variable and value (\texttt{effect\_var}, \texttt{effect\_val}), the
+        total number of conditions (\texttt{condition\_count}), and a mutable
+        counter \texttt{unsatisfied\_conditions} that is decremented as
+        conditions become true during evaluation.  When the counter reaches
+        zero the rule fires.
+
+  \item[\texttt{AxiomEvaluator}] The top-level class.  It holds a 2-D table
+        \texttt{axiom\_literals[var][val]}, the flat list of all rules, and
+        per-layer \texttt{NegationByFailureInfo} entries that record which
+        derived variables must fall back to their default value at the end of
+        each layer.  The \texttt{queue} vector is an instance variable so its
+        heap allocation is reused across calls.
+\end{description}
+
+\subsection{Stratification (\texttt{translate/axiom\_rules.py})}
+
+Before search begins, the translator partitions axiom rules into \emph{layers}
+so that the evaluation order is well-defined.  The stratification algorithm:
+
+\begin{enumerate}
+  \item Builds a dependency graph over derived variables.  A \emph{positive}
+        dependency $u \to v$ arises when $v$ appears positively in the body of
+        a rule whose head involves $u$; a \emph{negative} dependency arises
+        when $v$ appears negated.
+  \item Computes strongly connected components (SCCs) of the dependency graph.
+  \item Assigns layers such that:
+        \begin{align*}
+          \text{layer}(\text{pos.\ dep.}) &\leq \text{layer}(\text{head}), \\
+          \text{layer}(\text{neg.\ dep.}) &<   \text{layer}(\text{head}).
+        \end{align*}
+        The strict inequality for negative dependencies guarantees that when a
+        rule consults the negation of a derived variable, that variable's value
+        is already finalised.
+\end{enumerate}
+
+Cycles through negative edges are forbidden; the translator aborts with an
+error if they are detected, because such programs have no well-defined
+all-models semantics.
+
+\subsection{Evaluation Algorithm (\texttt{axioms.cc})}
+
+\texttt{AxiomEvaluator::evaluate()} implements \emph{stratified forward
+chaining with negation by failure}.  It runs once after every operator
+application and on the initial state.
+
+\paragraph{Phase 1 — Initialisation.}
+\begin{enumerate}
+  \item Set every derived variable to its \emph{default value} (the
+        negation-by-failure value, stored in \texttt{default\_values}).
+  \item Reset all \texttt{unsatisfied\_conditions} counters to their static
+        initial values.
+  \item Seed the propagation queue with the facts of all \emph{regular}
+        (non-derived) variables, since their values are fixed by the operator
+        effects and are never re-derived.
+\end{enumerate}
+
+\paragraph{Phase 2 — Layered forward chaining.}
+For each axiom layer $\ell$ in order:
+
+\begin{lstlisting}[caption={Per-layer evaluation pseudocode}]
+while queue is not empty:
+    lit = queue.pop()
+    for rule in lit.condition_of:
+        rule.unsatisfied_conditions -= 1
+        if rule.unsatisfied_conditions == 0:
+            state[rule.effect_var] = rule.effect_val
+            queue.push(axiom_literals[effect_var][effect_val])
+
+# Negation by failure (skipped for the last layer)
+if layer < last_layer:
+    for (var, default_lit) in nbf_info_by_layer[layer]:
+        if state[var] == default_values[var]:   # not yet derived
+            queue.push(default_lit)
+\end{lstlisting}
+
+After the inner loop drains, any derived variable in layer $\ell$ that was
+never fired retains its default value.  The negation-by-failure step then
+queues that default fact so that rules in \emph{later} layers that depend on
+its negation can fire.  The last layer is exempt because no later layer
+depends on it, saving unnecessary work.
+
+\subsection{Negation by Failure and \texttt{DefaultValueAxiomsTask}}
+
+The evaluator treats negation implicitly: a derived variable that has not been
+derived is assumed to hold its default value, which represents the negation of
+its derived (non-default) value.  Some components — notably heuristics that
+treat axiom rules as operators — require \emph{explicit} rules for the default
+value.  \texttt{DefaultValueAxiomsTask}
+(\texttt{tasks/default\_value\_axioms\_task.cc}) provides this by rewriting the
+task:
+
+\begin{description}
+  \item[Exact transformation (acyclic case).] The conditions under which a
+        derived variable $v$ is \emph{not} derived are expressed in DNF by
+        negating the disjunction of all rule bodies that could derive $v$.
+        Each DNF clause becomes an explicit axiom rule with head
+        $v = \mathit{default}$.
+
+  \item[Approximate transformation (cyclic case).] When derived variables are
+        mutually dependent, constructing the exact negation would be
+        semantically incorrect.  Instead, a single rule with an empty body is
+        inserted: $v = \mathit{default} \leftarrow \top$.  This
+        over-approximates the default condition but is always safe.
+\end{description}
+
+\subsection{Integration with State Generation}
+
+After every operator application, \texttt{StateRegistry} calls
+\texttt{axiom\_evaluator.evaluate(new\_values)} before storing the successor
+state (\texttt{state\_registry.cc}).  For tasks with axioms the state is kept
+in unpacked (vector) form during evaluation for efficiency, then packed into
+the registry's compact representation.  The initial state is also axiom-closed
+during construction in \texttt{root\_task.cc}.
+
+The planning-task API in \texttt{task\_proxy.h} exposes derived variables
+through three predicates:
+
+\begin{itemize}
+  \item \texttt{VariableProxy::is\_derived()} --- true iff
+        \texttt{axiom\_layer} $\neq -1$.
+  \item \texttt{VariableProxy::get\_axiom\_layer()} --- returns the
+        stratification layer for evaluation ordering.
+  \item \texttt{VariableProxy::get\_default\_axiom\_value()} --- returns the
+        negation-by-failure value.
+\end{itemize}
+
+Axiom rules are accessed via \texttt{AxiomsProxy}, which iterates over them
+analogously to operators.  Their cost is always 0 regardless of the task's
+cost type.
+
+\subsection{Example: Philosophers Domain}
+
+The Philosophers benchmark
+(\texttt{misc/tests/benchmarks/philosophers/domain.pddl}) illustrates axioms in
+practice.  A derived predicate \texttt{blocked} captures whether a process is
+blocked from acquiring a resource, using existential quantification over
+complex conditions:
+
+\begin{lstlisting}[caption={Derived predicate in Philosophers domain}]
+(:derived (blocked ?p - process)
+  (exists (?s - state)
+    (exists (?pt - proctype) ...)))
+\end{lstlisting}
+
+After translation, each such derived predicate becomes a set of grounded axiom
+rules assigned to a layer determined by the stratification algorithm.  The
+evaluator then maintains the \texttt{blocked} values automatically as the
+elevator-style resource allocation proceeds.
 
 \end{document}

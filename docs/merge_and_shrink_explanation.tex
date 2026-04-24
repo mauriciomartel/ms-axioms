@@ -460,4 +460,179 @@ rules assigned to a layer determined by the stratification algorithm.  The
 evaluator then maintains the \texttt{blocked} values automatically as the
 elevator-style resource allocation proceeds.
 
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Incorporating Axioms into Merge-and-Shrink}
+
+The current M\&S implementation aborts when the task contains axioms.  The
+ideas below sketch how to lift that restriction by extending the factored
+transition system with \emph{axiom-induced abstract factors}, one per derived
+goal variable, kept small by quasi-bisimulation shrinking.
+
+The approach proceeds in two phases: axioms in \textbf{goal conditions} first,
+then axioms in \textbf{operator preconditions} using the same strategy.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Core Idea}
+
+Instead of blocking on axioms, extend the factored transition system
+$F(\mathcal{P}) = \langle \Theta_{v_1}, \ldots, \Theta_{v_n} \rangle$ with
+additional factors $\Theta_{S,d}$, one per derived goal variable $d$.  Each
+such factor encodes the structural information needed to decide whether $d$ is
+satisfied, without materialising the full synchronized product.  A
+\emph{reconstruction property} guarantees no information is lost:
+
+\[
+  \Bigl(\bigcap_{\Theta_i \in S} \mathcal{L}((\Theta_i^G)^A)\Bigr)
+  \;\cap\;
+  \mathcal{L}(\Theta_{S,d})
+  \;=\;
+  \mathcal{L}\!\Bigl(\bigl(\bigotimes_{\Theta_i \in S} \Theta_i\bigr)^{\!A}\Bigr),
+\]
+
+where $(\cdot)^A$ re-marks the goal states of a transition system to be
+exactly those satisfying the projected axiom $d$, and $\Theta_i^G$ is
+$\Theta_i$ with every state designated as a goal.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Step 1 — Compute Primary Representations}
+\textbf{Files:} \texttt{axioms.cc} or new \texttt{axiom\_representation.cc}
+
+For each derived goal variable $d$, compute $S_d$ — the set of primary
+variable assignments under which $d$ evaluates to true.  Concretely, iterate
+over reachable primary states, run \texttt{AxiomEvaluator::evaluate()} on each,
+and record those for which $d = \text{true}$.  This is a preprocessing step
+executed once before the main loop.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Step 2 — Implement the $(\cdot)^A$ Transformation}
+\textbf{Files:} \texttt{transition\_system.cc},
+\texttt{factored\_transition\_system.cc}
+
+Currently, goal states in a transition system are determined solely by primary
+goal conditions.  Under the transformation $(\cdot)^A$, a local state
+$s \in A(V_S)$ becomes a goal state if there \emph{exists} some completion of
+$V \setminus V_S$ such that the resulting global state lies in $S_d$:
+
+\[
+  s \models (\cdot)^A
+  \;\iff\;
+  \exists\, \sigma_{V \setminus V_S} :\;
+  \bigl(s \cup \sigma_{V \setminus V_S}\bigr) \in S_d.
+\]
+
+For an atomic factor over variable $v$, each value $v = c$ is marked as a
+goal state for axiom $d$ whenever \emph{any} global state with $v = c$ belongs
+to $S_d$.  This existential projection is conservative by design: if a global
+state satisfies $d$, its local projection always satisfies the transformed
+version.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Step 3 — Build Axiom-Induced Abstract Factors}
+\textbf{Files:} \texttt{merge\_and\_shrink\_algorithm.cc}
+
+After constructing the initial atomic factors, insert a preprocessing phase.
+For each derived variable $d$ appearing in the goal, build $\Theta_{S,d}$ as
+follows:
+
+\begin{enumerate}
+  \item Take the synchronized product of the chosen factor subset $S$ (all
+        atomic factors for full correctness; a subset for tractability).
+  \item Mark goal states using the $(\cdot)^A$ transformation from Step~2.
+  \item Apply quasi-bisimulation shrinking (Step~4) to compress the factor.
+  \item Add the resulting factor to the \texttt{FactoredTransitionSystem}.
+\end{enumerate}
+
+The reconstruction property then guarantees that intersecting the per-factor
+axiom languages with $\mathcal{L}(\Theta_{S,d})$ recovers the full product's
+axiom language exactly.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Step 4 — Quasi-Bisimulation Shrinking}
+\textbf{Files:} new \texttt{shrink\_quasi\_bisimulation.cc}
+
+Standard bisimulation (used by \texttt{ShrinkBisimulation}) requires that if
+$s_1 \sim s_2$ and $s_1 \xrightarrow{\ell} t_1$, then $s_2$ must also have an
+outgoing $\ell$-transition to some $t_2 \sim t_1$.  Quasi-bisimulation weakens
+this: $s_2$ is permitted to have \emph{no} $\ell$-transition at all.
+
+Formally, $\sim_Q$ is a quasi-bisimulation on $\Theta$ if:
+\begin{description}
+  \item[QBISIM1] $s_1 \sim_Q s_2 \;\Rightarrow\; (s_1 \in S_G \iff s_2 \in S_G)$
+  \item[QBISIM2] $s_1 \sim_Q s_2$ and $s_1 \xrightarrow{\ell} t_1$
+        $\;\Rightarrow\;$ $\exists\, t_2$ such that $t_1 \sim_Q t_2$ and
+        either $s_2 \xrightarrow{\ell} t_2$ or $s_2 \not\xrightarrow{\ell}$.
+\end{description}
+
+In implementation terms, the signature-refinement loop of
+\texttt{ShrinkBisimulation} already partitions states by outgoing transition
+signatures.  The only change is in what counts as a mismatch: a state with no
+outgoing $\ell$-transition is treated as compatible with any successor group
+under $\ell$, rather than forming its own partition.  This yields coarser
+equivalence classes and a smaller abstract factor.
+
+Note that a coarsest quasi-bisimulation does not always exist; any valid
+quasi-bisimulation produces a correct (if not maximally compressed) factor.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Step 5 — Integration into the Main Loop}
+\textbf{Files:} \texttt{merge\_and\_shrink\_algorithm.cc},
+\texttt{merge\_strategy\_sccs.cc} or \texttt{merge\_tree\_factory.cc}
+
+Two changes to the existing loop are required:
+
+\paragraph{Remove the axiom abort.}
+The current code calls \texttt{verify\_no\_axioms()} and aborts if axioms are
+present.  Replace this guard with the preprocessing phase from Step~3.
+
+\paragraph{Merge ordering.}
+Axiom-induced factors $\Theta_{S,d}$ must be merged with their associated
+primary variable factors \emph{before} those factors are merged with unrelated
+ones.  The axiom dependency DAG (available from \texttt{axiom\_rules.py}
+stratification) provides the necessary ordering.  This can be encoded either
+by extending \texttt{MergeStrategySCCs} to treat axiom dependencies as an
+additional SCC constraint, or by pre-scheduling axiom-induced merges in a
+\texttt{MergeTree}.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Phased Implementation Path}
+
+\paragraph{Phase 1 — Axioms in goal conditions.}
+Apply Steps 1--5 above.  Modify goal state marking in
+\texttt{TransitionSystem} and add axiom-induced factors.  The heuristic lookup
+in \texttt{MergeAndShrinkRepresentation::get\_value()} then naturally reflects
+derived goal satisfaction through the abstract state encoding.
+
+\paragraph{Phase 2 — Axioms in operator preconditions.}
+The same $(\cdot)^A$ transformation applies, but instead of re-marking goal
+states it re-marks which transitions are \emph{enabled}: a transition is
+present in $(\Theta)^A$ only if its precondition, including derived conditions,
+is satisfied.  This change is localised to the transition generation step in
+\texttt{transition\_system.cc}, where precondition checks currently consider
+only primary variables.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Summary of Files to Modify}
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Change} & \textbf{File} \\
+\midrule
+Compute $S_d$ (primary representations) &
+  \texttt{axioms.cc} / new \texttt{axiom\_representation.cc} \\
+Projected goal marking $(\cdot)^A$ &
+  \texttt{transition\_system.cc},
+  \texttt{factored\_transition\_system.cc} \\
+Build $\Theta_{S,d}$ factors &
+  \texttt{merge\_and\_shrink\_algorithm.cc} \\
+Quasi-bisimulation shrinking &
+  new \texttt{shrink\_quasi\_bisimulation.cc} \\
+Merge ordering for axiom factors &
+  \texttt{merge\_strategy\_sccs.cc} / \texttt{merge\_tree\_factory.cc} \\
+Remove axiom abort &
+  \texttt{merge\_and\_shrink\_algorithm.cc} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
 \end{document}

@@ -495,13 +495,148 @@ $\Theta_i$ with every state designated as a goal.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 1 — Compute Primary Representations}
-\textbf{Files:} \texttt{axioms.cc} or new \texttt{axiom\_representation.cc}
+\textbf{New files:} \texttt{merge\_and\_shrink/primary\_representation.h},
+\texttt{merge\_and\_shrink/primary\_representation.cc}
 
-For each derived goal variable $d$, compute $S_d$ — the set of primary
-variable assignments under which $d$ evaluates to true.  Concretely, iterate
-over reachable primary states, run \texttt{AxiomEvaluator::evaluate()} on each,
-and record those for which $d = \text{true}$.  This is a preprocessing step
-executed once before the main loop.
+\subsubsection{The Problem with Explicit Enumeration}
+
+The primary representation $S_d$ of a derived variable $d$ is defined over
+all primary variables jointly: it is the set of complete primary-variable
+assignments under which $d$ evaluates to true.  Storing $S_d$ explicitly
+requires enumerating all such assignments, which is exponential in the number
+of primary variables and therefore infeasible in practice.
+
+\subsubsection{What We Actually Need}
+
+For the $(\cdot)^A$ goal transformation in Step~2, we do not need $S_d$ in
+full.  We only need its \emph{projection} onto each individual variable's
+domain: for primary variable $v$ and value $c$, is there any global primary
+assignment with $v = c$ that lies in $S_d$?  This per-variable boolean
+information is sufficient to re-mark goal states in atomic factors.
+
+\subsubsection{Computing the Projection from Axiom Rule Structure}
+
+Rather than running the axiom evaluator over all possible states, we read the
+axiom rule structure directly.  An axiom rule for $d$ has the form:
+
+\[
+  d = \text{true} \;\leftarrow\; c_1 \wedge c_2 \wedge \cdots \wedge c_k
+\]
+
+where each condition $c_i$ is a fact $\langle v_i = w_i \rangle$ over either
+a primary or a derived variable.  A value $c$ of primary variable $v$ is
+compatible with $d$ being derived if there exists a rule for $d$ whose
+conditions are satisfiable with $v = c$.  A rule's conditions are satisfiable
+with $v = c$ in two cases:
+
+\begin{itemize}
+  \item The rule has \textbf{no condition on $v$}: then $v = c$ does not
+        conflict with the rule, and setting other variables to satisfy the
+        remaining conditions makes the rule fire regardless of $v$'s value.
+        Every value of $v$ is therefore compatible via this rule.
+  \item The rule has \textbf{a condition $v = c$ specifically}: then $c$ is
+        exactly the value that satisfies that condition, so the rule can fire
+        with $v = c$ (assuming the other conditions can be satisfied).
+\end{itemize}
+
+Conditions on \emph{derived} variables are ignored.  Determining whether a
+derived condition is satisfiable would require recursively computing primary
+representations of other derived variables and checking conjunctions across
+them — a constraint-satisfaction problem.  Instead, we conservatively assume
+all derived conditions can always be satisfied.  This gives an
+\emph{over-approximation} of $S_d$: we may mark a value $c$ as compatible
+when it is not truly compatible, but we never miss a value that is compatible.
+Over-approximation is the safe direction of error for an admissible heuristic,
+because it can only cause the heuristic to underestimate the true cost.
+
+\subsubsection{Data Structure}
+
+The result is stored in a two-dimensional boolean array
+\texttt{compatible\_values[var\_id][val]}, where \texttt{var\_id} ranges over
+primary variables and \texttt{val} over their domain values.  The full row
+\texttt{compatible\_values[var\_id]} is the projection of $S_d$ onto variable
+\texttt{var\_id}.  Derived variables are excluded from the array entirely —
+they are not part of the primary variable space $V$.
+
+\subsubsection{Implementation: \texttt{PrimaryRepresentation}}
+
+The class \texttt{PrimaryRepresentation} in
+\texttt{primary\_representation.h/.cc} encapsulates this computation.  Its
+constructor takes the \texttt{TaskProxy} and the id of the derived variable
+$d$, and its single public method \texttt{is\_compatible(var\_id, val)} exposes
+the projection.
+
+\paragraph{Constructor logic.}
+\begin{enumerate}
+  \item \textbf{Allocate the array.}  For each primary variable, allocate a
+        \texttt{vector<bool>} of its domain size, initialised to \texttt{false}.
+        Derived variables receive an empty entry and are skipped throughout.
+
+  \item \textbf{Determine the default value.}  Each derived variable has a
+        \emph{negation-by-failure} (default) value — the value it holds when no
+        axiom rule fires.  Rules that derive $d$ to its default value are not
+        of interest (they do not make $d$ true), so they are skipped.
+
+  \item \textbf{Scan axiom rules.}  For each axiom rule whose head is
+        $d = \text{non-default}$:
+        \begin{enumerate}
+          \item Collect all conditions on \emph{primary} variables into a map
+                \texttt{primary\_conds : var\_id $\to$ val}.  Conditions on
+                derived variables are discarded.
+          \item For each primary variable $v$:
+                \begin{itemize}
+                  \item If $v$ does not appear in \texttt{primary\_conds},
+                        set all entries of \texttt{compatible\_values[v]} to
+                        \texttt{true} (all values of $v$ are compatible via
+                        this rule).
+                  \item If $v$ appears in \texttt{primary\_conds} with value
+                        $c$, set \texttt{compatible\_values[v][c]} to
+                        \texttt{true} (only value $c$ is compatible via this
+                        rule).
+                \end{itemize}
+        \end{enumerate}
+\end{enumerate}
+
+Because entries are only ever set from \texttt{false} to \texttt{true} (never
+the reverse), the final array is the union of compatible values across all
+rules — exactly the projection of $S_d$.
+
+\paragraph{Placement.}  The class lives in
+\texttt{src/search/merge\_and\_shrink/} rather than alongside the general
+\texttt{axioms.cc} infrastructure.  This keeps M\&S-specific logic contained
+within the M\&S module, avoiding unnecessary coupling to components that use
+\texttt{AxiomEvaluator} for unrelated purposes (state generation, root task
+initialisation, etc.).  The file is registered in the \texttt{mas\_heuristic}
+library in \texttt{src/search/CMakeLists.txt}.
+
+\subsubsection{Example}
+
+Consider a task with primary variables $x \in \{0,1,2\}$ and $y \in \{0,1\}$,
+and two axiom rules for derived variable $d$:
+
+\begin{itemize}
+  \item Rule 1: $d = \text{true} \leftarrow x = 1$
+  \item Rule 2: $d = \text{true} \leftarrow x = 2 \wedge y = 0$
+\end{itemize}
+
+After scanning Rule~1 (condition only on $x = 1$):
+\[
+  \texttt{compatible\_values}[x] = [\texttt{false},\, \texttt{true},\, \texttt{false}],
+  \quad
+  \texttt{compatible\_values}[y] = [\texttt{true},\, \texttt{true}]
+\]
+(Rule~1 has no condition on $y$, so all values of $y$ become compatible.)
+
+After scanning Rule~2 (conditions $x = 2$ and $y = 0$):
+\[
+  \texttt{compatible\_values}[x] = [\texttt{false},\, \texttt{true},\, \texttt{true}],
+  \quad
+  \texttt{compatible\_values}[y] = [\texttt{true},\, \texttt{true}]
+\]
+
+The final result says: values $x=1$ and $x=2$ are compatible with $d$ being
+true; $x=0$ is not.  All values of $y$ are compatible (because Rule~1 already
+made $y$ fully compatible in the first scan).
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 2 — Implement the $(\cdot)^A$ Transformation}
@@ -619,7 +754,7 @@ only primary variables.
 \textbf{Change} & \textbf{File} \\
 \midrule
 Compute $S_d$ (primary representations) &
-  \texttt{axioms.cc} / new \texttt{axiom\_representation.cc} \\
+  new \texttt{merge\_and\_shrink/primary\_representation.h/.cc} \\
 Projected goal marking $(\cdot)^A$ &
   \texttt{transition\_system.cc},
   \texttt{factored\_transition\_system.cc} \\

@@ -638,6 +638,87 @@ The final result says: values $x=1$ and $x=2$ are compatible with $d$ being
 true; $x=0$ is not.  All values of $y$ are compatible (because Rule~1 already
 made $y$ fully compatible in the first scan).
 
+\subsubsection{Testing on the Philosophers Domain}
+
+To verify the implementation before proceeding to Step~2, a temporary
+diagnostic block was added to \texttt{merge\_and\_shrink\_algorithm.cc}
+immediately before the \texttt{verify\_no\_axioms} call.  The block
+instantiates \texttt{PrimaryRepresentation} for every derived variable in the
+task and prints the compatible values for each primary variable:
+
+\begin{lstlisting}[caption={Temporary diagnostic block (removed after testing)}]
+// Temporary test: print the primary representation for each derived variable.
+// For each derived variable d, shows which values of each primary variable
+// are compatible with d being true (1 = compatible, 0 = not compatible).
+// Remove this block before moving to Step 2.
+for (VariableProxy var : task_proxy.get_variables()) {
+    if (var.is_derived()) {
+        log << "PrimaryRepresentation for derived var "
+            << var.get_id() << " (" << var.get_name() << "):" << endl;
+        PrimaryRepresentation pr(task_proxy, var.get_id());
+        for (VariableProxy pvar : task_proxy.get_variables()) {
+            if (!pvar.is_derived()) {
+                log << "  var " << pvar.get_id()
+                    << " (" << pvar.get_name() << "): [";
+                for (int val = 0; val < pvar.get_domain_size(); ++val) {
+                    log << (pr.is_compatible(pvar.get_id(), val) ? "1" : "0");
+                    if (val < pvar.get_domain_size() - 1) log << ",";
+                }
+                log << "]" << endl;
+            }
+        }
+    }
+}
+\end{lstlisting}
+
+The planner was run on the Philosophers benchmark
+(\texttt{misc/tests/benchmarks/philosophers/p01-phil2.pddl}), which has
+2 philosophers, 2 fork queues, and derived predicates \texttt{blocked} and
+\texttt{blocked-trans}.  After grounding, the task contains 17 primary
+variables and 20 derived variables (\texttt{var2}, \texttt{var17}--\texttt{var36}).
+These correspond to grounded instances of \texttt{blocked} (one per
+philosopher) and \texttt{blocked-trans} (one per philosopher-transition pair).
+
+\paragraph{Two output patterns were observed.}
+
+\textbf{Pattern 1 — All compatible (all 1s).}
+Derived variables corresponding to grounded \texttt{blocked} predicates show
+all values as compatible for almost every primary variable.  For example:
+\begin{lstlisting}
+PrimaryRepresentation for derived var 2 (var2):
+  var 11 (var11): [1,1,1,1,1,1,1,1,1]
+  var 14 (var14): [1,1,1]
+  var 15 (var15): [1,1]
+\end{lstlisting}
+This is expected: the \texttt{blocked} predicate depends entirely on
+\texttt{blocked-trans}, which is itself a derived variable.  Since derived
+conditions are over-approximated (treated as always satisfiable), all primary
+values are marked as compatible.
+
+\textbf{Pattern 2 — Selective compatibility (mix of 0s and 1s).}
+Derived variables corresponding to grounded \texttt{blocked-trans} predicates
+show selective compatibility.  For example:
+\begin{lstlisting}
+PrimaryRepresentation for derived var 17 (var17):
+  var 11 (var11): [0,1,0,0,0,0,0,0,0]
+  var 14 (var14): [0,0,1]
+  var 15 (var15): [1,0]
+\end{lstlisting}
+This is also expected: the \texttt{blocked-trans} rules have direct conditions
+on primary variables such as \texttt{queue-size}, \texttt{settled}, and
+\texttt{activate}.  The 0s correctly identify values that are incompatible
+with the transition being blocked.  For instance, \texttt{var14: [0,0,1]}
+means only the third value of \texttt{var14} is compatible --- corresponding
+to a rule condition like \texttt{queue-size = 0} (empty queue), which is the
+only queue state that makes a read transition blocked.
+
+\paragraph{Conclusion.}
+Both patterns match the expected theoretical behaviour.  Pattern~1 confirms
+that the over-approximation of derived conditions is working correctly.
+Pattern~2 confirms that the rule-scanning logic correctly identifies specific
+primary variable values that are necessary for a derived variable to be true.
+The diagnostic block was removed after testing.
+
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 2 — Implement the $(\cdot)^A$ Transformation}
 \textbf{Files:} \texttt{transition\_system.cc},

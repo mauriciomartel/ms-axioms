@@ -44,7 +44,9 @@ set_up_options()
 
 project(downward LANGUAGES CXX)
 report_bitwidth()
-add_executable(downward planner.cc)
+add_executable(downward planner.cc
+        merge_and_shrink/primary_representation.cc
+        merge_and_shrink/primary_representation.h)
 
 # obtain git SHA1 hash
 execute_process(
@@ -856,6 +858,7 @@ create_fast_downward_library(
         merge_and_shrink/merge_tree
         merge_and_shrink/merge_tree_factory
         merge_and_shrink/merge_tree_factory_linear
+        merge_and_shrink/primary_representation
         merge_and_shrink/shrink_bisimulation
         merge_and_shrink/shrink_bucket_based
         merge_and_shrink/shrink_fh

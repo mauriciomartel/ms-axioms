@@ -671,6 +671,42 @@ for (VariableProxy var : task_proxy.get_variables()) {
 }
 \end{lstlisting}
 
+\paragraph{How to activate the diagnostic.}
+The block is guarded by a verbosity check so it produces no output in normal
+runs:
+
+\begin{lstlisting}[language=C++, caption={Debug guard in merge\_and\_shrink\_algorithm.cc}]
+if (log.is_at_least_debug()) {
+    // ... diagnostic block ...
+}
+\end{lstlisting}
+
+To enable it, pass \texttt{verbosity=debug} \emph{inside} the
+\texttt{merge\_and\_shrink(\ldots)} configuration string.  Note that
+\texttt{verbosity} is a plugin option, not a top-level flag, so it must
+appear inside the parentheses:
+
+\begin{lstlisting}[language=bash, caption={Running the diagnostic on the Philosophers domain}]
+./fast-downward.py \
+    misc/tests/benchmarks/philosophers/domain.pddl \
+    misc/tests/benchmarks/philosophers/p01-phil2.pddl \
+    --search "astar(merge_and_shrink(
+        verbosity=debug,
+        merge_strategy=merge_sccs(
+            order_of_sccs=topological,
+            merge_selector=score_based_filtering(
+                scoring_functions=[goal_relevance(),dfp(),total_order()])),
+        shrink_strategy=shrink_bisimulation(greedy=false),
+        label_reduction=exact(before_shrinking=true,before_merging=false),
+        max_states=50000,
+        threshold_before_merge=1))"
+\end{lstlisting}
+
+The \texttt{PrimaryRepresentation} output appears at the very beginning of
+the M\&S log, before the \texttt{verify\_no\_axioms} check aborts the run.
+Using \texttt{--log-level debug} at the top level (before \texttt{--search})
+does not work here; the verbosity must be set inside the plugin.
+
 The planner was run on the Philosophers benchmark
 (\texttt{misc/tests/benchmarks/philosophers/p01-phil2.pddl}), which has
 2 philosophers, 2 fork queues, and derived predicates \texttt{blocked} and
@@ -717,7 +753,9 @@ Both patterns match the expected theoretical behaviour.  Pattern~1 confirms
 that the over-approximation of derived conditions is working correctly.
 Pattern~2 confirms that the rule-scanning logic correctly identifies specific
 primary variable values that are necessary for a derived variable to be true.
-The diagnostic block was removed after testing.
+The diagnostic block remains in \texttt{merge\_and\_shrink\_algorithm.cc},
+guarded by \texttt{if (log.is\_at\_least\_debug())}, and will be removed
+once Step~2 is implemented.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 2 — Implement the $(\cdot)^A$ Transformation}

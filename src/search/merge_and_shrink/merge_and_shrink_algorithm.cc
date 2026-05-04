@@ -8,6 +8,7 @@
 #include "merge_and_shrink_representation.h"
 #include "merge_strategy.h"
 #include "merge_strategy_factory.h"
+#include "primary_representation.h"
 #include "shrink_strategy.h"
 #include "transition_system.h"
 #include "types.h"
@@ -403,6 +404,30 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
 
     utils::Timer timer;
     log << "Running merge-and-shrink algorithm..." << endl;
+    // Temporary test: print the primary representation for each derived variable.
+    // For each derived variable d, shows which values of each primary variable
+    // are compatible with d being true (1 = compatible, 0 = not compatible).
+    if (log.is_at_least_debug()) {
+        for (VariableProxy var : task_proxy.get_variables()) {
+            if (var.is_derived()) {
+                log << "PrimaryRepresentation for derived var "
+                    << var.get_id() << " (" << var.get_name() << "):" << endl;
+                PrimaryRepresentation pr(task_proxy, var.get_id());
+                for (VariableProxy pvar : task_proxy.get_variables()) {
+                    if (!pvar.is_derived()) {
+                        log << "  var " << pvar.get_id()
+                            << " (" << pvar.get_name() << "): [";
+                        for (int val = 0; val < pvar.get_domain_size(); ++val) {
+                            log << (pr.is_compatible(pvar.get_id(), val) ? "1" : "0");
+                            if (val < pvar.get_domain_size() - 1) log << ",";
+                        }
+                        log << "]" << endl;
+                    }
+                }
+            }
+        }
+    }
+
     task_properties::verify_no_axioms(task_proxy);
     dump_options();
     warn_on_unusual_options();

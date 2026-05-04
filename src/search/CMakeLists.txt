@@ -39,14 +39,13 @@ include(common_cxx_flags)
 include(macros)
 include(options)
 
+report_bitwidth()
 set_up_build_types("Debug;Release")
 set_up_options()
 
 project(downward LANGUAGES CXX)
 report_bitwidth()
-add_executable(downward planner.cc
-        merge_and_shrink/primary_representation.cc
-        merge_and_shrink/primary_representation.h)
+add_executable(downward planner.cc)
 
 # obtain git SHA1 hash
 execute_process(

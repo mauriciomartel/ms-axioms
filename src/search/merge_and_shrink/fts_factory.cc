@@ -1,4 +1,5 @@
 #include "fts_factory.h"
+#include "primary_representation.h"
 
 #include "distances.h"
 #include "factored_transition_system.h"
@@ -53,7 +54,8 @@ class FTSFactory {
     int task_has_conditional_effects;
 
     unique_ptr<Labels> create_labels();
-    void build_state_data(VariableProxy var);
+    void build_state_data(VariableProxy var,
+                      const std::vector<PrimaryRepresentation> &derived_goal_reprs);
     void initialize_transition_system_data(const Labels &labels);
     bool is_relevant(int var_id, int label) const;
     void mark_as_relevant(int var_id, int label);
@@ -111,7 +113,9 @@ unique_ptr<Labels> FTSFactory::create_labels() {
     return make_unique<Labels>(move(label_costs), max_num_labels);
 }
 
-void FTSFactory::build_state_data(VariableProxy var) {
+void FTSFactory::build_state_data(
+    VariableProxy var,
+    const vector<PrimaryRepresentation> &derived_goal_reprs) {
     int var_id = var.get_id();
     TransitionSystemData &ts_data = transition_system_data_by_var[var_id];
     ts_data.init_state = task_proxy.get_initial_state()[var_id].get_value();
@@ -119,6 +123,7 @@ void FTSFactory::build_state_data(VariableProxy var) {
     int range = task_proxy.get_variables()[var_id].get_domain_size();
     ts_data.num_states = range;
 
+    // Find the goal value for this variable, if any (-1 means no goal condition).
     int goal_value = -1;
     GoalsProxy goals = task_proxy.get_goals();
     for (FactProxy goal : goals) {
@@ -132,7 +137,24 @@ void FTSFactory::build_state_data(VariableProxy var) {
     ts_data.goal_states.resize(range, false);
     for (int value = 0; value < range; ++value) {
         if (value == goal_value || goal_value == -1) {
-            ts_data.goal_states[value] = true;
+            /*
+              Apply the (·)^A transformation for primary variables:
+              a value is a goal state only if it is compatible with every
+              derived goal variable, i.e., it lies in the projection of S_d
+              onto this variable's domain. Derived variables are left
+              unchanged — their goal states are determined by the goal value
+              of the derived variable itself, not by axiom rule structure.
+            */
+            bool compatible = true;
+            if (!var.is_derived()) {
+                for (const PrimaryRepresentation &pr : derived_goal_reprs) {
+                    if (!pr.is_compatible(var_id, value)) {
+                        compatible = false;
+                        break;
+                    }
+                }
+            }
+            ts_data.goal_states[value] = compatible;
         }
     }
 }
@@ -140,6 +162,23 @@ void FTSFactory::build_state_data(VariableProxy var) {
 void FTSFactory::initialize_transition_system_data(const Labels &labels) {
     VariablesProxy variables = task_proxy.get_variables();
     transition_system_data_by_var.resize(variables.size());
+
+    /*
+      Precompute primary representations for all derived variables that
+      appear in the goal. Each PrimaryRepresentation encodes, for every
+      primary variable v and value c, whether c is compatible with the
+      derived goal variable being true (i.e., whether v=c lies in the
+      projection of S_d). These are passed to build_state_data so that
+      goal states in atomic factors are restricted accordingly.
+    */
+    vector<PrimaryRepresentation> derived_goal_reprs;
+    for (FactProxy goal : task_proxy.get_goals()) {
+        if (goal.get_variable().is_derived()) {
+            derived_goal_reprs.emplace_back(task_proxy,
+                                            goal.get_variable().get_id());
+        }
+    }
+
     for (VariableProxy var : variables) {
         TransitionSystemData &ts_data =
             transition_system_data_by_var[var.get_id()];
@@ -147,7 +186,7 @@ void FTSFactory::initialize_transition_system_data(const Labels &labels) {
         ts_data.incorporated_variables.push_back(var.get_id());
         ts_data.label_to_local_label.resize(labels.get_max_num_labels(), -1);
         ts_data.relevant_labels.resize(labels.get_num_total_labels(), false);
-        build_state_data(var);
+        build_state_data(var, derived_goal_reprs);
     }
 }
 

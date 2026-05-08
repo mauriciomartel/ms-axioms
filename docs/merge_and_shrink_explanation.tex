@@ -759,13 +759,18 @@ once Step~2 is implemented.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 2 — Implement the $(\cdot)^A$ Transformation}
-\textbf{Files:} \texttt{transition\_system.cc},
-\texttt{factored\_transition\_system.cc}
+\textbf{File modified:} \texttt{merge\_and\_shrink/fts\_factory.cc}
 
-Currently, goal states in a transition system are determined solely by primary
-goal conditions.  Under the transformation $(\cdot)^A$, a local state
-$s \in A(V_S)$ becomes a goal state if there \emph{exists} some completion of
-$V \setminus V_S$ such that the resulting global state lies in $S_d$:
+\subsubsection{The Transformation}
+
+Currently, goal states in an atomic transition system are determined solely by
+primary goal conditions.  A variable $v$ that does not appear in the primary
+goal has all its values marked as goal states (it is unconstrained).  A
+variable $v$ that does appear in the primary goal has exactly one goal value.
+
+Under the $(\cdot)^A$ transformation, a local state $s \in A(V_S)$ becomes a
+goal state if there \emph{exists} some completion of $V \setminus V_S$ such
+that the resulting global state lies in $S_d$:
 
 \[
   s \models (\cdot)^A
@@ -774,11 +779,239 @@ $V \setminus V_S$ such that the resulting global state lies in $S_d$:
   \bigl(s \cup \sigma_{V \setminus V_S}\bigr) \in S_d.
 \]
 
-For an atomic factor over variable $v$, each value $v = c$ is marked as a
-goal state for axiom $d$ whenever \emph{any} global state with $v = c$ belongs
-to $S_d$.  This existential projection is conservative by design: if a global
-state satisfies $d$, its local projection always satisfies the transformed
-version.
+For an atomic factor over primary variable $v$, each value $v = c$ is marked
+as a goal state whenever \emph{any} global state with $v = c$ belongs to
+$S_d$, i.e., whenever \texttt{PrimaryRepresentation(d).is\_compatible(v, c)}
+is true.  This is the existential projection of $S_d$ onto $v$'s domain,
+which is exactly what \texttt{PrimaryRepresentation} computes from Step~1.
+
+The transformation is applied to \emph{primary} variables only.  For derived
+variables the goal state is determined by the derived variable's own goal
+value (if it appears in the goal) or is unconstrained (all states are goal
+states, if it does not).
+
+\subsubsection{Why This Is Safe}
+
+The projection is conservative: if a global state $s$ satisfies $d$ (i.e.,
+$s \in S_d$), then for every primary variable $v$, $s[v]$ is compatible with
+$d$, so $s[v]$ will be marked as a goal state in the atomic factor for $v$.
+No reachable goal state is ever missed.  The reverse may not hold: some marked
+values may not actually lie in any global goal state, but this only causes the
+heuristic to underestimate — it cannot violate admissibility.
+
+\subsubsection{Implementation in \texttt{fts\_factory.cc}}
+
+The factory class \texttt{FTSFactory} builds one atomic transition system per
+planning variable.  Goal state marking is handled in two methods:
+\texttt{initialize\_transition\_system\_data} (which orchestrates the
+per-variable setup) and \texttt{build\_state\_data} (which marks goal states
+for a single variable).
+
+\paragraph{Change 1 — New include.}
+Add \texttt{\#include "primary\_representation.h"} so that
+\texttt{FTSFactory} can instantiate \texttt{PrimaryRepresentation} objects.
+
+\paragraph{Change 2 — Updated method declaration.}
+The declaration of \texttt{build\_state\_data} inside the \texttt{FTSFactory}
+class gains a second parameter:
+
+\begin{lstlisting}[language=C++]
+void build_state_data(
+    VariableProxy var,
+    const std::vector<PrimaryRepresentation> &derived_goal_reprs);
+\end{lstlisting}
+
+\paragraph{Change 3 — Modified \texttt{build\_state\_data}.}
+The original loop that marks goal states:
+
+\begin{lstlisting}[language=C++, caption={Original goal-state marking}]
+ts_data.goal_states.resize(range, false);
+for (int value = 0; value < range; ++value) {
+    if (value == goal_value || goal_value == -1) {
+        ts_data.goal_states[value] = true;
+    }
+}
+\end{lstlisting}
+
+is extended with the $(\cdot)^A$ filter for primary variables:
+
+\begin{lstlisting}[language=C++, caption={Goal-state marking with $(\cdot)^A$ transformation}]
+ts_data.goal_states.resize(range, false);
+for (int value = 0; value < range; ++value) {
+    if (value == goal_value || goal_value == -1) {
+        /*
+          Apply the (·)^A transformation for primary variables:
+          a value is a goal state only if it is compatible with every
+          derived goal variable, i.e., it lies in the projection of S_d
+          onto this variable's domain. Derived variables are left
+          unchanged — their goal states are determined by the goal value
+          of the derived variable itself, not by axiom rule structure.
+        */
+        bool compatible = true;
+        if (!var.is_derived()) {
+            for (const PrimaryRepresentation &pr : derived_goal_reprs) {
+                if (!pr.is_compatible(var_id, value)) {
+                    compatible = false;
+                    break;
+                }
+            }
+        }
+        ts_data.goal_states[value] = compatible;
+    }
+}
+\end{lstlisting}
+
+The inner loop iterates over the \texttt{PrimaryRepresentation} of each
+derived goal variable.  A value passes only if it is compatible with
+\emph{every} derived goal — since the goal requires all derived predicates to
+hold simultaneously, the intersection of their projections is the correct
+filter.  Derived variables bypass this loop entirely: their goal states
+continue to be set by the standard goal-value check.
+
+\paragraph{Change 4 — Modified \texttt{initialize\_transition\_system\_data}.}
+Before iterating over variables to call \texttt{build\_state\_data},
+precompute one \texttt{PrimaryRepresentation} for each derived variable that
+appears in the task goal:
+
+\begin{lstlisting}[language=C++, caption={Precomputing derived goal representations}]
+/*
+  Precompute primary representations for all derived variables that
+  appear in the goal. Each PrimaryRepresentation encodes, for every
+  primary variable v and value c, whether c is compatible with the
+  derived goal variable being true (i.e., whether v=c lies in the
+  projection of S_d). These are passed to build_state_data so that
+  goal states in atomic factors are restricted accordingly.
+*/
+vector<PrimaryRepresentation> derived_goal_reprs;
+for (FactProxy goal : task_proxy.get_goals()) {
+    if (goal.get_variable().is_derived()) {
+        derived_goal_reprs.emplace_back(task_proxy,
+                                        goal.get_variable().get_id());
+    }
+}
+\end{lstlisting}
+
+If the task has no derived goal variables (e.g., Miconic), the vector is
+empty and the filter loop in \texttt{build\_state\_data} never executes —
+existing behaviour is fully preserved.
+
+\subsubsection{Behaviour on Tasks Without Axioms}
+
+On any task without derived variables, \texttt{derived\_goal\_reprs} is
+empty.  The new compatibility loop executes zero iterations for every value
+of every variable, so \texttt{compatible} stays \texttt{true} throughout.
+The resulting goal states are identical to those produced by the original
+code.  Test~1 (Miconic) confirmed this: the planner produces the same plan
+with the same heuristic values as before the change.
+
+\subsubsection{Testing on the Philosophers Domain}
+
+\paragraph{Diagnostic block.}
+To verify the goal state marking before committing, a temporary debug block
+was added to \texttt{FTSFactory::create} in \texttt{fts\_factory.cc},
+immediately after \texttt{initialize\_transition\_system\_data(*labels)}:
+
+\begin{lstlisting}[language=C++, caption={Temporary goal-state diagnostic in fts\_factory.cc}]
+if (log.is_at_least_debug()) {
+    for (VariableProxy var : task_proxy.get_variables()) {
+        int var_id = var.get_id();
+        log << "Goal states for var " << var_id
+            << " (" << var.get_name() << ")"
+            << (var.is_derived() ? " [derived]" : " [primary]")
+            << ": [";
+        const vector<bool> &gs =
+            transition_system_data_by_var[var_id].goal_states;
+        for (int v = 0; v < (int)gs.size(); ++v) {
+            log << (gs[v] ? "1" : "0");
+            if (v < (int)gs.size() - 1) log << ",";
+        }
+        log << "]" << endl;
+    }
+}
+\end{lstlisting}
+
+Since \texttt{verify\_no\_axioms} in \texttt{merge\_and\_shrink\_algorithm.cc}
+aborts before \texttt{create\_factored\_transition\_system} is called, it was
+temporarily commented out to allow the factory to run on the Philosophers
+domain.  After testing, both the diagnostic block and the commented-out guard
+were restored.
+
+\paragraph{How to run.}
+With \texttt{verify\_no\_axioms} commented out and the diagnostic block in
+place, run:
+
+\begin{lstlisting}[language=bash, caption={Running the Step 2 diagnostic on the Philosophers domain}]
+./fast-downward.py \
+    misc/tests/benchmarks/philosophers/domain.pddl \
+    misc/tests/benchmarks/philosophers/p01-phil2.pddl \
+    --search "astar(merge_and_shrink(
+        verbosity=debug,
+        merge_strategy=merge_sccs(
+            order_of_sccs=topological,
+            merge_selector=score_based_filtering(
+                scoring_functions=[goal_relevance(),dfp(),total_order()])),
+        shrink_strategy=shrink_bisimulation(greedy=false),
+        label_reduction=exact(before_shrinking=true,before_merging=false),
+        max_states=50000,
+        threshold_before_merge=1))"
+\end{lstlisting}
+
+\paragraph{Three output patterns were observed.}
+
+\textbf{Pattern 1 — Primary variables (all 1s).}
+All 17 primary variables show all values as goal states:
+\begin{lstlisting}
+Goal states for var 0  (var0)  [primary]: [1,1]
+Goal states for var 11 (var11) [primary]: [1,1,1,1,1,1,1,1,1]
+Goal states for var 14 (var14) [primary]: [1,1,1]
+\end{lstlisting}
+This is expected.  The goal derived variables (\texttt{blocked
+philosopher-0/1}) depend entirely on \texttt{blocked-trans}, which is itself
+derived.  Since derived conditions are over-approximated, all primary values
+are compatible --- the (·)$^A$ filter does not eliminate any value.
+
+\textbf{Pattern 2 — Non-goal derived variables (all 1s).}
+Derived variables that do not appear in the goal (e.g.\ \texttt{blocked-trans}
+instances, var17--var30, var32--var35) have no goal condition
+(\texttt{goal\_value} $= -1$), so all their states remain goal states:
+\begin{lstlisting}
+Goal states for var 17 (var17) [derived]: [1,1]
+Goal states for var 25 (var25) [derived]: [1,1]
+\end{lstlisting}
+
+\textbf{Pattern 3 — Goal derived variables (selective).}
+The two derived variables that appear directly in the goal
+(\texttt{blocked philosopher-0} and \texttt{blocked philosopher-1},
+corresponding to var31 and var36) show:
+\begin{lstlisting}
+Goal states for var 31 (var31) [derived]: [1,0]
+Goal states for var 36 (var36) [derived]: [1,0]
+\end{lstlisting}
+Here value~0 is the non-default (``blocked = true'') value and value~1 is
+the default.  Only value~0 is a goal state, which is correct: the goal
+requires the process to be blocked.
+
+\paragraph{The ``unsolvable'' result is expected at this stage.}
+Atomic transition system \#31 (var31) is pruned to 0 states and the planner
+declares the task unsolvable.  This happens because derived variables have no
+operator transitions in the M\&S abstraction --- their value is determined by
+axiom evaluation, not by operator effects.  With only value~0 (blocked) as a
+goal state and no transitions that set the variable to value~0, the pruning
+step removes all states as irrelevant (including the initial state), making
+the factor unsolvable.
+
+This is a known limitation of the current partial implementation.  Steps~3--5
+will add axiom-induced abstract factors and handle derived variable
+transitions properly, after which the heuristic will correctly reason about
+derived goal satisfaction.
+
+\paragraph{Conclusion.}
+All three patterns match the expected theoretical behaviour.  Pattern~1
+confirms that the (·)$^A$ filter correctly handles the over-approximation
+case (all primary values remain compatible).  Pattern~3 confirms that goal
+derived variables have their goal states correctly restricted to the goal
+value.  The diagnostic block and the temporary removal of
+\texttt{verify\_no\_axioms} were reverted after testing.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 3 — Build Axiom-Induced Abstract Factors}

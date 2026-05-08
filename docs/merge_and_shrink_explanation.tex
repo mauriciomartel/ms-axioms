@@ -854,15 +854,34 @@ with the same heuristic values as before the change.
 To verify the goal state marking before committing, a temporary debug block
 was added to \texttt{FTSFactory::create} in \texttt{fts\_factory.cc},
 immediately after \texttt{initialize\_transition\_system\_data(*labels)}.
-Guarded by \texttt{if (log.is\_at\_least\_debug())}, it iterates over all
-variables and prints their goal state arrays in the same \texttt{[1,0,...]}
-format used in Step~1.  Since \texttt{verify\_no\_axioms} in
-\texttt{merge\_and\_shrink\_algorithm.cc} aborts before
-\texttt{create\_factored\_transition\_system} is called, it was temporarily
-commented out to allow the factory to run on the Philosophers domain.  After
-testing, both the diagnostic block and the commented-out guard were restored.
-The planner was invoked with \texttt{verbosity=debug} on the Philosophers
-benchmark (\texttt{p01-phil2.pddl}).
+It iterates over all variables and prints their goal state arrays in the same
+\texttt{[1,0,...]} format used in Step~1:
+
+\begin{lstlisting}[language=C++]
+if (log.is_at_least_debug()) {
+    for (VariableProxy var : task_proxy.get_variables()) {
+        int var_id = var.get_id();
+        log << "Goal states for var " << var_id
+            << " (" << var.get_name() << ")"
+            << (var.is_derived() ? " [derived]" : " [primary]")
+            << ": [";
+        const vector<bool> &gs =
+            transition_system_data_by_var[var_id].goal_states;
+        for (int v = 0; v < (int)gs.size(); ++v) {
+            log << (gs[v] ? "1" : "0");
+            if (v < (int)gs.size() - 1) log << ",";
+        }
+        log << "]" << endl;
+    }
+}
+\end{lstlisting}
+
+Since \texttt{verify\_no\_axioms} in \texttt{merge\_and\_shrink\_algorithm.cc}
+aborts before \texttt{create\_factored\_transition\_system} is called, it was
+temporarily commented out to allow the factory to run on the Philosophers
+domain.  After testing, both the diagnostic block and the commented-out guard
+were restored.  The planner was invoked with \texttt{verbosity=debug} on the
+Philosophers benchmark (\texttt{p01-phil2.pddl}).
 
 \paragraph{Three output patterns were observed.}
 

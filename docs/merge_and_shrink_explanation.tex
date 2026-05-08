@@ -813,84 +813,28 @@ Add \texttt{\#include "primary\_representation.h"} so that
 
 \paragraph{Change 2 — Updated method declaration.}
 The declaration of \texttt{build\_state\_data} inside the \texttt{FTSFactory}
-class gains a second parameter:
-
-\begin{lstlisting}[language=C++]
-void build_state_data(
-    VariableProxy var,
-    const std::vector<PrimaryRepresentation> &derived_goal_reprs);
-\end{lstlisting}
+class gains a second parameter: a \texttt{const} reference to a vector of
+\texttt{PrimaryRepresentation} objects, one per derived goal variable.
 
 \paragraph{Change 3 — Modified \texttt{build\_state\_data}.}
-The original loop that marks goal states:
-
-\begin{lstlisting}[language=C++, caption={Original goal-state marking}]
-ts_data.goal_states.resize(range, false);
-for (int value = 0; value < range; ++value) {
-    if (value == goal_value || goal_value == -1) {
-        ts_data.goal_states[value] = true;
-    }
-}
-\end{lstlisting}
-
-is extended with the $(\cdot)^A$ filter for primary variables:
-
-\begin{lstlisting}[language=C++, caption={Goal-state marking with $(\cdot)^A$ transformation}]
-ts_data.goal_states.resize(range, false);
-for (int value = 0; value < range; ++value) {
-    if (value == goal_value || goal_value == -1) {
-        /*
-          Apply the (·)^A transformation for primary variables:
-          a value is a goal state only if it is compatible with every
-          derived goal variable, i.e., it lies in the projection of S_d
-          onto this variable's domain. Derived variables are left
-          unchanged — their goal states are determined by the goal value
-          of the derived variable itself, not by axiom rule structure.
-        */
-        bool compatible = true;
-        if (!var.is_derived()) {
-            for (const PrimaryRepresentation &pr : derived_goal_reprs) {
-                if (!pr.is_compatible(var_id, value)) {
-                    compatible = false;
-                    break;
-                }
-            }
-        }
-        ts_data.goal_states[value] = compatible;
-    }
-}
-\end{lstlisting}
-
-The inner loop iterates over the \texttt{PrimaryRepresentation} of each
-derived goal variable.  A value passes only if it is compatible with
-\emph{every} derived goal — since the goal requires all derived predicates to
-hold simultaneously, the intersection of their projections is the correct
-filter.  Derived variables bypass this loop entirely: their goal states
-continue to be set by the standard goal-value check.
+The original goal-state marking loop sets every value to \texttt{true} if the
+variable has no primary goal condition, or sets only the goal value to
+\texttt{true} otherwise.  The modified version adds a second condition for
+primary variables: a value also passes only if it is compatible with every
+derived goal variable according to its \texttt{PrimaryRepresentation}.  An
+inner loop iterates over the precomputed representations; if any one of them
+marks the value as incompatible, the value is excluded.  A value must be
+compatible with \emph{all} derived goals simultaneously, because the goal is
+a conjunction — this corresponds to the intersection of the individual
+projections.  Derived variables bypass this loop entirely: their goal states
+continue to be set solely by the standard goal-value check, since the
+$(\cdot)^A$ transformation applies only to primary variable factors.
 
 \paragraph{Change 4 — Modified \texttt{initialize\_transition\_system\_data}.}
-Before iterating over variables to call \texttt{build\_state\_data},
-precompute one \texttt{PrimaryRepresentation} for each derived variable that
-appears in the task goal:
-
-\begin{lstlisting}[language=C++, caption={Precomputing derived goal representations}]
-/*
-  Precompute primary representations for all derived variables that
-  appear in the goal. Each PrimaryRepresentation encodes, for every
-  primary variable v and value c, whether c is compatible with the
-  derived goal variable being true (i.e., whether v=c lies in the
-  projection of S_d). These are passed to build_state_data so that
-  goal states in atomic factors are restricted accordingly.
-*/
-vector<PrimaryRepresentation> derived_goal_reprs;
-for (FactProxy goal : task_proxy.get_goals()) {
-    if (goal.get_variable().is_derived()) {
-        derived_goal_reprs.emplace_back(task_proxy,
-                                        goal.get_variable().get_id());
-    }
-}
-\end{lstlisting}
-
+Before iterating over variables to call \texttt{build\_state\_data}, one
+\texttt{PrimaryRepresentation} is precomputed for each derived variable that
+appears in the task goal.  These objects are constructed once and passed to
+every call of \texttt{build\_state\_data}, avoiding repeated recomputation.
 If the task has no derived goal variables (e.g., Miconic), the vector is
 empty and the filter loop in \texttt{build\_state\_data} never executes —
 existing behaviour is fully preserved.
@@ -909,52 +853,16 @@ with the same heuristic values as before the change.
 \paragraph{Diagnostic block.}
 To verify the goal state marking before committing, a temporary debug block
 was added to \texttt{FTSFactory::create} in \texttt{fts\_factory.cc},
-immediately after \texttt{initialize\_transition\_system\_data(*labels)}:
-
-\begin{lstlisting}[language=C++, caption={Temporary goal-state diagnostic in fts\_factory.cc}]
-if (log.is_at_least_debug()) {
-    for (VariableProxy var : task_proxy.get_variables()) {
-        int var_id = var.get_id();
-        log << "Goal states for var " << var_id
-            << " (" << var.get_name() << ")"
-            << (var.is_derived() ? " [derived]" : " [primary]")
-            << ": [";
-        const vector<bool> &gs =
-            transition_system_data_by_var[var_id].goal_states;
-        for (int v = 0; v < (int)gs.size(); ++v) {
-            log << (gs[v] ? "1" : "0");
-            if (v < (int)gs.size() - 1) log << ",";
-        }
-        log << "]" << endl;
-    }
-}
-\end{lstlisting}
-
-Since \texttt{verify\_no\_axioms} in \texttt{merge\_and\_shrink\_algorithm.cc}
-aborts before \texttt{create\_factored\_transition\_system} is called, it was
-temporarily commented out to allow the factory to run on the Philosophers
-domain.  After testing, both the diagnostic block and the commented-out guard
-were restored.
-
-\paragraph{How to run.}
-With \texttt{verify\_no\_axioms} commented out and the diagnostic block in
-place, run:
-
-\begin{lstlisting}[language=bash, caption={Running the Step 2 diagnostic on the Philosophers domain}]
-./fast-downward.py \
-    misc/tests/benchmarks/philosophers/domain.pddl \
-    misc/tests/benchmarks/philosophers/p01-phil2.pddl \
-    --search "astar(merge_and_shrink(
-        verbosity=debug,
-        merge_strategy=merge_sccs(
-            order_of_sccs=topological,
-            merge_selector=score_based_filtering(
-                scoring_functions=[goal_relevance(),dfp(),total_order()])),
-        shrink_strategy=shrink_bisimulation(greedy=false),
-        label_reduction=exact(before_shrinking=true,before_merging=false),
-        max_states=50000,
-        threshold_before_merge=1))"
-\end{lstlisting}
+immediately after \texttt{initialize\_transition\_system\_data(*labels)}.
+Guarded by \texttt{if (log.is\_at\_least\_debug())}, it iterates over all
+variables and prints their goal state arrays in the same \texttt{[1,0,...]}
+format used in Step~1.  Since \texttt{verify\_no\_axioms} in
+\texttt{merge\_and\_shrink\_algorithm.cc} aborts before
+\texttt{create\_factored\_transition\_system} is called, it was temporarily
+commented out to allow the factory to run on the Philosophers domain.  After
+testing, both the diagnostic block and the commented-out guard were restored.
+The planner was invoked with \texttt{verbosity=debug} on the Philosophers
+benchmark (\texttt{p01-phil2.pddl}).
 
 \paragraph{Three output patterns were observed.}
 

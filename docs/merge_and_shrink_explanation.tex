@@ -1230,17 +1230,47 @@ are maintained as follows:
     \texttt{h\_and\_goal} is the primary sort key in the signature comparison.
     States with different goal status or different $h$-value are always placed
     in different groups and can never be merged in a later round.
-  \item \textbf{QBISIM2} is enforced by the wildcard.  If $s_1$ and $s_2$ are
-    in the same group and $s_1 \xrightarrow{\ell} t_1$:
-    \begin{itemize}
-      \item If $s_2$ also has an $\ell$-transition, its real transition entry
-        appears in its signature.  For $s_1$ and $s_2$ to remain in the same
-        group, their signatures must match --- meaning $s_2$'s $\ell$-transition
-        also leads to the same target group as $t_1$, so the first alternative
-        of QBISIM2 is satisfied.
-      \item If $s_2$ has no $\ell$-transition, the second alternative of
-        QBISIM2 is satisfied directly: $s_2 \not\xrightarrow{\ell}$.
-    \end{itemize}
+  \item \textbf{QBISIM2} is enforced by the wildcard.  The argument is about
+    the \emph{fixed-point} partition: when the algorithm terminates with no
+    further splits, the resulting groups define the quasi-bisimulation relation.
+    We must show that for any two states $s_1 \sim_Q s_2$ (same group at the
+    fixed point) with $s_1 \xrightarrow{\ell} t_1$, QBISIM2 holds.  There are
+    two cases depending on whether $s_2$ has an $\ell$-transition.
+
+    \textbf{Case A: $s_2$ has an $\ell$-transition to $t_2$.}
+    Both $s_1$ and $s_2$ receive real entries in their signatures: $({\ell},
+    \mathrm{group}(t_1))$ for $s_1$ and $(\ell, \mathrm{group}(t_2))$ for
+    $s_2$.  At the fixed point, the partition is stable --- no further
+    splits would be made.  For $s_1$ and $s_2$ to remain in the same group,
+    their signatures must be identical (if they differed, they would have been
+    split in the last round).  Therefore $\mathrm{group}(t_1) =
+    \mathrm{group}(t_2)$, which means $t_1 \sim_Q t_2$.  The first alternative
+    of QBISIM2 is satisfied: $s_2 \xrightarrow{\ell} t_2$ with $t_1 \sim_Q
+    t_2$. \checkmark
+
+    \textbf{Case B: $s_2$ has no $\ell$-transition.}
+    The second alternative of QBISIM2 requires only that $s_2
+    \not\xrightarrow{\ell}$, which holds by assumption. \checkmark
+
+    One important observation makes Case~B well-defined: the wildcard is
+    \emph{guaranteed to exist} for $s_2$ whenever it is needed.  Because $s_1$
+    is in the same group as $s_2$ and $s_1$ has an $\ell$-transition, that
+    group contains at least one $\ell$-transition.  This is exactly the
+    condition that triggers the wildcard mechanism for $s_2$.  So $s_2$
+    always receives a wildcard entry --- it is never left without an $\ell$-entry
+    while $s_1$ has a real one.
+
+    The wildcard also constrains which pairs $(s_1, s_2)$ can end up in Case~B.
+    For $s_1$ and $s_2$ to remain in the same group, their signatures must
+    match.  $s_1$'s real entry is $(\ell, \mathrm{group}(t_1))$ and $s_2$'s
+    wildcard entry is $(\ell, g_{\min})$.  Matching requires $\mathrm{group}(t_1)
+    = g_{\min}$.  Only states whose $\ell$-transition leads to the minimum
+    target group can stay with no-transition states; states with
+    $\ell$-transitions to other groups are split off in an earlier round.
+    This does not affect the validity of QBISIM2 --- the second alternative
+    still holds for $s_2$ --- but it explains why the fixed-point partition
+    is not arbitrary: no-transition states are grouped with exactly those
+    states whose transition leads to the ``first'' (minimum) target group.
 \end{itemize}
 
 The algorithm does not guarantee the \emph{coarsest} quasi-bisimulation ---

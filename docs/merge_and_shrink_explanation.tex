@@ -1021,8 +1021,9 @@ factor.
 \subsubsection{The Signature-Based Algorithm}
 
 The implementation in \texttt{ShrinkQuasiBisimulation} mirrors the structure
-of \texttt{ShrinkBisimulation} exactly, except in the signature computation
-step.  Both strategies use iterative signature refinement: in each round,
+of \texttt{ShrinkBisimulation} exactly, except in phase~1 of the refinement
+loop (the signature computation step), which is described in the next
+subsubsection \emph{Implementing QBISIM2: The Wildcard Mechanism}.  Both strategies use iterative signature refinement: in each round,
 states are partitioned by a compact representation of their outgoing transition
 behaviour, and groups that were indistinguishable in the previous round are
 split if their members now disagree.  The algorithm converges when no further
@@ -1069,8 +1070,9 @@ Each round consists of three phases:
 \begin{enumerate}
   \item \textbf{Compute signatures.}  A fresh \texttt{Signature} is built for
     every state, filling in the \texttt{succ\_signature} field from the
-    current transitions.  The quasi-bisimulation modification is applied here
-    (see below).  After filling, each successor signature is sorted and
+    current transitions.  This is the step that differs from standard
+    bisimulation; the modification is described in full in the next
+    subsubsection.  After filling, each successor signature is sorted and
     deduplicated, then the entire signatures array is sorted.
 
   \item \textbf{Detect splits.}  Within each block of states sharing the same

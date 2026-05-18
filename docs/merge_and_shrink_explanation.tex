@@ -1230,11 +1230,13 @@ $[\{s_4\}]$), without any loss of admissibility.
 The wildcard mechanism produces a valid quasi-bisimulation.  The two conditions
 are maintained as follows:
 \begin{itemize}
-  \item \textbf{QBISIM1} is enforced by the initial partition (goal states in
-    group~0, non-goal states by $h$-value) and by the fact that
-    \texttt{h\_and\_goal} is the primary sort key in the signature comparison.
-    States with different goal status or different $h$-value are always placed
-    in different groups and can never be merged in a later round.
+  \item \textbf{QBISIM1} is identical to the corresponding condition in
+    standard bisimulation: equivalent states must agree on goal membership.
+    It is enforced by the initial partition (goal states in group~0, non-goal
+    states by $h$-value) and by the fact that \texttt{h\_and\_goal} is the
+    primary sort key in the signature comparison.  States with different goal
+    status or different $h$-value are always placed in different groups and
+    can never be merged in a later round.
   \item \textbf{QBISIM2} is enforced by the wildcard.  The argument is about
     the \emph{fixed-point} partition: when the algorithm terminates with no
     further splits, the resulting groups define the quasi-bisimulation relation.

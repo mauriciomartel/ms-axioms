@@ -1243,15 +1243,18 @@ are maintained as follows:
     two cases depending on whether $s_2$ has an $\ell$-transition.
 
     \textbf{Case A: $s_2$ has an $\ell$-transition to $t_2$.}
-    Both $s_1$ and $s_2$ receive real entries in their signatures: $({\ell},
-    \mathrm{group}(t_1))$ for $s_1$ and $(\ell, \mathrm{group}(t_2))$ for
-    $s_2$.  At the fixed point, the partition is stable --- no further
-    splits would be made.  For $s_1$ and $s_2$ to remain in the same group,
-    their signatures must be identical (if they differed, they would have been
-    split in the last round).  Therefore $\mathrm{group}(t_1) =
-    \mathrm{group}(t_2)$, which means $t_1 \sim_Q t_2$.  The first alternative
-    of QBISIM2 is satisfied: $s_2 \xrightarrow{\ell} t_2$ with $t_1 \sim_Q
-    t_2$. \checkmark
+    This case is identical to standard bisimulation.  Both $s_1$ and $s_2$
+    receive real entries in their signatures: $({\ell}, \mathrm{group}(t_1))$
+    for $s_1$ and $(\ell, \mathrm{group}(t_2))$ for $s_2$.  At the fixed
+    point, the partition is stable --- no further splits would be made.  For
+    $s_1$ and $s_2$ to remain in the same group, their signatures must be
+    identical (if they differed, they would have been split in the last round).
+    Therefore $\mathrm{group}(t_1) = \mathrm{group}(t_2)$, which means
+    $t_1 \sim_Q t_2$.  The first alternative of QBISIM2 is satisfied:
+    $s_2 \xrightarrow{\ell} t_2$ with $t_1 \sim_Q t_2$. \checkmark
+
+    The entire difference between quasi-bisimulation and standard bisimulation
+    lies in Case~B below.
 
     \textbf{Case B: $s_2$ has no $\ell$-transition.}
     The first question to answer is: how can $s_1$ and $s_2$ be in the same

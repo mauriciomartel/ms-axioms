@@ -962,30 +962,329 @@ axiom language exactly.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 4 — Quasi-Bisimulation Shrinking}
-\textbf{Files:} new \texttt{shrink\_quasi\_bisimulation.cc}
+\textbf{New files:} \texttt{merge\_and\_shrink/shrink\_quasi\_bisimulation.h},
+\texttt{merge\_and\_shrink/shrink\_quasi\_bisimulation.cc}
 
-Standard bisimulation (used by \texttt{ShrinkBisimulation}) requires that if
-$s_1 \sim s_2$ and $s_1 \xrightarrow{\ell} t_1$, then $s_2$ must also have an
-outgoing $\ell$-transition to some $t_2 \sim t_1$.  Quasi-bisimulation weakens
-this: $s_2$ is permitted to have \emph{no} $\ell$-transition at all.
+All implementation changes in this section are developed on branch
+\texttt{feature/axioms-in-ms}.
 
-Formally, $\sim_Q$ is a quasi-bisimulation on $\Theta$ if:
+\subsubsection{Motivation: Why Standard Bisimulation Is Too Fine}
+
+The standard bisimulation shrink strategy partitions states based on their
+transition behaviour: two states are equivalent only if they have the same
+goal distance and their outgoing transitions lead to equivalent states under
+every label.  In particular, a state with \emph{no} outgoing transition under
+label $\ell$ is never equivalent to a state that does have an $\ell$-transition
+--- the two states always end up in different partitions, regardless of any
+other similarity they may share.
+
+This is too restrictive for the auxiliary transition systems $\Theta_{S,d}$
+that will be constructed in Step~3.  In $\Theta_{S,d}$, the derived variable
+$d$ has no operator transitions of its own: its value is determined by axiom
+evaluation, not by explicit operator effects.  Many states in $\Theta_{S,d}$
+will therefore naturally lack transitions under labels that primary-variable
+states do have.  Standard bisimulation would split these transition-free states
+into their own partitions, producing an unnecessarily large abstract factor.
+Quasi-bisimulation avoids this by explicitly permitting a state to lack a
+transition under a label without being distinguished from states that do have it.
+
+\subsubsection{Quasi-Bisimulation: Formal Definition}
+
+A relation $\sim_Q$ on the states of a transition system is a
+\emph{quasi-bisimulation} if it satisfies both of the following conditions:
+
 \begin{description}
   \item[QBISIM1] $s_1 \sim_Q s_2 \;\Rightarrow\; (s_1 \in S_G \iff s_2 \in S_G)$
-  \item[QBISIM2] $s_1 \sim_Q s_2$ and $s_1 \xrightarrow{\ell} t_1$
-        $\;\Rightarrow\;$ $\exists\, t_2$ such that $t_1 \sim_Q t_2$ and
-        either $s_2 \xrightarrow{\ell} t_2$ or $s_2 \not\xrightarrow{\ell}$.
+
+  Equivalent states must agree on goal membership.  This is identical to the
+  corresponding condition in standard bisimulation and ensures that the
+  heuristic value is the same for both states.
+
+  \item[QBISIM2] If $s_1 \sim_Q s_2$ and $s_1 \xrightarrow{\ell} t_1$, then
+  either $s_2$ has no outgoing $\ell$-transition at all, or there exists $t_2$
+  such that $s_2 \xrightarrow{\ell} t_2$ and $t_1 \sim_Q t_2$.
+
+  If $s_1$ has an $\ell$-transition, then $s_2$ is not required to have one.
+  But if $s_2$ \emph{does} have an $\ell$-transition, it must lead to a
+  state equivalent to $t_1$.
 \end{description}
 
-In implementation terms, the signature-refinement loop of
-\texttt{ShrinkBisimulation} already partitions states by outgoing transition
-signatures.  The only change is in what counts as a mismatch: a state with no
-outgoing $\ell$-transition is treated as compatible with any successor group
-under $\ell$, rather than forming its own partition.  This yields coarser
-equivalence classes and a smaller abstract factor.
+Compared with standard bisimulation, QBISIM2 adds the alternative ``$s_2$ has
+no $\ell$-transition at all''.  Standard bisimulation requires every
+$\ell$-transition of $s_1$ to be matched by an $\ell$-transition of $s_2$,
+with no exceptions.  Quasi-bisimulation is therefore a \emph{coarser}
+equivalence: every standard bisimulation is a valid quasi-bisimulation (by
+always choosing the matching-transition alternative), but not vice versa.  A
+coarser equivalence means fewer equivalence classes and a smaller abstract
+factor.
 
-Note that a coarsest quasi-bisimulation does not always exist; any valid
-quasi-bisimulation produces a correct (if not maximally compressed) factor.
+\subsubsection{The Signature-Based Algorithm}
+
+The implementation in \texttt{ShrinkQuasiBisimulation} mirrors the structure
+of \texttt{ShrinkBisimulation} exactly, except in the signature computation
+step.  Both strategies use iterative signature refinement: in each round,
+states are partitioned by a compact representation of their outgoing transition
+behaviour, and groups that were indistinguishable in the previous round are
+split if their members now disagree.  The algorithm converges when no further
+split can be made (stable fixpoint) or when splitting would exceed
+\texttt{target\_size}.
+
+\paragraph{Data structures.}
+Each state is represented by a \texttt{Signature} record with four fields:
+\begin{itemize}
+  \item \texttt{h\_and\_goal}: the goal distance ($-1$ for goal states, the
+    actual $h$ value for non-goal states, and a large constant for dead-end
+    states).  Goal states sort before all non-goal states, which enforces
+    QBISIM1.
+  \item \texttt{group}: the current partition group of the state.
+  \item \texttt{succ\_signature}: a sorted, deduplicated list of
+    (label-group-id, target-group-id) pairs that encodes which label groups
+    lead to which groups of successors.
+  \item \texttt{state}: the original state index, used as a tie-breaker to
+    make the ordering total.
+\end{itemize}
+
+The successor signature (\texttt{SuccessorSignature}) is the key field.  Two
+states with the same \texttt{h\_and\_goal}, the same \texttt{group}, and the
+same \texttt{succ\_signature} are indistinguishable and will not be split in
+this round.
+
+Two sentinel records are added at the start and end of the signatures array
+before sorting.  They use special \texttt{h\_and\_goal} values that fall
+outside the range of real states, allowing the main loop to detect block
+boundaries without explicit bounds checks.  Dead-end states (goal distance
+$\infty$) are mapped to a large finite value (\texttt{IRRELEVANT}) that sorts
+before the trailing sentinel.
+
+\paragraph{Initialisation.}
+The algorithm begins by partitioning states into groups based solely on goal
+distance.  Goal states all go into group~0.  Non-goal states are grouped by
+$h$-value: all states with $h = i$ form their own group, and dead-end states
+form another.  This starting partition is sound because states with different
+$h$-values can never be quasi-bisimilar (QBISIM1 would be violated immediately),
+so distinguishing them upfront saves refinement work.
+
+\paragraph{Refinement loop.}
+Each round consists of three phases:
+\begin{enumerate}
+  \item \textbf{Compute signatures.}  A fresh \texttt{Signature} is built for
+    every state, filling in the \texttt{succ\_signature} field from the
+    current transitions.  The quasi-bisimulation modification is applied here
+    (see below).  After filling, each successor signature is sorted and
+    deduplicated, then the entire signatures array is sorted.
+
+  \item \textbf{Detect splits.}  Within each block of states sharing the same
+    \texttt{h\_and\_goal} value, consecutive states with the same old group
+    but different \texttt{succ\_signature} must be placed in different new
+    groups.  The number of new groups is counted first; if splitting would
+    exceed \texttt{target\_size}, the round is aborted immediately.
+
+  \item \textbf{Apply splits.}  New group numbers are assigned.  The first
+    subgroup of each old group retains the old group number; additional
+    subgroups receive fresh numbers allocated in order.  Retaining the old
+    group number for the first subgroup avoids renumbering the majority of
+    states.
+\end{enumerate}
+
+\subsubsection{Implementing QBISIM2: The Wildcard Mechanism}
+
+This is the only point where \texttt{ShrinkQuasiBisimulation} differs from
+\texttt{ShrinkBisimulation}: it is a targeted modification to the first phase
+of each refinement round (the signature computation step).
+
+\paragraph{What standard bisimulation does.}
+In standard bisimulation, a (label-group-id, target-group-id) entry is added
+to a state's successor signature only when that state has an actual transition
+under the label group.  A state with no outgoing $\ell$-transition contributes
+no entry for $\ell$ to its signature.  After sorting, states without any
+$\ell$-transition have a smaller (or shorter) signature than states with
+$\ell$-transitions, so they sort separately and end up in a different partition.
+This split is mandatory in standard bisimulation and happens unconditionally.
+
+\paragraph{The wildcard entry.}
+Quasi-bisimulation avoids this forced split by inserting a synthetic
+\emph{wildcard} entry into the successor signature of every state that lacks
+an $\ell$-transition, but only when at least one other state in the same
+current group does have an $\ell$-transition.
+
+The wildcard entry has the form $(\ell\text{-group-id},\; g_{\min})$, where
+$g_{\min}$ is the \emph{minimum target-group ID} among all $\ell$-transitions
+that originate from any state in the same current group.  After this entry is
+inserted, the no-transition state's successor signature for label $\ell$
+matches the signature of states that transition to the group with ID $g_{\min}$.
+When the signatures are sorted, the no-transition state ends up adjacent to
+those states instead of in its own separate partition.
+
+\paragraph{Why the minimum target group?}
+Using the minimum is a deterministic tie-breaking convention.  What matters is
+that the no-transition state is given \emph{some} entry that matches at least
+one subgroup of its current group, so that it is not split off into a partition
+of its own.  The minimum is a natural choice because it corresponds to the
+first subgroup (the one that retains the old group number when a split occurs),
+it can be computed in a single pass over the transitions (by maintaining a
+running minimum), and it is consistent with the convention used in the split
+step.
+
+If all states in a group have no $\ell$-transition, no wildcard is needed:
+all their signatures agree on $\ell$ (they all have no entry for it), so no
+$\ell$-induced split would occur regardless.  The wildcard mechanism therefore
+only fires when there is a genuine mixed situation --- some states with
+$\ell$-transitions, some without --- which is exactly the case that
+quasi-bisimulation is meant to handle.
+
+\paragraph{Tracking the minimum target group per source group.}
+To determine which states need a wildcard and what value to insert, the
+signature computation maintains two auxiliary data structures for each label
+group $\ell$:
+\begin{itemize}
+  \item A per-state boolean flag indicating whether the state has at least
+    one $\ell$-transition (after any skipped transitions are excluded).
+  \item A map from source-group ID to the minimum target-group ID seen so far
+    among $\ell$-transitions originating from that source group.
+\end{itemize}
+Both are built in a single pass over the transitions of $\ell$.  After that
+pass, a second pass over all states checks the flag and the map: any state
+without a transition whose group appears in the map receives the wildcard
+entry.
+
+\subsubsection{A Worked Example}
+
+Consider a transition system with five states $\{s_0, s_1, s_2, s_3, s_4\}$
+and a single label $\ell$.  Suppose at the start of a refinement round the
+current partition is:
+$G_0 = \{s_0, s_1\}$ (goal states, $h = 0$) and
+$G_1 = \{s_2, s_3, s_4\}$ (non-goal, $h = 1$).
+The outgoing $\ell$-transitions are:
+
+\begin{center}
+\begin{tabular}{cl}
+\toprule
+\textbf{State} & \textbf{$\ell$-successors} \\
+\midrule
+$s_2$ & $s_0$ (in $G_0$, id~0) \\
+$s_3$ & $s_1$ (in $G_0$, id~0) \\
+$s_4$ & none \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Standard bisimulation.}
+Signature entries are added only for transitions that exist.  The successor
+signatures for label $\ell$ are:
+$\sigma(s_2) = [(\ell, 0)]$,
+$\sigma(s_3) = [(\ell, 0)]$,
+$\sigma(s_4) = [\,]$.
+After sorting, $s_2$ and $s_3$ have identical signatures and stay together;
+$s_4$ has a strictly smaller signature (empty list) and sorts into a separate
+block.  Group $G_1$ is split into $\{s_2, s_3\}$ and $\{s_4\}$.
+
+\paragraph{Quasi-bisimulation.}
+During the transition scan for $\ell$: $s_2$ and $s_3$ have $\ell$-transitions
+to group~0, so $g_{\min}(G_1) = 0$.  State $s_4$ has no $\ell$-transition,
+but its group $G_1$ has at least one, so it receives the wildcard entry
+$(\ell, 0)$.
+
+The successor signatures become:
+$\sigma(s_2) = [(\ell, 0)]$,
+$\sigma(s_3) = [(\ell, 0)]$,
+$\sigma(s_4) = [(\ell, 0)]$.
+All three are identical.  No split occurs; $G_1 = \{s_2, s_3, s_4\}$ remains
+intact.
+
+\paragraph{Correctness check (QBISIM2).}
+Consider the pair $(s_2, s_4)$: $s_2 \sim_Q s_4$ (same group), and
+$s_2 \xrightarrow{\ell} s_0$.  QBISIM2 requires that either $s_4$ has no
+$\ell$-transition (which is true) or $s_4$ has an $\ell$-transition to some
+state equivalent to $s_0$.  The first alternative holds, so QBISIM2 is
+satisfied.  The same check applies to $(s_3, s_4)$.
+
+The abstract factor now has three abstract states --- $[G_0], [\{s_2,s_3,s_4\}]$
+--- instead of four, without any loss of admissibility.
+
+\subsubsection{Correctness of the Wildcard Approach}
+
+The wildcard mechanism produces a valid quasi-bisimulation.  The two conditions
+are maintained as follows:
+\begin{itemize}
+  \item \textbf{QBISIM1} is enforced by the initial partition (goal states in
+    group~0, non-goal states by $h$-value) and by the fact that
+    \texttt{h\_and\_goal} is the primary sort key in the signature comparison.
+    States with different goal status or different $h$-value are always placed
+    in different groups and can never be merged in a later round.
+  \item \textbf{QBISIM2} is enforced by the wildcard.  If $s_1$ and $s_2$ are
+    in the same group and $s_1 \xrightarrow{\ell} t_1$:
+    \begin{itemize}
+      \item If $s_2$ also has an $\ell$-transition, its real transition entry
+        appears in its signature.  For $s_1$ and $s_2$ to remain in the same
+        group, their signatures must match --- meaning $s_2$'s $\ell$-transition
+        also leads to the same target group as $t_1$, so the first alternative
+        of QBISIM2 is satisfied.
+      \item If $s_2$ has no $\ell$-transition, the second alternative of
+        QBISIM2 is satisfied directly: $s_2 \not\xrightarrow{\ell}$.
+    \end{itemize}
+\end{itemize}
+
+The algorithm does not guarantee the \emph{coarsest} quasi-bisimulation ---
+no such coarsest relation is guaranteed to exist in general.  The result is a
+valid quasi-bisimulation that is always at least as coarse as the standard
+bisimulation computed by \texttt{ShrinkBisimulation}, and often strictly
+coarser on tasks with derived variables.
+
+\subsubsection{New Files and \texttt{CMakeLists.txt}}
+
+The implementation lives in two new files:
+\begin{itemize}
+  \item \texttt{shrink\_quasi\_bisimulation.h} declares the class
+    \texttt{ShrinkQuasiBisimulation}, a concrete subclass of
+    \texttt{ShrinkStrategy}.  It forward-declares the internal
+    \texttt{Signature} struct and exposes the same public interface as
+    \texttt{ShrinkBisimulation}: \texttt{compute\_equivalence\_relation},
+    \texttt{requires\_init\_distances} (false), and
+    \texttt{requires\_goal\_distances} (true).
+  \item \texttt{shrink\_quasi\_bisimulation.cc} contains the full
+    implementation: the \texttt{Signature} struct, the sentinel constants,
+    \texttt{initialize\_groups} (identical to \texttt{ShrinkBisimulation}),
+    the modified \texttt{compute\_signatures} with the wildcard mechanism,
+    and \texttt{compute\_equivalence\_relation} (identical to
+    \texttt{ShrinkBisimulation}).  The plugin is registered under the key
+    \texttt{shrink\_quasi\_bisimulation}.
+\end{itemize}
+
+The entry \texttt{merge\_and\_shrink/shrink\_quasi\_bisimulation} is added to
+the \texttt{SOURCES} list of the \texttt{mas\_heuristic} library in
+\texttt{src/search/CMakeLists.txt}.
+
+\subsubsection{Diagnostic Test: Comparison with Standard Bisimulation}
+
+To verify correctness and the absence of regressions on tasks without axioms,
+the new strategy was tested on the Miconic benchmark (\texttt{s1-0.pddl})
+side-by-side with \texttt{shrink\_bisimulation(greedy=false)}, using a linear
+merge order (\texttt{merge\_precomputed} with \texttt{linear(variable\_order=}
+\texttt{reverse\_level)}), label reduction before shrinking, and
+\texttt{max\_states=50000}.
+
+Both strategies produced identical results:
+\begin{itemize}
+  \item Maximum intermediate abstraction size: 8 states.
+  \item Final number of remaining factors: 1.
+  \item Initial heuristic value: 4.
+  \item Optimal plan: length~4 (up, board, down, depart), found after
+    expanding exactly 5 states.
+\end{itemize}
+
+This is the expected outcome.  The Miconic task has no derived variables, so
+the \texttt{derived\_goal\_reprs} vector in Step~2 is empty and no wildcard
+entries are ever inserted during signature computation --- the two strategies
+follow identical code paths on this task.  In general, quasi-bisimulation can
+only produce equal or \emph{fewer} abstract states than standard bisimulation,
+so any future divergence between the two strategies will appear as a
+compression benefit, not as a regression.
+
+The first genuine difference will emerge in Step~3, when axiom-induced factors
+$\Theta_{S,d}$ are introduced.  In those factors, many states will lack
+transitions under certain labels, and the wildcard mechanism will allow them
+to stay merged with states that do have those transitions, keeping the abstract
+factor compact.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 5 — Integration into the Main Loop}

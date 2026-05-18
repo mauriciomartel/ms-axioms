@@ -1259,9 +1259,31 @@ the \texttt{SOURCES} list of the \texttt{mas\_heuristic} library in
 To verify correctness and the absence of regressions on tasks without axioms,
 the new strategy was tested on the Miconic benchmark (\texttt{s1-0.pddl})
 side-by-side with \texttt{shrink\_bisimulation(greedy=false)}, using a linear
-merge order (\texttt{merge\_precomputed} with \texttt{linear(variable\_order=}
-\texttt{reverse\_level)}), label reduction before shrinking, and
-\texttt{max\_states=50000}.
+merge order, label reduction before shrinking, and \texttt{max\_states=50000}.
+
+\begin{lstlisting}[language=bash, caption={Quasi-bisimulation on Miconic s1-0}]
+./fast-downward.py \
+    misc/tests/benchmarks/miconic/domain.pddl \
+    misc/tests/benchmarks/miconic/s1-0.pddl \
+    --search "astar(merge_and_shrink(
+        merge_strategy=merge_precomputed(
+            merge_tree=linear(variable_order=reverse_level)),
+        shrink_strategy=shrink_quasi_bisimulation(),
+        label_reduction=exact(before_shrinking=true,before_merging=false),
+        max_states=50000))"
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash, caption={Standard bisimulation on Miconic s1-0 (for comparison)}]
+./fast-downward.py \
+    misc/tests/benchmarks/miconic/domain.pddl \
+    misc/tests/benchmarks/miconic/s1-0.pddl \
+    --search "astar(merge_and_shrink(
+        merge_strategy=merge_precomputed(
+            merge_tree=linear(variable_order=reverse_level)),
+        shrink_strategy=shrink_bisimulation(greedy=false),
+        label_reduction=exact(before_shrinking=true,before_merging=false),
+        max_states=50000))"
+\end{lstlisting}
 
 Both strategies produced identical results:
 \begin{itemize}

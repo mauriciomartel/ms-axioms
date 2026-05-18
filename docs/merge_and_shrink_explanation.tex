@@ -1254,28 +1254,30 @@ are maintained as follows:
     t_2$. \checkmark
 
     \textbf{Case B: $s_2$ has no $\ell$-transition.}
-    The second alternative of QBISIM2 requires only that $s_2
-    \not\xrightarrow{\ell}$, which holds by assumption. \checkmark
+    The first question to answer is: how can $s_1$ and $s_2$ be in the same
+    group at all in this situation?  In standard bisimulation, they cannot.
+    $s_1$ has a real entry $(\ell, \mathrm{group}(t_1))$ in its signature;
+    $s_2$ has no $\ell$-entry.  Their signatures differ, so they get split
+    --- Case~B never arises under standard bisimulation.
 
-    One important observation makes Case~B well-defined: the wildcard is
-    \emph{guaranteed to exist} for $s_2$ whenever it is needed.  Because $s_1$
-    is in the same group as $s_2$ and $s_1$ has an $\ell$-transition, that
-    group contains at least one $\ell$-transition.  This is exactly the
-    condition that triggers the wildcard mechanism for $s_2$.  So $s_2$
-    always receives a wildcard entry --- it is never left without an $\ell$-entry
-    while $s_1$ has a real one.
+    The wildcard changes this.  $s_2$ receives the synthetic entry
+    $(\ell, g_{\min})$.  For $s_1$ and $s_2$ to have matching signatures ---
+    and thus remain in the same group at the fixed point --- we need
+    $\mathrm{group}(t_1) = g_{\min}$.  When this holds, the wildcard makes
+    $s_2$'s $\ell$-entry identical to $s_1$'s real entry, and they can stay
+    in the same group.  States whose $\ell$-transition leads to any other
+    target group have a different entry and are split off in an earlier round.
 
-    The wildcard also constrains which pairs $(s_1, s_2)$ can end up in Case~B.
-    For $s_1$ and $s_2$ to remain in the same group, their signatures must
-    match.  $s_1$'s real entry is $(\ell, \mathrm{group}(t_1))$ and $s_2$'s
-    wildcard entry is $(\ell, g_{\min})$.  Matching requires $\mathrm{group}(t_1)
-    = g_{\min}$.  Only states whose $\ell$-transition leads to the minimum
-    target group can stay with no-transition states; states with
-    $\ell$-transitions to other groups are split off in an earlier round.
-    This does not affect the validity of QBISIM2 --- the second alternative
-    still holds for $s_2$ --- but it explains why the fixed-point partition
-    is not arbitrary: no-transition states are grouped with exactly those
-    states whose transition leads to the ``first'' (minimum) target group.
+    Once we establish that $s_1$ and $s_2$ can indeed be in the same group,
+    QBISIM2 is satisfied by its second alternative: $s_2 \not\xrightarrow{\ell}$,
+    which QBISIM2 explicitly permits. \checkmark
+
+    In summary: the wildcard makes Case~B \emph{possible} (it gives $s_2$ an
+    entry that can match $s_1$'s, keeping them together), and QBISIM2's
+    second alternative makes it \emph{correct} (a state is not required to
+    have a transition under $\ell$ just because its equivalent partner does).
+    The two work together: the wildcard exploits the freedom that QBISIM2
+    grants.
 \end{itemize}
 
 The algorithm does not guarantee the \emph{coarsest} quasi-bisimulation ---

@@ -1179,12 +1179,30 @@ $s_4$ has a strictly smaller signature (empty list) and sorts into a separate
 block.  Group $G_1$ is split into $\{s_2, s_3\}$ and $\{s_4\}$.
 
 \paragraph{Quasi-bisimulation.}
-During the transition scan for $\ell$: $s_2$ and $s_3$ have $\ell$-transitions
-to group~0, so $g_{\min}(G_1) = 0$.  State $s_4$ has no $\ell$-transition,
-but its group $G_1$ has at least one, so it receives the wildcard entry
-$(\ell, 0)$.
+During the transition scan for $\ell$: $s_2$ transitions to $s_0$ (target
+group~0) and $s_3$ transitions to $s_1$ (target group~0).  Both transitions
+land in group~0, so $g_{\min}(G_1) = \min(0, 0) = 0$.  State $s_4$ has no
+$\ell$-transition, but its group $G_1$ contains states that do, so it receives
+the wildcard entry $(\ell,\, g_{\min}) = (\ell, 0)$.
 
-The successor signatures become:
+The wildcard value $g_{\min} = 0$ is the specific number that makes
+$s_4$'s signature for label $\ell$ identical to those of $s_2$ and $s_3$.
+Had we used any other value --- say $(\ell, 5)$ --- $s_4$'s signature would
+differ from $s_2$'s and $s_3$'s, causing a spurious split.
+
+To see the full role of $g_{\min}$, consider a variant where $s_3$ instead
+transitions to a state in a \emph{different} group $G_2$ (id~2), while $s_2$
+still transitions to $G_0$ (id~0).  Then $g_{\min}(G_1) = \min(0, 2) = 0$
+and the signatures become:
+$\sigma(s_2) = [(\ell, 0)]$,
+$\sigma(s_3) = [(\ell, 2)]$,
+$\sigma(s_4) = [(\ell, 0)]$.
+Here $s_3$ splits off from $G_1$, while $s_4$ stays with $s_2$.  The minimum
+determines which subgroup $s_4$ follows when a split happens: it always joins
+the subgroup with the smallest target-group id --- the ``first'' subgroup to
+emerge from $G_1$ under label $\ell$.
+
+Returning to the original example, the successor signatures are:
 $\sigma(s_2) = [(\ell, 0)]$,
 $\sigma(s_3) = [(\ell, 0)]$,
 $\sigma(s_4) = [(\ell, 0)]$.

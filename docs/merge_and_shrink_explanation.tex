@@ -1107,13 +1107,18 @@ Quasi-bisimulation avoids this forced split by inserting a synthetic
 an $\ell$-transition, but only when at least one other state in the same
 current group does have an $\ell$-transition.
 
-The wildcard entry has the form $(\ell\text{-group-id},\; g_{\min})$, where
-$g_{\min}$ is the \emph{minimum target-group ID} among all $\ell$-transitions
-that originate from any state in the same current group.  After this entry is
-inserted, the no-transition state's successor signature for label $\ell$
-matches the signature of states that transition to the group with ID $g_{\min}$.
-When the signatures are sorted, the no-transition state ends up adjacent to
-those states instead of in its own separate partition.
+The wildcard entry has the form $(\ell, g_{\min})$, where $\ell$ is used as
+shorthand for the integer counter that the signature computation loop assigns
+to label group $\ell$ (the variable \texttt{label\_group\_counter} in the
+code, incremented once per label group).  This is the same integer that
+appears as the first component of every real transition entry, so the wildcard
+is formatted identically to a real entry.  $g_{\min}$ is the \emph{minimum
+target-group ID} among all $\ell$-transitions that originate from any state in
+the same current group.  After this entry is inserted, the no-transition
+state's successor signature for label $\ell$ matches the signature of states
+that transition to the group with ID $g_{\min}$.  When the signatures are
+sorted, the no-transition state ends up adjacent to those states instead of in
+its own separate partition.
 
 \paragraph{Why the minimum target group?}
 Using the minimum is a deterministic tie-breaking convention.  What matters is

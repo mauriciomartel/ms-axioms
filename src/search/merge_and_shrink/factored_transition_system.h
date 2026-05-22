@@ -133,6 +133,21 @@ public:
     int merge(int index1, int index2, utils::LogProxy &log);
 
     /*
+      Add a pre-built factor to the FTS. The transition system and
+      merge-and-shrink representation are provided by the caller; a fresh
+      Distances object is created internally and distances are computed
+      immediately to preserve the invariant that all active factors always
+      have up-to-date distances. Returns the index assigned to the new factor.
+
+      Used to inject axiom-induced abstract factors Theta_{S,d} after the
+      initial FTS has been constructed from the planning task's primary variables.
+    */
+    int add_factor(
+        std::unique_ptr<TransitionSystem> ts,
+        std::unique_ptr<MergeAndShrinkRepresentation> mas_representation,
+        utils::LogProxy &log);
+
+    /*
       Extract the factor at the given index, rendering the FTS invalid.
     */
     std::pair<

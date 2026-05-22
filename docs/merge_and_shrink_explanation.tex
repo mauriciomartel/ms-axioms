@@ -942,23 +942,178 @@ value.  The diagnostic block and the temporary removal of
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 3 — Build Axiom-Induced Abstract Factors}
-\textbf{Files:} \texttt{merge\_and\_shrink\_algorithm.cc}
+\textbf{New/modified files:}
+\texttt{merge\_and\_shrink\_representation.h/.cc},
+\texttt{factored\_transition\_system.h/.cc},
+\texttt{fts\_factory.h/.cc}
 
-After constructing the initial atomic factors, insert a preprocessing phase.
-For each derived variable $d$ appearing in the goal, build $\Theta_{S,d}$ as
-follows:
+After constructing the initial atomic factors, a preprocessing phase inserts
+one additional factor $\Theta_{S,d}$ per derived goal variable $d$.  Unlike
+the atomic factors, $\Theta_{S,d}$ spans multiple primary variables
+simultaneously.  The reconstruction property guarantees that intersecting the
+per-factor axiom languages with $\mathcal{L}(\Theta_{S,d})$ recovers the full
+product's axiom language exactly.
 
+Implementing this step required three infrastructure pieces:
 \begin{enumerate}
-  \item Take the synchronized product of the chosen factor subset $S$ (all
-        atomic factors for full correctness; a subset for tractability).
-  \item Mark goal states using the $(\cdot)^A$ transformation from Step~2.
-  \item Apply quasi-bisimulation shrinking (Step~4) to compress the factor.
-  \item Add the resulting factor to the \texttt{FactoredTransitionSystem}.
+  \item A new \textbf{\texttt{MergeAndShrinkRepresentationProduct}} class
+        (\S\ref{sec:piece1}) to represent the lookup table for a product-of-variables
+        factor.
+  \item A new \textbf{\texttt{FactoredTransitionSystem::add\_factor}} method
+        (\S\ref{sec:piece2}) to inject a pre-built factor into the FTS after
+        initial construction.
+  \item A standalone \textbf{\texttt{build\_axiom\_factor}} function
+        (\S\ref{sec:piece3}) that assembles all components of $\Theta_{S,d}$
+        from the task proxy and calls \texttt{add\_factor}.
 \end{enumerate}
 
-The reconstruction property then guarantees that intersecting the per-factor
-axiom languages with $\mathcal{L}(\Theta_{S,d})$ recovers the full product's
-axiom language exactly.
+\subsubsection{Piece 1: \texttt{MergeAndShrinkRepresentationProduct}}
+\label{sec:piece1}
+
+\paragraph{Motivation.}
+The existing representation hierarchy has two concrete classes.
+\texttt{MergeAndShrinkRepresentationLeaf} handles a single planning variable
+via a flat array indexed by the variable's value.
+\texttt{MergeAndShrinkRepresentationMerge} handles a recursively merged pair
+of factors via a 2-D table indexed by the abstract states of the two children.
+Neither class is suitable for $\Theta_{S,d}$: the factor spans an arbitrary
+set of primary variables simultaneously, not a single variable and not a
+recursive binary merge.
+
+\paragraph{Mixed-radix encoding.}
+Let the product variables be $x_0, x_1, \ldots, x_{n-1}$ with domain sizes
+$d_0, d_1, \ldots, d_{n-1}$.  A combined assignment $(v_0, \ldots, v_{n-1})$
+is encoded as the single integer
+\[
+  \mathrm{id} = \sum_{i=0}^{n-1} v_i \cdot m_i,
+  \qquad
+  m_0 = 1,\quad m_i = m_{i-1} \cdot d_{i-1}.
+\]
+The total number of product states is $\prod_i d_i$.  Decoding is
+$v_i = \lfloor \mathrm{id} / m_i \rfloor \bmod d_i$.  The class stores
+\texttt{var\_ids} (sorted variable IDs), \texttt{multipliers} ($m_i$ values),
+and \texttt{lookup\_table} (flat vector of size $\prod d_i$), all computed
+once at construction time.
+
+\paragraph{Lookup table lifecycle.}
+The table follows the same three-phase lifecycle as the existing classes.
+After construction it holds the identity mapping (\texttt{lookup\_table[i] = i}).
+After \texttt{apply\_abstraction\_to\_lookup\_table} each live entry is
+remapped through the shrink strategy's output.  After \texttt{set\_distances}
+each live entry is replaced by its goal distance.  Entries that are
+\texttt{PRUNED\_STATE} are left unchanged throughout.
+
+\paragraph{Constructor initialization order.}
+The base class \texttt{MergeAndShrinkRepresentation} stores \texttt{domain\_size}.
+In C++, base class subobjects are fully initialized before any derived-class
+member is initialized.  The constructor therefore passes
+\texttt{compute\_product\_size(var\_ids, domain\_sizes)} to the base class
+first, then initializes \texttt{lookup\_table(domain\_size)}, which reads the
+already-set \texttt{domain\_size} without a second traversal.
+
+\subsubsection{Piece 2: \texttt{FactoredTransitionSystem::add\_factor}}
+\label{sec:piece2}
+
+\paragraph{Motivation.}
+The \texttt{FactoredTransitionSystem} constructor receives all factors at once;
+there is no existing method to inject a factor after construction.  For Step~3
+we need to add $\Theta_{S,d}$ after the primary atomic factors have already
+been built by \texttt{FTSFactory}.
+
+\paragraph{Design.}
+The method accepts a pre-built \texttt{TransitionSystem} and
+\texttt{MergeAndShrinkRepresentation}.  The \texttt{Distances} object is
+\emph{not} accepted from the caller; instead it is created internally from the
+new transition system, mirroring the pattern used by \texttt{merge()}.
+Distances are computed immediately after the factor is appended, preserving the
+FTS invariant that all active factors always have up-to-date distances.  The
+active entry count is incremented by one, in contrast to \texttt{merge()},
+which replaces two factors with one and therefore decrements the count.
+
+\subsubsection{Piece 3: \texttt{build\_axiom\_factor}}
+\label{sec:piece3}
+
+\texttt{build\_axiom\_factor} is a free function declared in
+\texttt{fts\_factory.h} and implemented in \texttt{fts\_factory.cc}.  It must
+be called \emph{before} any M\&S transformations, so that all label IDs still
+correspond one-to-one to planning operators.  The function assembles
+$\Theta_{S,d}$ in seven steps.
+
+\paragraph{Step 1 — Identifying the primary variables ($S_d$).}
+The function iterates over all axioms.  For each axiom whose head is $d$, it
+collects the IDs of all primary (non-derived) variables that appear in the
+body.  The union across all axioms for $d$ is $S_d$.  The result is a sorted,
+duplicate-free vector \texttt{var\_ids}; a hash map
+\texttt{var\_id\_to\_idx} provides $O(1)$ reverse lookup.
+
+\paragraph{Step 2 — Domain sizes and multipliers.}
+From \texttt{var\_ids} and the per-variable domain sizes, the function computes
+the mixed-radix multipliers and the total number of product states.  A helper
+lambda \texttt{decode\_val(s, i)} encodes the decoding formula and is reused
+throughout the subsequent steps.
+
+\paragraph{Step 3 — Initial state.}
+The initial product state is encoded as
+$\mathrm{init\_state} = \sum_i \mathrm{init}[x_i] \cdot m_i$.
+
+\paragraph{Step 4 — Goal states.}
+A product state $s$ is marked as a goal if it satisfies the primary
+preconditions of at least one axiom body for $d$.  For each such axiom, the
+function collects the required values of $S_d$ variables from the body, ignoring
+any derived-variable preconditions.  All product states satisfying those
+requirements are marked as goals.
+
+Ignoring derived preconditions is a safe \emph{over-approximation}: more states
+are marked as goals than strictly required, which can only cause the heuristic
+to underestimate, preserving admissibility.
+
+\paragraph{Step 5 — Transitions for each operator label.}
+An operator is \emph{relevant} to the product factor if it has a precondition or
+effect on at least one variable in $S_d$.  For each relevant operator, the
+function enumerates all product states, checks applicability (operator
+preconditions on $S_d$ variables), and computes the target state by applying
+each effect on an $S_d$ variable:
+\[
+  t = s - v_i^{(t)} \cdot m_i + \mathrm{post}_i \cdot m_i,
+\]
+where $v_i^{(t)}$ is decoded from the \emph{current} $t$ (not from $s$), so
+that multiple effects on the same variable are handled correctly.
+
+Two sub-cases arise for conditional effects:
+\begin{itemize}
+  \item \textbf{Condition on the same variable:} if the condition requires a
+        specific value that $s$ does not have, the effect definitely does not
+        fire for this product state and is skipped.
+  \item \textbf{Condition on another variable:} the condition cannot be
+        evaluated from the product state.  The effect is assumed to fire
+        (producing the forward transition $s \to t$), and a self-loop $s \to s$
+        is also added to model the case where the condition is not met.  This is
+        again a safe over-approximation.
+\end{itemize}
+A known limitation: when an operator has multiple conditional effects on the
+same $S_d$ variable, each with an outside condition, only the case where all
+such effects fire and the case where none fires are modelled.  This is
+acceptable for a first implementation and does not affect admissibility.
+
+\paragraph{Step 6 — Grouping into local labels.}
+Labels (operators) with identical transition sets are grouped into a single
+\texttt{LocalLabelInfo}, following the same algorithm as
+\texttt{FTSFactory::build\_transitions\_for\_operator}.  All irrelevant operators
+are grouped into a single self-loop local label, following
+\texttt{FTSFactory::build\_transitions\_for\_irrelevant\_ops}.  The
+\texttt{label\_to\_local\_label} mapping is sized to
+\texttt{labels.get\_max\_num\_labels()} (not the current label count) to match
+the convention used throughout \texttt{FTSFactory}, which reserves space for
+labels created by future label-reduction steps.
+
+\paragraph{Step 7 — Construction and injection.}
+A \texttt{TransitionSystem} is constructed from the assembled components.  The
+\texttt{incorporated\_variables} field is set to \texttt{var\_ids}, recording
+which primary variables contributed to this factor.  A
+\texttt{MergeAndShrinkRepresentationProduct} is constructed from \texttt{var\_ids}
+and the per-variable domain sizes.  Both are passed to \texttt{fts.add\_factor},
+which creates \texttt{Distances} internally, computes distances immediately, and
+returns the index of the new factor.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 4 — Quasi-Bisimulation Shrinking}

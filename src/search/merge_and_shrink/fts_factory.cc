@@ -15,7 +15,10 @@
 
 #include <algorithm>
 #include <cassert>
+#include <functional>
+#include <queue>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 using namespace std;
@@ -515,26 +518,38 @@ int build_axiom_factor(
     VariablesProxy variables = task_proxy.get_variables();
     int num_total_vars = variables.size();
 
-    // -----------------------------------------------------------------------
-    // Step 1: Identify primary variables in S_d
-    //
-    // Collect all primary (non-derived) variables that appear in any axiom
-    // body for derived_var_id. These form the product space of Theta_{S,d}.
-    // Using a plain vector + sort/unique avoids pulling in <set>.
-    // -----------------------------------------------------------------------
-    vector<int> var_ids;
-    for (OperatorProxy axiom : task_proxy.get_axioms()) {
-        // Each axiom has exactly one effect (setting a derived variable).
-        EffectProxy eff = axiom.get_effects()[0];
-        if (eff.get_fact().get_variable().get_id() != derived_var_id)
-            continue;
-        for (FactProxy pre : axiom.get_preconditions()) {
-            if (!pre.get_variable().is_derived())
-                var_ids.push_back(pre.get_variable().get_id());
+    // Step 1: Identify primary variables in S_d via transitive dependency BFS.
+    // Derived variables can depend on other derived variables ("blocked" ->
+    // "blocked-trans" -> primary var), so we must follow the chain.
+    unordered_set<int> visited_derived;
+    queue<int> derived_queue;
+    derived_queue.push(derived_var_id);
+    visited_derived.insert(derived_var_id);
+    unordered_set<int> primary_var_set;
+
+    while (!derived_queue.empty()) {
+        int cur_derived = derived_queue.front();
+        derived_queue.pop();
+        for (OperatorProxy axiom : task_proxy.get_axioms()) {
+            EffectProxy eff = axiom.get_effects()[0];
+            if (eff.get_fact().get_variable().get_id() != cur_derived)
+                continue;
+            for (FactProxy pre : axiom.get_preconditions()) {
+                VariableProxy pvar = pre.get_variable();
+                if (pvar.is_derived()) {
+                    if (!visited_derived.count(pvar.get_id())) {
+                        visited_derived.insert(pvar.get_id());
+                        derived_queue.push(pvar.get_id());
+                    }
+                } else {
+                    primary_var_set.insert(pvar.get_id());
+                }
+            }
         }
     }
+
+    vector<int> var_ids(primary_var_set.begin(), primary_var_set.end());
     sort(var_ids.begin(), var_ids.end());
-    var_ids.erase(unique(var_ids.begin(), var_ids.end()), var_ids.end());
     int n = var_ids.size();
 
     // Fast reverse lookup: variable ID -> position in var_ids.
@@ -582,43 +597,55 @@ int build_axiom_factor(
     for (int i = 0; i < n; ++i)
         init_state += init[var_ids[i]].get_value() * mult[i];
 
-    // -----------------------------------------------------------------------
-    // Step 4: Goal states
+    // Step 4: Goal states — product states from which derived_var_id can be
+    // derived to its goal value. Uses recursive can_derive to follow transitive
+    // chains through intermediate derived variables.
     //
-    // A product state is a goal iff it satisfies the primary preconditions of
-    // at least one axiom body for derived_var_id. Derived preconditions within
-    // a body are ignored (we cannot verify them from the product state alone).
-    // This is a safe over-approximation: marking more states as goals can only
-    // reduce heuristic values, preserving admissibility.
-    // -----------------------------------------------------------------------
-    vector<bool> goal_states(num_product_states, false);
-    for (OperatorProxy axiom : task_proxy.get_axioms()) {
-        EffectProxy eff = axiom.get_effects()[0];
-        if (eff.get_fact().get_variable().get_id() != derived_var_id)
-            continue;
-
-        // required[i] = the value product variable i must have for this axiom
-        // to fire, or -1 if unconstrained by primary preconditions.
-        vector<int> required(n, -1);
-        for (FactProxy pre : axiom.get_preconditions()) {
-            if (pre.get_variable().is_derived())
-                continue;  // Cannot be checked in the product space; safely ignored.
-            auto it = var_id_to_idx.find(pre.get_variable().get_id());
-            if (it != var_id_to_idx.end())
-                required[it->second] = pre.get_value();
-        }
-
-        for (int s = 0; s < num_product_states; ++s) {
-            bool satisfies = true;
-            for (int i = 0; i < n; ++i) {
-                if (required[i] != -1 && decode_val(s, i) != required[i]) {
-                    satisfies = false;
-                    break;
+    // can_derive(d, target, s): returns true iff axioms can set derived var d
+    // to value target given product state s (primary variable assignments only).
+    function<bool(int, int, int)> can_derive = [&](int d, int target, int s) -> bool {
+        for (OperatorProxy axiom : task_proxy.get_axioms()) {
+            EffectProxy eff = axiom.get_effects()[0];
+            if (eff.get_fact().get_variable().get_id() != d) continue;
+            if (eff.get_fact().get_value() != target) continue;
+            bool body_satisfied = true;
+            for (FactProxy pre : axiom.get_preconditions()) {
+                VariableProxy pvar = pre.get_variable();
+                if (pvar.is_derived()) {
+                    // Recursively check whether this derived precondition can be met.
+                    if (!can_derive(pvar.get_id(), pre.get_value(), s)) {
+                        body_satisfied = false;
+                        break;
+                    }
+                } else {
+                    auto it = var_id_to_idx.find(pvar.get_id());
+                    if (it != var_id_to_idx.end()) {
+                        if (decode_val(s, it->second) != pre.get_value()) {
+                            body_satisfied = false;
+                            break;
+                        }
+                    }
+                    // Primary vars not in var_ids are unconstrained; treat as satisfied.
                 }
             }
-            if (satisfies)
-                goal_states[s] = true;
+            if (body_satisfied) return true;
         }
+        return false;
+    };
+
+    int goal_derived_value = -1;
+    for (FactProxy g : task_proxy.get_goals()) {
+        if (g.get_variable().get_id() == derived_var_id) {
+            goal_derived_value = g.get_value();
+            break;
+        }
+    }
+    assert(goal_derived_value != -1);
+
+    vector<bool> goal_states(num_product_states, false);
+    for (int s = 0; s < num_product_states; ++s) {
+        if (can_derive(derived_var_id, goal_derived_value, s))
+            goal_states[s] = true;
     }
 
     // -----------------------------------------------------------------------

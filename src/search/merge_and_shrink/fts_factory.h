@@ -23,6 +23,28 @@ class FactoredTransitionSystem;
 extern FactoredTransitionSystem create_factored_transition_system(
     const TaskProxy &task_proxy, bool compute_init_distances,
     bool compute_goal_distances, utils::LogProxy &log);
+
+/*
+  Build the abstract factor Theta_{S,d} for the derived variable
+  derived_var_id and inject it into fts via add_factor.
+
+  The primary representation S_d is the union of all primary (non-derived)
+  variables that appear in any axiom body for derived_var_id. The factor's
+  states are all combined assignments to those variables. Goal states are
+  the assignments that satisfy the primary preconditions of at least one
+  axiom body for derived_var_id (derived preconditions are ignored; this
+  is a safe over-approximation that preserves admissibility).
+
+  Must be called before any M&S transformations (label reduction, shrinking,
+  merging), so that all label IDs still correspond 1-to-1 to operators.
+
+  Returns the index of the newly added factor in the FTS.
+*/
+extern int build_axiom_factor(
+    const TaskProxy &task_proxy,
+    int derived_var_id,
+    FactoredTransitionSystem &fts,
+    utils::LogProxy &log);
 }
 
 #endif

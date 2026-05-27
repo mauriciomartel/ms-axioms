@@ -9,6 +9,7 @@
 #include "merge_strategy.h"
 #include "merge_strategy_factory.h"
 #include "primary_representation.h"
+#include "shrink_quasi_bisimulation.h"
 #include "shrink_strategy.h"
 #include "transition_system.h"
 #include "types.h"
@@ -404,10 +405,16 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
 
     utils::Timer timer;
     log << "Running merge-and-shrink algorithm..." << endl;
-    task_properties::verify_no_axioms(task_proxy);
+    // task_properties::verify_no_axioms(task_proxy);
     dump_options();
     warn_on_unusual_options();
     log << endl;
+
+    // ShrinkQuasiBisimulation needs goal distances for axiom factors,
+    // so force them on whenever derived goal variables are present.
+    bool has_derived_goals = false;
+    for (FactProxy goal : task_proxy.get_goals())
+        if (goal.get_variable().is_derived()) { has_derived_goals = true; break; }
 
     const bool compute_init_distances =
         shrink_strategy->requires_init_distances() ||
@@ -416,11 +423,49 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
     const bool compute_goal_distances =
         shrink_strategy->requires_goal_distances() ||
         merge_strategy_factory->requires_goal_distances() ||
-        prune_irrelevant_states;
+        prune_irrelevant_states ||
+        has_derived_goals;
     FactoredTransitionSystem fts = create_factored_transition_system(
         task_proxy, compute_init_distances, compute_goal_distances, log);
     if (log.is_at_least_normal()) {
         log_progress(timer, "after computation of atomic factors", log);
+    }
+
+    // For each derived goal variable, build an axiom-induced abstract factor
+    // Theta_{S,d} and immediately shrink it with quasi-bisimulation.
+    // This must happen before the pruning loop so the loop can detect
+    // unsolvable axiom factors and abort early.
+    if (has_derived_goals) {
+        ShrinkQuasiBisimulation qbisim;
+        for (FactProxy goal : task_proxy.get_goals()) {
+            if (!goal.get_variable().is_derived())
+                continue;
+            int derived_var_id = goal.get_variable().get_id();
+            if (log.is_at_least_normal()) {
+                log << "Building axiom factor for derived variable "
+                    << derived_var_id << "." << endl;
+            }
+            // Build the product transition system for the primary variables
+            // in S_d and inject it into the FTS. Distances are computed
+            // immediately inside add_factor using the FTS-level flags,
+            // so goal distances are guaranteed to be available here.
+            int axiom_index = build_axiom_factor(
+                task_proxy, derived_var_id, fts, log);
+            // Shrink using quasi-bisimulation to keep the factor within
+            // max_states_before_merge, since it will eventually be merged
+            // with the regular factors in the main loop.
+            StateEquivalenceRelation equiv =
+                qbisim.compute_equivalence_relation(
+                    fts.get_transition_system(axiom_index),
+                    fts.get_distances(axiom_index),
+                    max_states_before_merge,
+                    log);
+            fts.apply_abstraction(axiom_index, equiv, log);
+            if (log.is_at_least_normal()) {
+                log_progress(
+                    timer, "after building and shrinking axiom factor", log);
+            }
+        }
     }
 
     /*

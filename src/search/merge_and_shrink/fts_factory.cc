@@ -134,6 +134,12 @@ void FTSFactory::build_state_data(
         }
     }
 
+    // Derived variables have no operator transitions; their goal condition is
+    // fully encoded in the axiom factor Θ_{S,d}. Mark all states as goals so
+    // the atomic factor does not falsely declare the task unsolvable.
+    if (var.is_derived())
+        goal_value = -1;
+
     ts_data.goal_states.resize(range, false);
     for (int value = 0; value < range; ++value) {
         if (value == goal_value || goal_value == -1) {

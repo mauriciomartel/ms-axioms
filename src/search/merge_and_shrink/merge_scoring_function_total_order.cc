@@ -59,15 +59,22 @@ vector<double> MergeScoringFunctionTotalOrder::compute_scores(
 
 void MergeScoringFunctionTotalOrder::initialize(const TaskProxy &task_proxy) {
     initialized = true;
+    // Axiom factors are inserted after atomic factors but before merging starts.
+    // Include them so the precomputed order covers all initial factor indices.
     int num_variables = task_proxy.get_variables().size();
-    int max_transition_system_count = num_variables * 2 - 1;
+    int num_axiom_factors = 0;
+    for (FactProxy goal : task_proxy.get_goals())
+        if (goal.get_variable().is_derived())
+            ++num_axiom_factors;
+    int num_initial_factors = num_variables + num_axiom_factors;
+    int max_transition_system_count = num_initial_factors * 2 - 1;
     vector<int> transition_system_order;
     transition_system_order.reserve(max_transition_system_count);
 
     // Compute the order in which atomic transition systems are considered
     vector<int> atomic_tso;
-    atomic_tso.reserve(num_variables);
-    for (int i = 0; i < num_variables; ++i) {
+    atomic_tso.reserve(num_initial_factors);
+    for (int i = 0; i < num_initial_factors; ++i) {
         atomic_tso.push_back(i);
     }
     if (atomic_ts_order == AtomicTSOrder::LEVEL) {
@@ -78,7 +85,7 @@ void MergeScoringFunctionTotalOrder::initialize(const TaskProxy &task_proxy) {
 
     // Compute the order in which product transition systems are considered
     vector<int> product_tso;
-    for (int i = num_variables; i < max_transition_system_count; ++i) {
+    for (int i = num_initial_factors; i < max_transition_system_count; ++i) {
         product_tso.push_back(i);
     }
     if (product_ts_order == ProductTSOrder::NEW_TO_OLD) {

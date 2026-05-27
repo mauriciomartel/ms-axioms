@@ -1211,6 +1211,108 @@ loop, and the full label space is available for the transition grouping done
 inside \texttt{build\_axiom\_factor}.
 
 % ─────────────────────────────────────────────────────────────────────────────
+\subsubsection{Testing on the Philosophers Domain}
+
+After implementing Pieces~1--4, the planner was run on the Philosophers
+benchmark (\texttt{p01-phil2.pddl}, 2~philosophers) with the standard M\&S
+configuration.  Two bugs were discovered and fixed.
+
+\paragraph{Bug 1 — Unsolvable atomic factor for derived goal variables.}
+\textbf{Symptom:} The planner immediately reported
+\texttt{Atomic FTS is unsolvable, stopping computation} and returned
+\texttt{infinity} for the initial heuristic value.
+
+\textbf{Root cause:} In \texttt{FTSFactory::build\_state\_data}, the goal
+value for each variable was set from the planning task goal.  For derived
+goal variables (e.g.\ \texttt{blocked philosopher-0}, var31, with goal
+value~0 = ``blocked''), only value~0 was marked as a goal state.  But derived
+variables have \emph{no operator transitions} --- their value is determined
+by axiom evaluation, not by operator effects.  The atomic factor for var31
+therefore had no transition from the initial state (value~1, ``not blocked'')
+to the goal state (value~0), making the factor provably unsolvable.  The
+pruning step then marked the entire task as unsolvable.
+
+\textbf{Fix:} In \texttt{FTSFactory::build\_state\_data}
+(\texttt{fts\_factory.cc}), immediately after the goal value is read from the
+task goal, add:
+
+\begin{lstlisting}[language=C++]
+// Derived variables have no operator transitions; their goal condition is
+// fully encoded in the axiom factor Theta_{S,d}. Mark all states as goals so
+// the atomic factor does not falsely declare the task unsolvable.
+if (var.is_derived())
+    goal_value = -1;
+\end{lstlisting}
+
+Setting \texttt{goal\_value = -1} causes the loop below to mark all states as
+goal states, making the atomic factor for derived variables unconstrained.
+The actual goal constraint for a derived variable is encoded entirely in its
+axiom factor $\Theta_{S,d}$.
+
+\paragraph{Bug 2 — Assertion failure in \texttt{MergeScoringFunctionTotalOrder}.}
+\textbf{Symptom:} The planner crashed mid-run with:
+\begin{lstlisting}
+Assertion `scores.size() == candidate_index + 1' failed.
+\end{lstlisting}
+at \texttt{merge\_scoring\_function\_total\_order.cc:55}.
+
+\textbf{Root cause:} \texttt{MergeScoringFunctionTotalOrder::initialize}
+precomputes a total order over all merge candidates.  It assumed
+\texttt{num\_variables} initial factors (indices $0 \ldots N-1$) and product
+TS indices in the range $[N,\, 2N-2]$.  With two axiom factors injected at
+indices $N$ and $N+1$, the product TSes created during the main loop received
+indices starting at $N+2$ instead of $N$.  The last two product TSes therefore
+got indices $2N$ and $2N+1$, which were outside the precomputed range.  When
+the merge selector tried to score a candidate pair involving those indices, the
+loop found no match in \texttt{merge\_candidate\_order}, pushed no score, and
+the assertion fired.
+
+\textbf{Fix:} In \texttt{MergeScoringFunctionTotalOrder::initialize}
+(\texttt{merge\_scoring\_function\_total\_order.cc}), count the number of
+axiom factors (one per derived goal variable) before building the order, and
+replace \texttt{num\_variables} with \texttt{num\_initial\_factors}
+$= \texttt{num\_variables} + \texttt{num\_axiom\_factors}$ throughout:
+
+\begin{lstlisting}[language=C++]
+int num_axiom_factors = 0;
+for (FactProxy goal : task_proxy.get_goals())
+    if (goal.get_variable().is_derived())
+        ++num_axiom_factors;
+int num_initial_factors = num_variables + num_axiom_factors;
+int max_transition_system_count = num_initial_factors * 2 - 1;
+\end{lstlisting}
+
+The atomic TS range is extended to $[0,\, \texttt{num\_initial\_factors} - 1]$
+(treating axiom factors as atomic factors for ordering purposes), and the
+product TS range is shifted to
+$[\texttt{num\_initial\_factors},\, \texttt{max\_transition\_system\_count} - 1]$.
+Tasks without axioms are unaffected: \texttt{num\_axiom\_factors} $= 0$ gives
+the original behaviour.
+
+\paragraph{Result after both fixes.}
+The M\&S algorithm ran to completion: 39 initial factors (37 atomic + 2~axiom),
+38 merges, 1~remaining factor.  The algorithm log showed the two axiom factors
+being built and shrunk before the main loop, as intended.  However, the initial
+heuristic value was~0 and the planner reported no solution, even though running
+\texttt{astar(blind())} on the same instance found a plan of length~18.
+
+\paragraph{Known limitation: transitive derived dependencies.}
+The heuristic value of~0 is caused by a limitation in Step~1 of
+\texttt{build\_axiom\_factor}.  For \texttt{blocked philosopher-0} (var31),
+every axiom body condition is on \texttt{blocked-trans} (also derived).  The
+current Step~1 collects only \emph{direct} primary variable appearances, so
+$S_d = \emptyset$ for \texttt{blocked}.  With zero primary variables,
+$\Theta_{S,d}$ has a single product state, which is always a goal state
+(all derived conditions are over-approximated), giving $h = 0$ everywhere.
+
+The correct fix is to collect primary variables \emph{transitively}: when a
+derived variable $d'$ appears in an axiom body for $d$, also collect the
+primary variables of the axioms that derive $d'$, and so on.  Goal state
+marking must then also follow derived conditions recursively to determine which
+product states can transitively derive $d = \textit{goal\_value}$.  This
+transitive treatment is the next implementation step.
+
+% ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 4 — Quasi-Bisimulation Shrinking}
 \textbf{New files:} \texttt{merge\_and\_shrink/shrink\_quasi\_bisimulation.h},
 \texttt{merge\_and\_shrink/shrink\_quasi\_bisimulation.cc}

@@ -978,11 +978,10 @@ table below maps each step to the implementation piece that fulfils it.
   conservative treatment used in Step~2 for atomic factors).  This is the
   $(\cdot)^A$ transformation applied directly to the product space. \\[4pt]
 3.\ Quasi-bisimulation shrinking &
-  \emph{Not yet done by Pieces~1--3.}  \texttt{build\_axiom\_factor} injects
-  the unshrunk factor.  Shrinking is applied in Piece~4
-  (\texttt{merge\_and\_shrink\_algorithm.cc}, Step~5) by calling
-  \texttt{ShrinkQuasiBisimulation} on the returned factor index immediately
-  after \texttt{build\_axiom\_factor} returns. \\[4pt]
+  Handled in Piece~4 (\S\ref{sec:piece4}).  After \texttt{build\_axiom\_factor}
+  returns the index of the new factor, the algorithm calls
+  \texttt{ShrinkQuasiBisimulation::compute\_equivalence\_relation} on it and
+  immediately applies the result with \texttt{fts.apply\_abstraction}. \\[4pt]
 4.\ Add factor to the FTS &
   \texttt{FactoredTransitionSystem::add\_factor} (Piece~2, \S\ref{sec:piece2})
   is called at the end of \texttt{build\_axiom\_factor}.  It appends the
@@ -1152,6 +1151,64 @@ which primary variables contributed to this factor.  A
 and the per-variable domain sizes.  Both are passed to \texttt{fts.add\_factor},
 which creates \texttt{Distances} internally, computes distances immediately, and
 returns the index of the new factor.
+
+\subsubsection{Piece 4: Algorithm Integration in \texttt{merge\_and\_shrink\_algorithm.cc}}
+\label{sec:piece4}
+
+This piece connects \texttt{build\_axiom\_factor} to the main M\&S algorithm.
+It makes four targeted changes to \texttt{merge\_and\_shrink\_algorithm.cc}.
+
+\paragraph{Change 1 — Remove the axiom abort.}
+\texttt{task\_properties::verify\_no\_axioms(task\_proxy)} is commented out.
+This single call was the only reason tasks with derived variables were rejected.
+With Pieces~1--3 in place, derived goal variables are handled correctly.
+
+\paragraph{Change 2 — Add include.}
+\texttt{\#include "shrink\_quasi\_bisimulation.h"} is added so that
+\texttt{ShrinkQuasiBisimulation} is available in the new axiom factor loop.
+
+\paragraph{Change 3 — Detect derived goals and extend \texttt{compute\_goal\_distances}.}
+A boolean \texttt{has\_derived\_goals} is computed by scanning
+\texttt{task\_proxy.get\_goals()} for variables where \texttt{is\_derived()} is
+true.  This flag is OR'd into the existing \texttt{compute\_goal\_distances}
+condition.  The extension is necessary because
+\texttt{ShrinkQuasiBisimulation::requires\_goal\_distances()} returns true:
+goal distances must be available in the new factor before shrinking can be
+applied.  Without this change, \texttt{add\_factor} might initialise distances
+with \texttt{compute\_goal\_distances = false}, leaving goal distances
+uninitialised when \texttt{compute\_equivalence\_relation} is called later.
+
+\paragraph{Change 4 — Build and shrink one axiom factor per derived goal variable.}
+After \texttt{create\_factored\_transition\_system} returns and
+\texttt{log\_progress} reports the atomic factors, the code enters an
+\texttt{if (has\_derived\_goals)} block.  A single
+\texttt{ShrinkQuasiBisimulation qbisim} is constructed once before the loop
+and reused for all derived goal variables.  For each derived goal variable the
+loop performs three operations:
+
+\begin{enumerate}
+  \item \texttt{build\_axiom\_factor(task\_proxy, derived\_var\_id, fts, log)}
+        constructs $\Theta_{S,d}$, injects it into the FTS, and returns its
+        index \texttt{axiom\_index}.
+  \item \texttt{qbisim.compute\_equivalence\_relation} computes the
+        quasi-bisimulation partition using the transition system and distances
+        at \texttt{axiom\_index}, with \texttt{max\_states\_before\_merge} as
+        the target size (the same size limit used when shrinking regular atomic
+        factors before merging).
+  \item \texttt{fts.apply\_abstraction(axiom\_index, equiv, log)} applies the
+        partition to shrink the factor in place.
+\end{enumerate}
+
+\paragraph{Placement constraint.}
+The loop is inserted after
+\texttt{log\_progress(timer, "after computation of atomic factors", log)}
+and before the pruning loop (\texttt{bool pruned = false; bool unsolvable = false;}).
+At this point all atomic factors exist and all label IDs still correspond
+one-to-one to planning operators (label reduction has not run yet), which
+satisfies the precondition stated in \S\ref{sec:piece3}.  The axiom factors
+are therefore visible to the merge strategy from the very start of the main
+loop, and the full label space is available for the transition grouping done
+inside \texttt{build\_axiom\_factor}.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 4 — Quasi-Bisimulation Shrinking}

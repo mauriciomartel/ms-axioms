@@ -90,7 +90,11 @@ int ShrinkQuasiBisimulation::initialize_groups(
     */
     typedef unordered_map<int, int> GroupMap;
     GroupMap h_to_group;
-    int num_groups = 1; // group 0 reserved for goal states
+    bool has_goals = false;
+    for (int state = 0; state < ts.get_size(); ++state) {
+        if (ts.is_goal_state(state)) { has_goals = true; break; }
+    }
+    int num_groups = has_goals ? 1 : 0;
     for (int state = 0; state < ts.get_size(); ++state) {
         int h = distances.get_goal_distance(state);
         if (h == INF) {

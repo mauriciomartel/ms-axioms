@@ -604,15 +604,16 @@ int build_axiom_factor(
     // can_derive(d, target, s): returns true iff axioms can set derived var d
     // to value target given product state s (primary variable assignments only).
     function<bool(int, int, int)> can_derive = [&](int d, int target, int s) -> bool {
+        bool any_axiom_for_target = false;   // ADD THIS
         for (OperatorProxy axiom : task_proxy.get_axioms()) {
             EffectProxy eff = axiom.get_effects()[0];
             if (eff.get_fact().get_variable().get_id() != d) continue;
             if (eff.get_fact().get_value() != target) continue;
+            any_axiom_for_target = true;     // ADD THIS
             bool body_satisfied = true;
             for (FactProxy pre : axiom.get_preconditions()) {
                 VariableProxy pvar = pre.get_variable();
                 if (pvar.is_derived()) {
-                    // Recursively check whether this derived precondition can be met.
                     if (!can_derive(pvar.get_id(), pre.get_value(), s)) {
                         body_satisfied = false;
                         break;
@@ -625,11 +626,13 @@ int build_axiom_factor(
                             break;
                         }
                     }
-                    // Primary vars not in var_ids are unconstrained; treat as satisfied.
                 }
             }
             if (body_satisfied) return true;
         }
+        // No axiom derives d to target → target is d's default value, held
+        // whenever no axiom fires. Over-approximate as always achievable.
+        if (!any_axiom_for_target) return true;   // ADD THIS (replaces plain return false)
         return false;
     };
 

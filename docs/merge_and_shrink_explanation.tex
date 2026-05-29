@@ -1296,21 +1296,117 @@ being built and shrunk before the main loop, as intended.  However, the initial
 heuristic value was~0 and the planner reported no solution, even though running
 \texttt{astar(blind())} on the same instance found a plan of length~18.
 
-\paragraph{Known limitation: transitive derived dependencies.}
-The heuristic value of~0 is caused by a limitation in Step~1 of
-\texttt{build\_axiom\_factor}.  For \texttt{blocked philosopher-0} (var31),
-every axiom body condition is on \texttt{blocked-trans} (also derived).  The
-current Step~1 collects only \emph{direct} primary variable appearances, so
-$S_d = \emptyset$ for \texttt{blocked}.  With zero primary variables,
-$\Theta_{S,d}$ has a single product state, which is always a goal state
-(all derived conditions are over-approximated), giving $h = 0$ everywhere.
+\paragraph{Bug 3 — \texttt{prune\_unreachable\_states} incorrectly prunes derived variable states.}
+
+\textbf{Root cause.}
+The ``no solution'' outcome is caused by inadmissibility introduced by
+\texttt{prune\_unreachable\_states}, not by the heuristic returning $h = 0$
+everywhere.  To see why, consider the atomic transition system for the derived
+variable \texttt{blocked philosopher-0} (var31).  This variable has domain
+$\{0 = \textit{blocked}, 1 = \textit{not-blocked}\}$ and initial value
+$1$ (not blocked).  No \emph{operator} has an effect on var31; its value is
+set entirely by axiom evaluation at run time.
+
+Because no operator changes var31, the standard forward BFS from the initial
+state (value $= 1$) finds only state~1 reachable via operator transitions.
+State~0 (\texttt{blocked~= true}) has $\texttt{init\_distance} = \infty$ and
+is therefore pruned by \texttt{prune\_unreachable\_states}.  The look-up table
+for the leaf representation of var31 becomes:
+\[
+  \texttt{lookup}[0] = \texttt{PRUNED\_STATE},\quad
+  \texttt{lookup}[1] = 0.
+\]
+This makes \texttt{is\_total()} return \texttt{false}, so the factor is \emph{not}
+classified as trivial and is retained in \texttt{mas\_representations}.
+
+\textbf{Consequence during search.}
+Whenever axiom evaluation sets \texttt{blocked philosopher-0 = 0} (i.e., the
+philosopher \emph{is} actually blocked in the current state),
+\texttt{get\_value} returns \texttt{PRUNED\_STATE}, and
+\texttt{compute\_heuristic} returns \texttt{DEAD\_END}.  Because the goal
+requires \texttt{blocked philosopher-0 = 0} (and likewise for
+\texttt{philosopher-1}), every goal state evaluates to \texttt{DEAD\_END}.
+Moreover, every state on any solution path where one philosopher has already
+become blocked while the other has not yet done so also evaluates to
+\texttt{DEAD\_END}, since axiom evaluation there sets var31 to~0.  As a
+result, $A^*$ never accepts any goal state and reports ``no solution''.
+
+\textbf{Fix.}
+Skip \texttt{prune\_unreachable\_states} for derived variable atomic factors in
+the pruning loop of \texttt{MergeAndShrinkAlgorithm::build\_factored\_transition\_system}
+(file \texttt{merge\_and\_shrink\_algorithm.cc}).  Derived variable values are
+determined at run time by axiom evaluation, not by operator reachability, so
+the forward-reachability criterion is unsound for them.  The fix:
+
+\begin{lstlisting}[caption={Skip unreachable-state pruning for derived variable factors}]
+int num_variables = task_proxy.get_variables().size();
+bool pruned = false;
+bool unsolvable = false;
+for (int index = 0; index < fts.get_size(); ++index) {
+    assert(fts.is_active(index));
+    // Derived variable atomic factors: skip prune_unreachable_states.
+    // Their values are set by axiom evaluation, not by operator
+    // transitions, so forward reachability from the init state is
+    // unsound: non-init values can appear in any reachable planning state.
+    bool effective_prune_unreachable = prune_unreachable_states &&
+        !(index < num_variables &&
+          task_proxy.get_variables()[index].is_derived());
+    if (effective_prune_unreachable || prune_irrelevant_states) {
+        bool pruned_factor = prune_step(
+            fts, index,
+            effective_prune_unreachable, prune_irrelevant_states,
+            log);
+        pruned = pruned || pruned_factor;
+    }
+    if (!fts.is_factor_solvable(index)) { ... }
+}
+\end{lstlisting}
+
+After this fix, all states of every derived variable atomic factor remain live.
+Since all states were already marked as goals (by the earlier fix that sets
+\texttt{goal\_value = -1} for derived variables), every derived variable factor
+is now trivial — its look-up table is all zeros — and is excluded from
+\texttt{mas\_representations}.  The heuristic therefore returns $h = 0$
+for all states, which is \emph{admissible} (though uninformative).
+
+\paragraph{Secondary bug — \texttt{PrimaryRepresentation} reads effect conditions.}
+In \texttt{primary\_representation.cc}, the constructor iterates over
+\texttt{effect.get\_conditions()} to collect the axiom body conditions on
+primary variables.  However, in FD's grounded representation, axiom effects are
+unconditional: the body conditions are stored on the \emph{operator} (axiom)
+via \texttt{axiom.get\_preconditions()}, not on the effect.  As a result,
+\texttt{effect.get\_conditions()} always returns an empty range, so
+\texttt{primary\_conds} is always empty, and \emph{every} primary variable
+value is marked compatible.  The $({\cdot})^A$ transformation becomes a no-op:
+primary variable goal states are not restricted by derived goals at all.
+
+The fix is a one-line change:
+\begin{lstlisting}[caption={Fix PrimaryRepresentation to use axiom preconditions}]
+// WRONG:
+for (FactProxy cond : effect.get_conditions()) { ... }
+
+// CORRECT:
+for (FactProxy cond : axiom.get_preconditions()) { ... }
+\end{lstlisting}
+After this fix, primary variable values that appear as conditions in no axiom
+body for $d$ will not be marked compatible with $d$'s goal being achievable.
+
+\paragraph{Remaining limitation: transitive derived dependencies.}
+After both fixes above, the heuristic still returns $h = 0$ on the Philosophers
+instance because $S_d = \emptyset$ for \texttt{blocked philosopher-0}.  The
+grounded axiom bodies for \texttt{blocked} contain conditions on
+\texttt{blocked-trans} (derived), which in turn depends on primary variables
+such as \texttt{activate}, \texttt{queue-size}, etc.  Step~1 of
+\texttt{build\_axiom\_factor} collects only \emph{direct} primary variable
+appearances in the axiom precondition list, missing the transitive chain.
+With $S_d = \emptyset$, $\Theta_{S,d}$ has a single trivially-goal product
+state, giving $h = 0$.
 
 The correct fix is to collect primary variables \emph{transitively}: when a
-derived variable $d'$ appears in an axiom body for $d$, also collect the
-primary variables of the axioms that derive $d'$, and so on.  Goal state
-marking must then also follow derived conditions recursively to determine which
-product states can transitively derive $d = \textit{goal\_value}$.  This
-transitive treatment is the next implementation step.
+derived variable $d'$ appears in an axiom body for $d$, recursively collect the
+primary variables of the axioms that derive $d'$.  Goal state marking must then
+check those transitive primary conditions as well.  This is the next
+implementation step.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 4 — Quasi-Bisimulation Shrinking}

@@ -476,11 +476,20 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
     */
     bool pruned = false;
     bool unsolvable = false;
+    // AFTER:
+    int num_variables = task_proxy.get_variables().size();
     for (int index = 0; index < fts.get_size(); ++index) {
         assert(fts.is_active(index));
-        if (prune_unreachable_states || prune_irrelevant_states) {
+        // Derived variable atomic factors: skip prune_unreachable_states.
+        // Their values are set by axiom evaluation, not operators, so forward
+        // reachability from the init state is unsound for them.
+        bool effective_prune_unreachable = prune_unreachable_states &&
+            !(index < num_variables &&
+              task_proxy.get_variables()[index].is_derived());
+        if (effective_prune_unreachable || prune_irrelevant_states) {
             bool pruned_factor = prune_step(
-                fts, index, prune_unreachable_states, prune_irrelevant_states,
+                fts, index,
+                effective_prune_unreachable, prune_irrelevant_states,
                 log);
             pruned = pruned || pruned_factor;
         }

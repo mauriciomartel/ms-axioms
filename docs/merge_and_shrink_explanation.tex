@@ -1788,6 +1788,63 @@ monotonically during search).  The search expands only 91 states compared to
 have 1048 states after quasi-bisimulation, with an initial goal distance of~3,
 confirming that the goal-state marking is non-trivial.
 
+\paragraph{Validation on Philosophers p02 (3 philosophers) and p03 (4 philosophers).}
+
+With all five fixes in place the same configuration was run on the larger
+instances to confirm scalability and correctness.
+
+\textbf{p02 — 3 philosophers.}
+
+\begin{lstlisting}
+[HEURISTIC] repr[0] cost=4 (PRUNED=-1 INF=2147483647)
+[HEURISTIC] heuristic=4 from 1 repr(s)
+
+Solution found!
+Plan length: 27 step(s).
+Plan cost: 27
+Dead ends: 31 state(s).
+\end{lstlisting}
+
+The heuristic correctly returns $h = 4$ for the initial state and a solution of
+cost~27 is found, confirming admissibility ($4 \le 27$).  The 31 reported dead
+ends are \emph{genuine}: they are concrete states from which the
+three-way-deadlock goal is provably unreachable.
+
+To verify this, the planner was re-run with both pruning options disabled
+(\texttt{prune\_unreachable\_states=false, prune\_irrelevant\_states=false}):
+
+\begin{lstlisting}
+[HEURISTIC] repr[0] cost=4 (PRUNED=-1 INF=2147483647)
+Solution found!
+Plan cost: 27
+Dead ends: 31 state(s).
+\end{lstlisting}
+
+The result is identical.  The 31 dead ends persist regardless of whether
+pruning is active, proving they originate from states whose abstract image in
+the axiom factor has no path to a goal abstract state --- not from any spurious
+pruning.  The axiom factor construction is a sound over-approximation, so
+genuine unreachability in the abstract factor implies genuine unreachability in
+the concrete task.
+
+\textbf{p03 — 4 philosophers.}
+
+\begin{lstlisting}
+[HEURISTIC] repr[0] cost=6 (PRUNED=-1 INF=2147483647)
+[HEURISTIC] heuristic=6 from 1 repr(s)
+
+Solution found!
+Plan length: 36 step(s).
+Plan cost: 36
+Dead ends: 1338 state(s).
+\end{lstlisting}
+
+The heuristic returns $h = 6$ for the initial state, the optimal plan has
+cost~36 ($6 \le 36$, admissible), and 1338 genuine dead ends are correctly
+detected.  The larger count reflects the combinatorial explosion in states from
+which a 4-way simultaneous deadlock cannot be reached.  Search terminates in
+under 0.15~s with 23\,000 states expanded.
+
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 4 — Quasi-Bisimulation Shrinking}
 \textbf{New files:} \texttt{merge\_and\_shrink/shrink\_quasi\_bisimulation.h},

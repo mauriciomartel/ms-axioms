@@ -125,15 +125,27 @@ void MergeAndShrinkHeuristic::extract_factors(FactoredTransitionSystem &fts) {
 int MergeAndShrinkHeuristic::compute_heuristic(const State &ancestor_state) {
     State state = convert_ancestor_state(ancestor_state);
     int heuristic = 0;
+    static bool debug_first = true;  // DEBUG
+    int repr_idx = 0;                // DEBUG
     for (const unique_ptr<MergeAndShrinkRepresentation> &mas_representation :
          mas_representations) {
         int cost = mas_representation->get_value(state);
+        if (debug_first)  // DEBUG
+            std::cerr << "[HEURISTIC] repr[" << repr_idx << "] cost=" << cost
+                      << " (PRUNED=" << PRUNED_STATE << " INF=" << INF << ")\n";
         if (cost == PRUNED_STATE || cost == INF) {
-            // If state is unreachable or irrelevant, we encountered a dead end.
+            if (debug_first)  // DEBUG
+                std::cerr << "[HEURISTIC] DEAD_END from repr[" << repr_idx << "]\n";
+            debug_first = false;  // DEBUG
             return DEAD_END;
         }
         heuristic = max(heuristic, cost);
-    }
+        ++repr_idx;  // DEBUG
+         }
+    if (debug_first)  // DEBUG
+        std::cerr << "[HEURISTIC] heuristic=" << heuristic << " from "
+                  << repr_idx << " repr(s)\n";
+    debug_first = false;  // DEBUG
     return heuristic;
 }
 

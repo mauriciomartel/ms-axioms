@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cassert>
 #include <functional>
+#include <iostream>
 #include <queue>
 #include <unordered_map>
 #include <unordered_set>
@@ -527,6 +528,28 @@ int build_axiom_factor(
     visited_derived.insert(derived_var_id);
     unordered_set<int> primary_var_set;
 
+    // === DEBUG: BFS axiom analysis ===
+    {
+        int total_axioms = 0;
+        for (OperatorProxy ax : task_proxy.get_axioms()) { (void)ax; ++total_axioms; }
+        std::cerr << "[BFS_DEBUG] var=" << derived_var_id
+                  << " name=" << task_proxy.get_variables()[derived_var_id].get_name()
+                  << " total_axioms=" << total_axioms << "\n";
+        // Print per-variable axiom counts and precondition types
+        std::unordered_map<int,int> eff_counts;
+        for (OperatorProxy ax : task_proxy.get_axioms()) {
+            int vid = ax.get_effects()[0].get_fact().get_variable().get_id();
+            eff_counts[vid]++;
+        }
+        for (auto &kv : eff_counts) {
+            std::cerr << "  axioms for var " << kv.first
+                      << " (" << task_proxy.get_variables()[kv.first].get_name()
+                      << " derived=" << task_proxy.get_variables()[kv.first].is_derived()
+                      << "): " << kv.second << "\n";
+        }
+    }
+    // === END DEBUG ===
+
     while (!derived_queue.empty()) {
         int cur_derived = derived_queue.front();
         derived_queue.pop();
@@ -556,6 +579,20 @@ int build_axiom_factor(
     unordered_map<int, int> var_id_to_idx;
     for (int i = 0; i < n; ++i)
         var_id_to_idx[var_ids[i]] = i;
+
+    // === DEBUG: BFS result ===
+    std::cerr << "[BFS_RESULT] var=" << derived_var_id << " n=" << n << " primary_vars:";
+    for (int v : var_ids)
+        std::cerr << " " << v << "("
+                  << task_proxy.get_variables()[v].get_name() << ")";
+    std::cerr << "\n";
+    // also report which derived vars were visited
+    std::cerr << "[BFS_RESULT] visited_derived:";
+    for (int d : visited_derived)
+        std::cerr << " " << d << "("
+                  << task_proxy.get_variables()[d].get_name() << ")";
+    std::cerr << "\n";
+    // === END DEBUG ===
 
     // -----------------------------------------------------------------------
     // Step 2: Domain sizes and mixed-radix multipliers
@@ -851,7 +888,26 @@ int build_axiom_factor(
 
     auto mas_rep = make_unique<MergeAndShrinkRepresentationProduct>(
         var_ids, all_dom);
-
+    // === DEBUG: axiom factor stats ===
+    {
+        int num_goal = 0;
+        for (bool g : goal_states) if (g) ++num_goal;
+        std::cerr << "[AXIOM_FACTOR] derived_var=" << derived_var_id
+                  << " n=" << n << " num_product_states=" << num_product_states
+                  << " num_goal_states=" << num_goal
+                  << " init_state=" << init_state << "\n";
+        std::cerr << "[AXIOM_FACTOR] var_ids:";
+        for (int v : var_ids) std::cerr << " " << v;
+        std::cerr << "\n";
+        if (num_goal > 0) {
+            std::cerr << "[AXIOM_FACTOR] first goal states:";
+            int cnt = 0;
+            for (int s = 0; s < num_product_states && cnt < 5; ++s)
+                if (goal_states[s]) { std::cerr << " " << s; ++cnt; }
+            std::cerr << "\n";
+        }
+    }
+    // === END DEBUG ===
     return fts.add_factor(move(ts), move(mas_rep), log);
 }
 }

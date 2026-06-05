@@ -344,9 +344,22 @@ void MergeAndShrinkAlgorithm::main_loop(
         }
 
         // Pruning
-        if (prune_unreachable_states || prune_irrelevant_states) {
+        // Skip prune_unreachable_states for merged factors that incorporate
+        // derived variables: axioms set their values, not operators, so
+        // reachability analysis based on operators alone would incorrectly
+        // mark non-initial derived-variable values as unreachable.
+        bool merged_has_derived = false;
+        for (int v : fts.get_transition_system(merged_index).get_incorporated_variables()) {
+            if (task_proxy.get_variables()[v].is_derived()) {
+                merged_has_derived = true;
+                break;
+            }
+        }
+        bool effective_prune_unreachable =
+            prune_unreachable_states && !merged_has_derived;
+        if (effective_prune_unreachable || prune_irrelevant_states) {
             bool pruned = prune_step(
-                fts, merged_index, prune_unreachable_states,
+                fts, merged_index, effective_prune_unreachable,
                 prune_irrelevant_states, log);
             if (log.is_at_least_normal() && pruned) {
                 if (log.is_at_least_verbose()) {
@@ -461,6 +474,22 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
                     max_states_before_merge,
                     log);
             fts.apply_abstraction(axiom_index, equiv, log);
+            // === DEBUG: axiom factor state after qbisim ===
+            {
+                const TransitionSystem &ats = fts.get_transition_system(axiom_index);
+                const Distances &adist = fts.get_distances(axiom_index);
+                int ainit = ats.get_init_state();
+                std::cerr << "[AXIOM_AFTER_QBISIM] ts_size=" << ats.get_size()
+                          << " init_state=" << ainit
+                          << " solvable=" << fts.is_factor_solvable(axiom_index)
+                          << " init_goal_dist=";
+                if (adist.are_goal_distances_computed())
+                    std::cerr << adist.get_goal_distance(ainit);
+                else
+                    std::cerr << "NOT_COMPUTED";
+                std::cerr << "\n";
+            }
+            // === END DEBUG ===
             if (log.is_at_least_normal()) {
                 log_progress(
                     timer, "after building and shrinking axiom factor", log);

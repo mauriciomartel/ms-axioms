@@ -147,24 +147,7 @@ void FTSFactory::build_state_data(
     ts_data.goal_states.resize(range, false);
     for (int value = 0; value < range; ++value) {
         if (value == goal_value || goal_value == -1) {
-            /*
-              Apply the (·)^A transformation for primary variables:
-              a value is a goal state only if it is compatible with every
-              derived goal variable, i.e., it lies in the projection of S_d
-              onto this variable's domain. Derived variables are left
-              unchanged — their goal states are determined by the goal value
-              of the derived variable itself, not by axiom rule structure.
-            */
-            bool compatible = true;
-            if (!var.is_derived()) {
-                for (const PrimaryRepresentation &pr : derived_goal_reprs) {
-                    if (!pr.is_compatible(var_id, value)) {
-                        compatible = false;
-                        break;
-                    }
-                }
-            }
-            ts_data.goal_states[value] = compatible;
+            ts_data.goal_states[value] = true;
         }
     }
 }

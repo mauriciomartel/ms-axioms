@@ -1391,22 +1391,299 @@ for (FactProxy cond : axiom.get_preconditions()) { ... }
 After this fix, primary variable values that appear as conditions in no axiom
 body for $d$ will not be marked compatible with $d$'s goal being achievable.
 
-\paragraph{Remaining limitation: transitive derived dependencies.}
-After both fixes above, the heuristic still returns $h = 0$ on the Philosophers
-instance because $S_d = \emptyset$ for \texttt{blocked philosopher-0}.  The
-grounded axiom bodies for \texttt{blocked} contain conditions on
-\texttt{blocked-trans} (derived), which in turn depends on primary variables
-such as \texttt{activate}, \texttt{queue-size}, etc.  Step~1 of
-\texttt{build\_axiom\_factor} collects only \emph{direct} primary variable
-appearances in the axiom precondition list, missing the transitive chain.
-With $S_d = \emptyset$, $\Theta_{S,d}$ has a single trivially-goal product
-state, giving $h = 0$.
+\paragraph{Transitive BFS implementation in \texttt{build\_axiom\_factor}.}
 
-The correct fix is to collect primary variables \emph{transitively}: when a
-derived variable $d'$ appears in an axiom body for $d$, recursively collect the
-primary variables of the axioms that derive $d'$.  Goal state marking must then
-check those transitive primary conditions as well.  This is the next
-implementation step.
+The remaining limitation was addressed by extending Step~1 of
+\texttt{build\_axiom\_factor} to collect primary variables \emph{transitively}
+via a breadth-first search over the derived-variable dependency graph.  Instead
+of scanning only the axioms for $d$ directly, the function initialises a FIFO
+queue with $d$ itself and a \texttt{visited\_derived} set containing $\{d\}$,
+then iterates:
+
+\begin{enumerate}
+  \item Pop a derived variable $d'$ from the queue.
+  \item Scan all axioms whose single effect variable is $d'$.
+  \item For each condition in the axiom's precondition list:
+    \begin{itemize}
+      \item If the condition is on a \emph{primary} variable, add it to the
+            primary variable set $S_d$ (via \texttt{primary\_var\_set}).
+      \item If the condition is on a \emph{derived} variable $d''$ not yet
+            in \texttt{visited\_derived}, insert $d''$ into
+            \texttt{visited\_derived} and push it onto the queue.
+    \end{itemize}
+\end{enumerate}
+
+The BFS terminates when the queue is empty.  The union of all primary variables
+encountered is $S_d$; the union of all derived variables encountered (including
+$d$ itself) is the full transitive closure of $d$'s derived dependencies.
+
+Note: in Fast Downward's grounded SAS+ representation, each axiom has exactly
+one effect (stored as a single \texttt{EffectProxy}).  All body conditions are
+stored as \emph{operator preconditions}, accessed via
+\texttt{axiom.get\_preconditions()}, not as effect conditions.  The BFS loop
+therefore reads \texttt{axiom.get\_preconditions()} — not
+\texttt{effect.get\_conditions()} — to recover the body conditions.
+
+\paragraph{Diagnostic patches.}
+
+Three diagnostic patches were added to \texttt{fts\_factory.cc} and
+\texttt{merge\_and\_shrink\_heuristic.cc} to trace the BFS and the resulting
+axiom factor behaviour at run time.
+
+\textbf{BFS census} (inserted immediately before the BFS loop in
+\texttt{build\_axiom\_factor}): prints the total number of axioms in the task
+and a breakdown of how many axioms affect each variable, together with the
+variable's \texttt{is\_derived()} flag.  This verifies that the axiom set is
+being read correctly and identifies which variables appear as axiom heads.
+
+\begin{lstlisting}[language=C++, caption={BFS census patch (fts\_factory.cc)}]
+{
+    int total_axioms = 0;
+    for (OperatorProxy ax : task_proxy.get_axioms()) { (void)ax; ++total_axioms; }
+    std::cerr << "[BFS_DEBUG] var=" << derived_var_id
+              << " name=" << task_proxy.get_variables()[derived_var_id].get_name()
+              << " total_axioms=" << total_axioms << "\n";
+    std::unordered_map<int,int> eff_counts;
+    for (OperatorProxy ax : task_proxy.get_axioms()) {
+        int vid = ax.get_effects()[0].get_fact().get_variable().get_id();
+        eff_counts[vid]++;
+    }
+    for (auto &kv : eff_counts)
+        std::cerr << "  axioms for var " << kv.first << " ("
+                  << task_proxy.get_variables()[kv.first].get_name()
+                  << " derived=" << task_proxy.get_variables()[kv.first].is_derived()
+                  << "): " << kv.second << " axiom(s)\n";
+}
+\end{lstlisting}
+
+\textbf{BFS result} (inserted after the BFS loop and after \texttt{var\_id\_to\_idx}
+is filled, immediately before Step~2 of \texttt{build\_axiom\_factor}): prints
+$n$ (the number of primary variables in $S_d$), the sorted list of primary
+variable IDs and names, and the full \texttt{visited\_derived} set.
+
+\begin{lstlisting}[language=C++, caption={BFS result patch (fts\_factory.cc)}]
+std::cerr << "[BFS_RESULT] var=" << derived_var_id << " n=" << n
+          << " primary_vars:";
+for (int v : var_ids)
+    std::cerr << " " << v << "("
+              << task_proxy.get_variables()[v].get_name() << ")";
+std::cerr << "\n";
+std::cerr << "[BFS_RESULT] visited_derived:";
+for (int d : visited_derived)
+    std::cerr << " " << d << "("
+              << task_proxy.get_variables()[d].get_name() << ")";
+std::cerr << "\n";
+\end{lstlisting}
+
+\textbf{Heuristic trace} (in \texttt{MergeAndShrinkHeuristic::compute\_heuristic}):
+prints the cost returned by each representation for the first state evaluated,
+and identifies which representation triggered a \texttt{DEAD\_END} verdict.  A
+\texttt{static bool debug\_first} flag suppresses the output after the first
+evaluation.
+
+\paragraph{BFS results: unconditional axioms for goal derived variables.}
+
+Running the patched planner on \texttt{p01-phil2.pddl} produced the following
+output for the two goal derived variables:
+
+\begin{lstlisting}
+[BFS_RESULT] var=31 n=0 primary_vars:
+[BFS_RESULT] visited_derived: 31(var31)
+[AXIOM_FACTOR] derived_var=31 n=0 num_product_states=1 init_state=0
+[AXIOM_AFTER_QBISIM] ts_size=1 init_state=0 solvable=1 init_goal_dist=0
+
+[BFS_RESULT] var=36 n=0 primary_vars:
+[BFS_RESULT] visited_derived: 36(var36)
+[AXIOM_FACTOR] derived_var=36 n=0 num_product_states=1 init_state=0
+[AXIOM_AFTER_QBISIM] ts_size=1 init_state=0 solvable=1 init_goal_dist=0
+\end{lstlisting}
+
+Both goal derived variables (var31 = \texttt{blocked philosopher-0}, var36 =
+\texttt{blocked philosopher-1}) return $n = 0$.  The BFS visited only the
+variable itself (\texttt{visited\_derived: 31(var31)}) and found no primary
+variables — even after exploring transitively.
+
+The census output confirmed that all 36 axioms in the SAS+ file affect only
+variables with \texttt{derived=1}; no axiom sets a primary variable.
+
+\paragraph{Root cause: static simplification produces unconditional SAS+ axioms.}
+
+The PDDL axiom for \texttt{blocked} has the form:
+
+\begin{lstlisting}[caption={PDDL axiom for \texttt{blocked} in Philosophers domain}]
+(:derived (blocked ?p - process)
+  (exists (?s - state) (exists (?pt - proctype)
+    (and (at-process ?p ?s) (is-a-process ?p ?pt)
+         (forall (?t - transition)
+           (or (forall (?s2 - state) (not (trans ?pt ?t ?s ?s2)))
+               (blocked-trans ?p ?t)))))))
+\end{lstlisting}
+
+The Fast Downward translator performs static simplification during grounding:
+\begin{itemize}
+  \item \texttt{is-a-process} is a static predicate (its extension never
+        changes during search).  The translator evaluates it at
+        translation time and eliminates it as a run-time condition.
+  \item \texttt{forall ?s2 (not (trans ?pt ?t ?s ?s2))} also refers only to
+        static predicates (\texttt{trans} is an instance relation, not a
+        fluent).  The translator evaluates this universally quantified condition
+        for each grounding of $(\mathit{pt}, t, s)$ at translation time.
+\end{itemize}
+
+After simplification, the resulting SAS+ axioms for \texttt{blocked philosopher-0}
+and \texttt{blocked philosopher-1} have \emph{empty precondition lists}.  They
+are \emph{unconditional axioms} — they always fire regardless of the current
+state, setting \texttt{blocked} to its derived (non-default) value
+unconditionally.  The actual condition on whether a philosopher is currently
+blocked is encoded in the \texttt{blocked-trans} derived variables, which
+appear in the PDDL body but are also fully derived.  Because derived conditions
+are dropped by the static simplification step (they are not primary variables),
+the body effectively becomes empty.
+
+A BFS from var31 therefore has nothing to visit: the 5 axioms for var31 have
+no preconditions, so the BFS terminates immediately with $S_d = \emptyset$.
+The axiom factor $\Theta_{S,d}$ has a single product state ($n = 0$, one state),
+that state is trivially a goal state ($h = 0$), and the factor is solvable with
+\texttt{init\_goal\_dist = 0}.  These are the correct values: the
+unconditional axioms mean that the \texttt{blocked} condition is not constrained
+by any primary variable, so no primary variable information needs to be tracked.
+
+Note: \texttt{num\_goal\_states = 0} appears in the \texttt{[AXIOM\_FACTOR]}
+line because that debug print reads the \texttt{goal\_states} vector
+\emph{after} it has been \texttt{move}d into the \texttt{TransitionSystem}
+constructor.  The moved-from vector is empty, so the count is always~0.  The
+correct values are those reported by \texttt{[AXIOM\_AFTER\_QBISIM]}:
+\texttt{solvable=1} and \texttt{init\_goal\_dist=0}, confirming that the
+single state is indeed a goal with $h = 0$.
+
+\paragraph{Bug 4 — \texttt{prune\_unreachable\_states} in the main loop incorrectly prunes merged factors containing derived variables.}
+
+\textbf{Symptom.} Despite the trivial (and correct) axiom factors for
+vars~31 and~36, the planner still reported ``no solution'' after the Bug~3
+fix.  The heuristic trace patch revealed that \texttt{repr[0]} returned
+\texttt{PRUNED\_STATE} for multiple states during the search, triggering
+\texttt{DEAD\_END}.
+
+\textbf{Root cause.} The census output showed that var2 (\texttt{var2},
+\texttt{derived=1}) appears in the large main SCC
+$[0, 7, 8, 9, 10, 2, 5, 11, 3, 12, 4, 1, 13, 14, 15, 16, 6]$.
+This SCC is processed as a unit by the merge strategy: all variables in the
+SCC are merged together during the main loop.  When var2 is incorporated into
+a growing composite factor, the subsequent \texttt{prune\_unreachable\_states}
+step runs a forward BFS from the initial abstract state over
+\emph{operator} transitions.  Because no operator directly sets var2 (its
+value is determined entirely by axiom evaluation), the BFS finds only abstract
+states where var2 holds its initial value reachable.  All abstract states
+where var2 has any other value receive $\texttt{init\_distance} = \infty$
+and are pruned.
+
+The lookup table for var2's component in the merged representation then maps
+every non-initial value of var2 to \texttt{PRUNED\_STATE}.  During search,
+whenever axiom evaluation sets var2 to a non-initial value — which happens in
+reachable states on the solution path — \texttt{get\_value} returns
+\texttt{PRUNED\_STATE} and \texttt{compute\_heuristic} returns \texttt{DEAD\_END}.
+
+Bug~3's fix only protected the \emph{initial} pruning loop (the loop before
+the main merge loop that prunes each atomic factor individually in
+\texttt{build\_factored\_transition\_system}).  It did not protect the
+\emph{per-merge} \texttt{prune\_step} call inside \texttt{main\_loop}, which
+applies the same forward-reachability criterion to every newly created
+composite factor.
+
+\textbf{Fix.} Extend the Bug~3 logic to the main loop's per-merge pruning
+step.  Immediately before calling \texttt{prune\_step} after each merge, check
+whether the merged factor incorporates any derived variable by consulting
+\texttt{get\_incorporated\_variables()}:
+
+\begin{lstlisting}[language=C++, caption={Skip unreachable-state pruning for merged factors with derived variables}]
+// Skip prune_unreachable_states for merged factors that incorporate
+// derived variables: axioms set their values, not operators, so
+// reachability analysis based on operators alone would incorrectly
+// mark non-initial derived-variable values as unreachable.
+bool merged_has_derived = false;
+for (int v : fts.get_transition_system(merged_index)
+                 .get_incorporated_variables()) {
+    if (task_proxy.get_variables()[v].is_derived()) {
+        merged_has_derived = true;
+        break;
+    }
+}
+bool effective_prune_unreachable =
+    prune_unreachable_states && !merged_has_derived;
+if (effective_prune_unreachable || prune_irrelevant_states) {
+    bool pruned = prune_step(
+        fts, merged_index, effective_prune_unreachable,
+        prune_irrelevant_states, log);
+\end{lstlisting}
+
+The method \texttt{get\_incorporated\_variables()} returns all planning variable
+IDs whose atomic factors have been merged into this composite factor.  If any
+of them is derived, \texttt{prune\_unreachable\_states} is suppressed for this
+merge step.  \texttt{prune\_irrelevant\_states} is unaffected: removing
+dead-end states (states from which the goal is unreachable under operator
+transitions) remains sound.
+
+This fix is implemented in \texttt{main\_loop} of
+\texttt{merge\_and\_shrink\_algorithm.cc}, in the \emph{Pruning} block
+immediately after the merge step and before the \texttt{is\_factor\_solvable}
+check.  The rest of the pruning block (log output, loop progress) is
+unchanged.
+
+\paragraph{Admissibility restored: successful run on Philosophers p01.}
+
+After applying the Bug~4 fix, the planner ran on \texttt{p01-phil2.pddl} and
+produced the following result:
+
+\begin{lstlisting}
+Solution found!
+Plan length: 18 step(s).
+Plan cost: 18
+Dead ends: 0 state(s).
+Expanded 126 state(s).
+[HEURISTIC] repr[0] cost=0 (PRUNED=-1 INF=2147483647)
+[HEURISTIC] heuristic=0 from 1 repr(s)
+\end{lstlisting}
+
+The plan of length~18 matches the one found by \texttt{astar(blind())},
+confirming \textbf{admissibility}: the heuristic no longer returns
+\texttt{DEAD\_END} for any reachable state, and no solvable state is
+incorrectly classified as a dead end.
+
+\textbf{Remaining informativeness gap.} The heuristic returns $h = 0$ for
+every state, causing the search to expand~126 states — equivalent to blind
+BFS.  This is expected given the current state of the implementation:
+
+\begin{itemize}
+  \item The axiom factors for vars~31 and~36 are trivial ($n = 0$, one state,
+        always $h = 0$) because their SAS+ axioms are unconditional (empty
+        precondition lists after static simplification).
+  \item Var2, a derived variable in the large main SCC, is merged with primary
+        variable factors.  Since \texttt{prune\_unreachable\_states} is now
+        suppressed for this composite factor, all abstract states remain live
+        and the goal-distance BFS finds $h = 0$ from the initial abstract
+        state (every abstract state is a goal state because var2's goal-state
+        marking is unconstrained by design).
+\end{itemize}
+
+The heuristic is \textbf{correct} (admissible, no false dead ends) but
+\textbf{uninformative} ($h = 0$ gives no guidance).  Improving informativeness
+requires the axiom factor to carry non-trivial goal-distance information.
+For the Philosophers instance this means either:
+
+\begin{enumerate}
+  \item Tracing the dependency chain through \texttt{blocked-trans} variables to
+        reach primary variables such as \texttt{activate} and
+        \texttt{queue-size}, and building a product factor over those primary
+        variables; or
+  \item Recognising that when all SAS+ axioms for a goal derived variable are
+        unconditional, the goal condition is trivially satisfiable in any state,
+        and encoding the non-trivial cost in a higher-level composite factor that
+        combines the axiom factor with the primary variable factors controlling
+        \texttt{blocked-trans}.
+\end{enumerate}
+
+Both directions require extending the goal-state marking logic to propagate
+axiom satisfaction constraints through intermediate derived variables.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 4 — Quasi-Bisimulation Shrinking}

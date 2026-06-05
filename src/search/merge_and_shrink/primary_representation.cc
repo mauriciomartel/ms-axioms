@@ -39,7 +39,7 @@ PrimaryRepresentation::PrimaryRepresentation(
         // determine their satisfiability without running the full evaluator,
         // so we over-approximate by assuming they can always be satisfied.
         unordered_map<int, int> primary_conds;
-        for (FactProxy cond : axiom.get_preconditions()) {
+        for (FactProxy cond : axiom.get_effects()[0].get_conditions()) {
             VariableProxy cond_var = cond.get_variable();
             if (!cond_var.is_derived())
                 primary_conds[cond_var.get_id()] = cond.get_value();

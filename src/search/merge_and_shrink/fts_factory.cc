@@ -557,7 +557,7 @@ int build_axiom_factor(
             EffectProxy eff = axiom.get_effects()[0];
             if (eff.get_fact().get_variable().get_id() != cur_derived)
                 continue;
-            for (FactProxy pre : axiom.get_preconditions()) {
+            for (FactProxy pre : axiom.get_effects()[0].get_conditions()) {
                 VariableProxy pvar = pre.get_variable();
                 if (pvar.is_derived()) {
                     if (!visited_derived.count(pvar.get_id())) {
@@ -634,44 +634,15 @@ int build_axiom_factor(
     for (int i = 0; i < n; ++i)
         init_state += init[var_ids[i]].get_value() * mult[i];
 
-    // Step 4: Goal states — product states from which derived_var_id can be
-    // derived to its goal value. Uses recursive can_derive to follow transitive
-    // chains through intermediate derived variables.
+    // Step 4: Goal states — product states in which derived_var_id evaluates
+    // to its goal value after full stratified axiom evaluation.
     //
-    // can_derive(d, target, s): returns true iff axioms can set derived var d
-    // to value target given product state s (primary variable assignments only).
-    function<bool(int, int, int)> can_derive = [&](int d, int target, int s) -> bool {
-        bool any_axiom_for_target = false;   // ADD THIS
-        for (OperatorProxy axiom : task_proxy.get_axioms()) {
-            EffectProxy eff = axiom.get_effects()[0];
-            if (eff.get_fact().get_variable().get_id() != d) continue;
-            if (eff.get_fact().get_value() != target) continue;
-            any_axiom_for_target = true;     // ADD THIS
-            bool body_satisfied = true;
-            for (FactProxy pre : axiom.get_preconditions()) {
-                VariableProxy pvar = pre.get_variable();
-                if (pvar.is_derived()) {
-                    if (!can_derive(pvar.get_id(), pre.get_value(), s)) {
-                        body_satisfied = false;
-                        break;
-                    }
-                } else {
-                    auto it = var_id_to_idx.find(pvar.get_id());
-                    if (it != var_id_to_idx.end()) {
-                        if (decode_val(s, it->second) != pre.get_value()) {
-                            body_satisfied = false;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (body_satisfied) return true;
-        }
-        // No axiom derives d to target → target is d's default value, held
-        // whenever no axiom fires. Over-approximate as always achievable.
-        if (!any_axiom_for_target) return true;   // ADD THIS (replaces plain return false)
-        return false;
-    };
+    // For each product state s, seed all closure-derived variables at their
+    // default values, then run forward chaining in axiom-layer order.
+    // Primary conditions are checked against s; derived conditions are checked
+    // against the evolving derived_vals. This correctly handles negation-by-
+    // failure (a derived var stays at its default unless a rule fires) without
+    // over-approximation.
 
     int goal_derived_value = -1;
     for (FactProxy g : task_proxy.get_goals()) {
@@ -682,10 +653,68 @@ int build_axiom_factor(
     }
     assert(goal_derived_value != -1);
 
+    // Default values for all derived variables in the dependency closure.
+    unordered_map<int, int> derived_default;
+    for (int d : visited_derived)
+        derived_default[d] = variables[d].get_default_axiom_value();
+
+    // Axioms relevant to the closure, sorted by axiom layer.
+    struct AxiomRule {
+        int layer, eff_var, eff_val;
+        vector<pair<int, int>> conditions; // (var_id, required_value)
+    };
+    vector<AxiomRule> relevant_axioms;
+    for (OperatorProxy axiom : task_proxy.get_axioms()) {
+        EffectProxy eff = axiom.get_effects()[0];
+        int eff_var_id = eff.get_fact().get_variable().get_id();
+        if (!visited_derived.count(eff_var_id)) continue;
+        AxiomRule rule;
+        rule.layer   = variables[eff_var_id].get_axiom_layer();
+        rule.eff_var = eff_var_id;
+        rule.eff_val = eff.get_fact().get_value();
+        for (FactProxy cond : eff.get_conditions())
+            rule.conditions.emplace_back(
+                cond.get_variable().get_id(), cond.get_value());
+        relevant_axioms.push_back(move(rule));
+    }
+    sort(relevant_axioms.begin(), relevant_axioms.end(),
+         [](const AxiomRule &a, const AxiomRule &b) {
+             return a.layer < b.layer;
+         });
+
+    // Evaluate axiom closure for each product state.
+    vector<int> derived_vals(variables.size());
     vector<bool> goal_states(num_product_states, false);
     for (int s = 0; s < num_product_states; ++s) {
-        if (can_derive(derived_var_id, goal_derived_value, s))
-            goal_states[s] = true;
+        for (auto &[d, def] : derived_default)
+            derived_vals[d] = def;
+
+        // One pass in layer order suffices: FD stratification prevents
+        // intra-layer positive cycles.
+        for (const AxiomRule &rule : relevant_axioms) {
+            if (derived_vals[rule.eff_var] != derived_default.at(rule.eff_var))
+                continue; // already fired; axioms fire at most once
+            bool satisfied = true;
+            for (auto [cvar, cval] : rule.conditions) {
+                int cur_val;
+                if (variables[cvar].is_derived()) {
+                    auto it = derived_default.find(cvar);
+                    cur_val = (it != derived_default.end())
+                              ? derived_vals[cvar]
+                              : variables[cvar].get_default_axiom_value();
+                } else {
+                    auto it = var_id_to_idx.find(cvar);
+                    if (it == var_id_to_idx.end())
+                        continue; // not in product space: over-approximate
+                    cur_val = decode_val(s, it->second);
+                }
+                if (cur_val != cval) { satisfied = false; break; }
+            }
+            if (satisfied)
+                derived_vals[rule.eff_var] = rule.eff_val;
+        }
+
+        goal_states[s] = (derived_vals[derived_var_id] == goal_derived_value);
     }
 
     // -----------------------------------------------------------------------

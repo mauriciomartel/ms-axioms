@@ -357,10 +357,12 @@ void MergeAndShrinkAlgorithm::main_loop(
         }
         bool effective_prune_unreachable =
             prune_unreachable_states && !merged_has_derived;
-        if (effective_prune_unreachable || prune_irrelevant_states) {
+        bool effective_prune_irrelevant =
+            prune_irrelevant_states && !merged_has_derived;
+        if (effective_prune_unreachable || effective_prune_irrelevant) {
             bool pruned = prune_step(
                 fts, merged_index, effective_prune_unreachable,
-                prune_irrelevant_states, log);
+                effective_prune_irrelevant, log);
             if (log.is_at_least_normal() && pruned) {
                 if (log.is_at_least_verbose()) {
                     fts.statistics(merged_index, log);
@@ -509,16 +511,25 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
     int num_variables = task_proxy.get_variables().size();
     for (int index = 0; index < fts.get_size(); ++index) {
         assert(fts.is_active(index));
-        // Derived variable atomic factors: skip prune_unreachable_states.
-        // Their values are set by axiom evaluation, not operators, so forward
-        // reachability from the init state is unsound for them.
-        bool effective_prune_unreachable = prune_unreachable_states &&
-            !(index < num_variables &&
-              task_proxy.get_variables()[index].is_derived());
-        if (effective_prune_unreachable || prune_irrelevant_states) {
+        // Pruning for atomic and axiom factors:
+        // - Derived variable atomic factors (index < num_variables, is_derived):
+        //   skip prune_unreachable_states. Their values are set by axiom
+        //   evaluation, not operators, so forward reachability from the init
+        //   state is unsound for them.
+        // - Axiom factors (index >= num_variables): skip prune_irrelevant_states.
+        //   The axiom factor covers only a subset of primary variables; backward
+        //   reachability within that subspace does not capture all operator
+        //   paths to the goal in the full system and would incorrectly mark
+        //   reachable states as irrelevant.
+        bool is_derived_atomic = index < num_variables &&
+                                 task_proxy.get_variables()[index].is_derived();
+        bool is_axiom_factor = index >= num_variables;
+        bool effective_prune_unreachable = prune_unreachable_states && !is_derived_atomic;
+        bool effective_prune_irrelevant = prune_irrelevant_states && !is_axiom_factor;
+        if (effective_prune_unreachable || effective_prune_irrelevant) {
             bool pruned_factor = prune_step(
                 fts, index,
-                effective_prune_unreachable, prune_irrelevant_states,
+                effective_prune_unreachable, effective_prune_irrelevant,
                 log);
             pruned = pruned || pruned_factor;
         }

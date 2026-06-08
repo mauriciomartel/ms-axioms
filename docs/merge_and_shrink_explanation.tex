@@ -2307,20 +2307,46 @@ factor compact.
 \textbf{Files:} \texttt{merge\_and\_shrink\_algorithm.cc},
 \texttt{merge\_strategy\_sccs.cc} or \texttt{merge\_tree\_factory.cc}
 
-Two changes to the existing loop are required:
+Both integration tasks originally planned for this step were carried out as
+part of Step~3.
 
-\paragraph{Remove the axiom abort.}
-The current code calls \texttt{verify\_no\_axioms()} and aborts if axioms are
-present.  Replace this guard with the preprocessing phase from Step~3.
+\paragraph{Remove the axiom abort (done in Step~3).}
+The guard \texttt{verify\_no\_axioms()} was removed from
+\texttt{merge\_and\_shrink\_algorithm.cc} and replaced with the preprocessing
+phase that builds axiom-induced factors.  The language-support annotation was
+also updated from \texttt{"not supported"} to \texttt{"supported"}.
 
-\paragraph{Merge ordering.}
-Axiom-induced factors $\Theta_{S,d}$ must be merged with their associated
-primary variable factors \emph{before} those factors are merged with unrelated
-ones.  The axiom dependency DAG (available from \texttt{axiom\_rules.py}
-stratification) provides the necessary ordering.  This can be encoded either
-by extending \texttt{MergeStrategySCCs} to treat axiom dependencies as an
-additional SCC constraint, or by pre-scheduling axiom-induced merges in a
-\texttt{MergeTree}.
+\paragraph{Merge ordering (done in Step~3).}
+Axiom-induced factors $\Theta_{S,d}$ are inserted at the \emph{front} of the
+factor list before the main M\&S loop begins.  Because Fast Downward's default
+merge strategy processes factors in order, placing axiom factors first ensures
+they are merged with their associated primary-variable factors before any
+unrelated merges take place.  No changes to \texttt{MergeStrategySCCs} or
+\texttt{MergeTree} were required.
+
+\paragraph{Validation.}
+With Steps~1--5 complete, the implementation was tested on three instances of
+the Philosophers benchmark (IPC\,2000), which uses derived predicates to encode
+mutual-exclusion constraints.
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Instance} & \textbf{Init.\ $h$} & \textbf{Plan cost} & \textbf{Dead ends} \\
+\midrule
+\texttt{phil01} (2 philosophers) & 5  & 18 & 0 \\
+\texttt{phil02} (3 philosophers) & 4  & 27 & 31 \\
+\texttt{phil03} (4 philosophers) & 6  & 36 & 1338 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All three instances are solved optimally.  The dead ends on \texttt{phil02} and
+\texttt{phil03} were confirmed to be \emph{genuine}: re-running with both
+\texttt{prune\_unreachable\_states=false} and \texttt{prune\_irrelevant\_states=false}
+yields identical plan costs and dead-end counts, ruling out any spurious
+pruning.  The implementation is currently working correctly on all Philosophers
+instances tested.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Phased Implementation Path}

@@ -530,13 +530,14 @@ one:
     \emph{New files:} \texttt{shrink\_quasi\_bisimulation.h/.cc}.
 
   \item[Step 5 — Integration into the Main Loop.]
-    Remove the axiom abort (\texttt{verify\_no\_axioms()}) and update the
-    language-support annotation from \texttt{"not supported"} to
-    \texttt{"supported"}, then verify end-to-end correctness on tasks with
-    derived goal predicates.
-    \emph{Key files:} \texttt{merge\_and\_shrink\_algorithm.cc}
-    (abort removal), \texttt{merge\_and\_shrink\_heuristic.cc}
-    (language-support annotation).
+    Confirm end-to-end correctness on tasks with derived goal predicates.
+    The two integration tasks originally planned for this step — removing the
+    axiom abort (\texttt{verify\_no\_axioms()}) and updating the
+    language-support annotation — were carried out as part of Step~3.
+    Step~5 validates the full pipeline on the Philosophers benchmark
+    (p01, p02, p03) and confirms admissibility and informativeness.
+    \emph{Key files:} \texttt{merge\_and\_shrink\_algorithm.cc},
+    \texttt{merge\_and\_shrink\_heuristic.cc}.
 \end{description}
 
 % ─────────────────────────────────────────────────────────────────────────────

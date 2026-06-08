@@ -2351,19 +2351,82 @@ instances tested.
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Phased Implementation Path}
 
-\paragraph{Phase 1 — Axioms in goal conditions.}
-Apply Steps 1--5 above.  Modify goal state marking in
-\texttt{TransitionSystem} and add axiom-induced factors.  The heuristic lookup
-in \texttt{MergeAndShrinkRepresentation::get\_value()} then naturally reflects
-derived goal satisfaction through the abstract state encoding.
+\hrule\medskip
+\noindent\textbf{Phase 1 — Axioms in goal conditions \hfill\textit{[Complete]}}
+\medskip
 
-\paragraph{Phase 2 — Axioms in operator preconditions.}
-The same $(\cdot)^A$ transformation applies, but instead of re-marking goal
-states it re-marks which transitions are \emph{enabled}: a transition is
-present in $(\Theta)^A$ only if its precondition, including derived conditions,
-is satisfied.  This change is localised to the transition generation step in
-\texttt{transition\_system.cc}, where precondition checks currently consider
-only primary variables.
+Phase 1 adds support for tasks whose \emph{goal} is a derived predicate.  The
+key idea is to build an extra abstract factor for each derived goal variable,
+compute its quasi-bisimulation quotient, and include it alongside the
+primary-variable factors in the M\&S heuristic.
+
+The following was implemented:
+
+\begin{itemize}
+  \item \textbf{Primary representations} (\texttt{primary\_representation.h/.cc}):
+    for each derived goal variable~$d$, identify the set $S_d$ of primary
+    (non-derived) variables that $d$ depends on transitively.
+  \item \textbf{Axiom-induced factors} (\texttt{fts\_factory.cc}): build a
+    product transition system over $S_d$, then evaluate the axiom rules to
+    mark which abstract states satisfy the derived goal.
+  \item \textbf{Quasi-bisimulation shrinking}
+    (\texttt{shrink\_quasi\_bisimulation.cc}): reduce each axiom-induced factor
+    while preserving goal/non-goal distinctions and admissibility of the
+    heuristic.
+  \item \textbf{Main loop integration}
+    (\texttt{merge\_and\_shrink\_algorithm.cc}): removed the axiom abort,
+    inserted axiom-induced factors at the front of the factor list, and updated
+    the language-support annotation to \texttt{"supported"}.
+\end{itemize}
+
+\textbf{Next steps for Phase~1.}
+The implementation has been validated on the Philosophers benchmark
+(see the table in Step~5).  To build further confidence it should be tested on
+a wider range of domains:
+
+\begin{itemize}
+  \item \emph{More Philosophers instances} — larger instances
+    (\texttt{phil04}, \texttt{phil05}, \ldots) to check scalability and ensure
+    dead-end counts remain genuine.
+  \item \emph{Other IPC domains with derived predicates} — for example
+    \texttt{psr-small}, \texttt{optical-telegraphs}, and \texttt{philosophers}
+    variants from the downward-benchmarks repository, which cover a variety of
+    axiom-dependency structures.
+  \item \emph{Regression check} — run a selection of non-axiom domains (e.g.\
+    \texttt{gripper}, \texttt{logistics}) to confirm that the changes do not
+    affect performance on tasks without derived predicates.
+\end{itemize}
+
+\bigskip
+\hrule\medskip
+\noindent\textbf{Phase 2 — Axioms in operator preconditions \hfill\textit{[Planned]}}
+\medskip
+
+Phase~1 only handles derived predicates that appear in the \emph{goal}.
+Many planning domains also use derived predicates in \emph{operator
+preconditions} (e.g.\ a robot may only pick up an object if it is
+\emph{reachable}, where reachability is a derived predicate).  Phase~2 extends
+the M\&S heuristic to handle these cases correctly.
+
+The core change is to the transition-generation step: a transition is included
+in a factor only if \emph{all} preconditions of the corresponding operator —
+including those on derived variables — are satisfied in the abstract state.
+Concretely:
+
+\begin{itemize}
+  \item \textbf{Precondition evaluation in abstract states}: when building
+    transitions in \texttt{fts\_factory.cc}, check derived preconditions by
+    evaluating the axiom rules on the projected abstract state, analogously to
+    the goal-marking procedure in Phase~1.
+  \item \textbf{Axiom-induced factors for precondition variables}: for each
+    operator precondition on a derived variable~$d$, build a factor over $S_d$
+    (using the same \texttt{build\_axiom\_factor} machinery) and restrict the
+    transitions of the corresponding primary-variable factors to those states
+    where $d$ evaluates to the required value.
+  \item \textbf{Admissibility}: verify that the extended transition system
+    remains an admissible abstraction — i.e.\ that no concrete transition is
+    absent from the abstraction unless it is genuinely infeasible.
+\end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

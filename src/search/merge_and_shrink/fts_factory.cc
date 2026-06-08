@@ -58,8 +58,7 @@ class FTSFactory {
     int task_has_conditional_effects;
 
     unique_ptr<Labels> create_labels();
-    void build_state_data(VariableProxy var,
-                      const std::vector<PrimaryRepresentation> &derived_goal_reprs);
+    void build_state_data(VariableProxy var);
     void initialize_transition_system_data(const Labels &labels);
     bool is_relevant(int var_id, int label) const;
     void mark_as_relevant(int var_id, int label);
@@ -117,9 +116,7 @@ unique_ptr<Labels> FTSFactory::create_labels() {
     return make_unique<Labels>(move(label_costs), max_num_labels);
 }
 
-void FTSFactory::build_state_data(
-    VariableProxy var,
-    const vector<PrimaryRepresentation> &derived_goal_reprs) {
+void FTSFactory::build_state_data(VariableProxy var) {
     int var_id = var.get_id();
     TransitionSystemData &ts_data = transition_system_data_by_var[var_id];
     ts_data.init_state = task_proxy.get_initial_state()[var_id].get_value();
@@ -179,7 +176,7 @@ void FTSFactory::initialize_transition_system_data(const Labels &labels) {
         ts_data.incorporated_variables.push_back(var.get_id());
         ts_data.label_to_local_label.resize(labels.get_max_num_labels(), -1);
         ts_data.relevant_labels.resize(labels.get_num_total_labels(), false);
-        build_state_data(var, derived_goal_reprs);
+        build_state_data(var);
     }
 }
 

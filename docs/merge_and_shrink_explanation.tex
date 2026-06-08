@@ -501,9 +501,10 @@ one:
 \begin{description}
   \item[Step 1 — Compute Primary Representations.]
     For each derived goal variable~$d$, identify the set~$S_d$ of primary
-    (non-derived) variables that $d$ depends on, via a backward BFS over the
-    axiom dependency graph.  This set is the minimal support needed to evaluate
-    $d$ without materialising derived variables.
+    (non-derived) variables that $d$ depends on by scanning the axiom rules
+    whose head is $d$ and collecting the primary-variable conditions that appear
+    in those rules.  Derived conditions are over-approximated (treated as always
+    satisfiable) to keep the computation simple.
     \emph{New files:} \texttt{primary\_representation.h/.cc}.
 
   \item[Step 2 — Implement the $(\cdot)^A$ Transformation.]

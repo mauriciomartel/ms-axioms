@@ -1788,16 +1788,41 @@ monotonically during search).  The search expands only 91 states compared to
 have 1048 states after quasi-bisimulation, with an initial goal distance of~3,
 confirming that the goal-state marking is non-trivial.
 
+\paragraph{Bug 5 — (·)$^A$ goal restriction on primary variable factors causes false dead ends.}
+
+After confirming admissibility on p01, theoretical analysis revealed a latent
+admissibility violation in the (·)$^A$ goal-state restriction that had been applied
+to primary variable atomic factors via \texttt{PrimaryRepresentation}.
+
+The restriction marks a primary variable value $v = c$ as a non-goal state in the
+atomic factor for $v$ whenever $c$ is incompatible with some derived goal variable.
+While sound as a restriction on \emph{final} goal states, it interacts badly with
+\texttt{prune\_irrelevant\_states}: the pruning step removes every abstract state
+whose goal distance is~$\infty$, which includes states with ``incompatible'' values
+that nonetheless have operator transitions leading to compatible (and therefore
+relevant) states.  Such states are valid intermediate states on solution paths; pruning
+them produces false dead ends and violates admissibility.
+
+\textbf{Fix.}  The (·)$^A$ filter is removed from \texttt{build\_state\_data}
+entirely.  Primary variables with no explicit goal condition keep all their values as
+goal states, matching the standard Fast Downward behaviour.  The
+\texttt{derived\_goal\_reprs} parameter of \texttt{build\_state\_data} and the
+corresponding \texttt{PrimaryRepresentation} precomputation in
+\texttt{initialize\_transition\_system\_data} are also removed as they became unused.
+
+Admissibility and informativeness are fully preserved: the axiom factors
+$\Theta_{S,d}$ already encode all derived-goal reachability information; restricting
+primary variable factors further is both redundant and harmful.
+
 \paragraph{Validation on Philosophers p02 (3 philosophers) and p03 (4 philosophers).}
 
-With all five fixes in place the same configuration was run on the larger
+With all six fixes applied the same configuration was run on the larger
 instances to confirm scalability and correctness.
 
 \textbf{p02 — 3 philosophers.}
 
 \begin{lstlisting}
-[HEURISTIC] repr[0] cost=4 (PRUNED=-1 INF=2147483647)
-[HEURISTIC] heuristic=4 from 1 repr(s)
+Initial heuristic value for merge_and_shrink: 4
 
 Solution found!
 Plan length: 27 step(s).
@@ -1814,7 +1839,7 @@ To verify this, the planner was re-run with both pruning options disabled
 (\texttt{prune\_unreachable\_states=false, prune\_irrelevant\_states=false}):
 
 \begin{lstlisting}
-[HEURISTIC] repr[0] cost=4 (PRUNED=-1 INF=2147483647)
+Initial heuristic value for merge_and_shrink: 4
 Solution found!
 Plan cost: 27
 Dead ends: 31 state(s).
@@ -1830,8 +1855,7 @@ the concrete task.
 \textbf{p03 — 4 philosophers.}
 
 \begin{lstlisting}
-[HEURISTIC] repr[0] cost=6 (PRUNED=-1 INF=2147483647)
-[HEURISTIC] heuristic=6 from 1 repr(s)
+Initial heuristic value for merge_and_shrink: 6
 
 Solution found!
 Plan length: 36 step(s).
@@ -1844,6 +1868,28 @@ cost~36 ($6 \le 36$, admissible), and 1338 genuine dead ends are correctly
 detected.  The larger count reflects the combinatorial explosion in states from
 which a 4-way simultaneous deadlock cannot be reached.  Search terminates in
 under 0.15~s with 23\,000 states expanded.
+
+\paragraph{Code cleanup.}
+
+After all bugs were fixed and all three benchmarks validated, the following
+housekeeping changes were applied to the feature branch:
+
+\begin{itemize}
+  \item \textbf{Remove debug output}: \texttt{[HEURISTIC]} cerr block (with
+        \texttt{static bool debug\_first}) from \texttt{compute\_heuristic};
+        \texttt{[AXIOM\_AFTER\_QBISIM]} cerr block from
+        \texttt{build\_factored\_transition\_system}; and the
+        \texttt{[BFS\_DEBUG]}, \texttt{[BFS\_RESULT]}, and
+        \texttt{[AXIOM\_FACTOR]} cerr blocks from \texttt{build\_axiom\_factor}.
+  \item \textbf{Fix typo}: \texttt{bool unsolvalbe} $\to$
+        \texttt{bool unsolvable} in \texttt{merge\_and\_shrink\_heuristic.cc}.
+  \item \textbf{Update language support declaration}:
+        \texttt{document\_language\_support("axioms",\,"not\,supported")}
+        $\to$ \texttt{"supported"} in the plugin registration.
+  \item \textbf{Remove unused \texttt{derived\_goal\_reprs} parameter} from
+        the \texttt{build\_state\_data} signature (and its call site and class
+        declaration), which became dead code after the Bug~5 fix.
+\end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 4 — Quasi-Bisimulation Shrinking}

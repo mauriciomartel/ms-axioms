@@ -476,22 +476,6 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
                     max_states_before_merge,
                     log);
             fts.apply_abstraction(axiom_index, equiv, log);
-            // === DEBUG: axiom factor state after qbisim ===
-            {
-                const TransitionSystem &ats = fts.get_transition_system(axiom_index);
-                const Distances &adist = fts.get_distances(axiom_index);
-                int ainit = ats.get_init_state();
-                std::cerr << "[AXIOM_AFTER_QBISIM] ts_size=" << ats.get_size()
-                          << " init_state=" << ainit
-                          << " solvable=" << fts.is_factor_solvable(axiom_index)
-                          << " init_goal_dist=";
-                if (adist.are_goal_distances_computed())
-                    std::cerr << adist.get_goal_distance(ainit);
-                else
-                    std::cerr << "NOT_COMPUTED";
-                std::cerr << "\n";
-            }
-            // === END DEBUG ===
             if (log.is_at_least_normal()) {
                 log_progress(
                     timer, "after building and shrinking axiom factor", log);

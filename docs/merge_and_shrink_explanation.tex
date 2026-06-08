@@ -493,6 +493,47 @@ where $(\cdot)^A$ re-marks the goal states of a transition system to be
 exactly those satisfying the projected axiom $d$, and $\Theta_i^G$ is
 $\Theta_i$ with every state designated as a goal.
 
+\subsubsection*{Implementation Overview}
+
+The implementation is divided into five steps, each building on the previous
+one:
+
+\begin{description}
+  \item[Step 1 — Compute Primary Representations.]
+    For each derived goal variable~$d$, identify the set~$S_d$ of primary
+    (non-derived) variables that $d$ depends on, via a backward BFS over the
+    axiom dependency graph.  This set is the minimal support needed to evaluate
+    $d$ without materialising derived variables.
+    \emph{New files:} \texttt{primary\_representation.h/.cc}.
+
+  \item[Step 2 — Implement the $(\cdot)^A$ Transformation.]
+    Define the goal-restriction operator $(\cdot)^A$: given a transition system
+    and a derived goal variable~$d$, re-mark the abstract states whose concrete
+    pre-images satisfy $d$.  This transformation is the theoretical backbone
+    used in Step~3.
+    \emph{Key file:} \texttt{fts\_factory.cc}.
+
+  \item[Step 3 — Build Axiom-Induced Abstract Factors.]
+    For each derived goal variable~$d$, construct the factor $\Theta_{S_d,d}$:
+    a product system over $S_d$ whose goal states are exactly those satisfying
+    $d$.  These factors are inserted at the front of the factor list so that the
+    M\&S loop merges them with their primary-variable factors first.
+    \emph{Key files:} \texttt{fts\_factory.cc},
+    \texttt{merge\_and\_shrink\_algorithm.cc}.
+
+  \item[Step 4 — Quasi-Bisimulation Shrinking.]
+    Reduce each axiom-induced factor using quasi-bisimulation: a bisimulation
+    variant that preserves goal/non-goal distinctions and ensures the resulting
+    heuristic remains admissible.
+    \emph{New files:} \texttt{shrink\_quasi\_bisimulation.h/.cc}.
+
+  \item[Step 5 — Integration into the Main Loop.]
+    Remove the axiom abort (\texttt{verify\_no\_axioms()}), update the
+    language-support annotation, and verify that the heuristic correctly handles
+    tasks with derived goal predicates end-to-end.
+    \emph{Key file:} \texttt{merge\_and\_shrink\_algorithm.cc}.
+\end{description}
+
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 1 — Compute Primary Representations}
 \textbf{New files:} \texttt{merge\_and\_shrink/primary\_representation.h},

@@ -1020,9 +1020,11 @@ table below maps each step to the implementation piece that fulfils it.
 2.\ Mark goal states via $(\cdot)^A$ &
   \texttt{build\_axiom\_factor} Step~4 marks a product state as a goal iff it
   satisfies the primary preconditions of at least one axiom body for $d$
-  (derived preconditions are over-approximated as always satisfiable, the same
-  conservative treatment used in Step~2 for atomic factors).  This is the
-  $(\cdot)^A$ transformation applied directly to the product space. \\[4pt]
+  (derived preconditions are initially over-approximated as always satisfiable).
+  This is the $(\cdot)^A$ transformation applied directly to the product space.
+  \emph{Note: this initial approach was later replaced by stratified forward
+  chaining to eliminate a precision bug; see the ``Informativeness gap'' fix
+  in the testing section below.} \\[4pt]
 3.\ Quasi-bisimulation shrinking &
   Handled in Piece~4 (\S\ref{sec:piece4}).  After \texttt{build\_axiom\_factor}
   returns the index of the new factor, the algorithm calls
@@ -1139,7 +1141,7 @@ throughout the subsequent steps.
 The initial product state is encoded as
 $\mathrm{init\_state} = \sum_i \mathrm{init}[x_i] \cdot m_i$.
 
-\paragraph{Step 4 — Goal states.}
+\paragraph{Step 4 — Goal states (initial implementation).}
 A product state $s$ is marked as a goal if it satisfies the primary
 preconditions of at least one axiom body for $d$.  For each such axiom, the
 function collects the required values of $S_d$ variables from the body, ignoring
@@ -1149,6 +1151,11 @@ requirements are marked as goals.
 Ignoring derived preconditions is a safe \emph{over-approximation}: more states
 are marked as goals than strictly required, which can only cause the heuristic
 to underestimate, preserving admissibility.
+
+\emph{This approach was replaced by stratified forward chaining after testing
+revealed it marked every product state as a goal, collapsing the factor to a
+single abstract state ($h = 0$ everywhere).  See the ``Informativeness gap''
+paragraph in the testing section below for the corrected implementation.}
 
 \paragraph{Step 5 — Transitions for each operator label.}
 An operator is \emph{relevant} to the product factor if it has a precondition or

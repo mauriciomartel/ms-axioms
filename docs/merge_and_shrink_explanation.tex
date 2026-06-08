@@ -2363,12 +2363,12 @@ phase that builds axiom-induced factors.  The language-support annotation was
 also updated from \texttt{"not supported"} to \texttt{"supported"}.
 
 \paragraph{Merge ordering (done in Step~3).}
-Axiom-induced factors $\Theta_{S,d}$ are inserted at the \emph{front} of the
-factor list before the main M\&S loop begins.  Because Fast Downward's default
-merge strategy processes factors in order, placing axiom factors first ensures
-they are merged with their associated primary-variable factors before any
-unrelated merges take place.  No changes to \texttt{MergeStrategySCCs} or
-\texttt{MergeTree} were required.
+Axiom-induced factors $\Theta_{S,d}$ are appended to the factored transition
+system at indices $\geq$ \texttt{num\_variables}, before the main M\&S loop
+begins.  They are immediately shrunk with quasi-bisimulation at that point
+(Step~4), so by the time the merge loop starts each axiom factor is already a
+compact abstraction ready to be merged with the primary-variable factors.  No
+changes to \texttt{MergeStrategySCCs} or \texttt{MergeTree} were required.
 
 \paragraph{Validation.}
 With Steps~1--5 complete, the implementation was tested on three instances of

@@ -517,8 +517,9 @@ one:
   \item[Step 3 — Build Axiom-Induced Abstract Factors.]
     For each derived goal variable~$d$, construct the factor $\Theta_{S_d,d}$:
     a product system over $S_d$ whose goal states are exactly those satisfying
-    $d$.  These factors are inserted at the front of the factor list so that the
-    M\&S loop merges them with their primary-variable factors first.
+    $d$.  Each factor is appended to the factored transition system (at an index
+    $\geq$ \texttt{num\_variables}) before the main M\&S loop begins, and is
+    immediately shrunk with quasi-bisimulation before any merging takes place.
     \emph{Key files:} \texttt{fts\_factory.cc},
     \texttt{merge\_and\_shrink\_algorithm.cc}.
 
@@ -529,10 +530,13 @@ one:
     \emph{New files:} \texttt{shrink\_quasi\_bisimulation.h/.cc}.
 
   \item[Step 5 — Integration into the Main Loop.]
-    Remove the axiom abort (\texttt{verify\_no\_axioms()}), update the
-    language-support annotation, and verify that the heuristic correctly handles
-    tasks with derived goal predicates end-to-end.
-    \emph{Key file:} \texttt{merge\_and\_shrink\_algorithm.cc}.
+    Remove the axiom abort (\texttt{verify\_no\_axioms()}) and update the
+    language-support annotation from \texttt{"not supported"} to
+    \texttt{"supported"}, then verify end-to-end correctness on tasks with
+    derived goal predicates.
+    \emph{Key files:} \texttt{merge\_and\_shrink\_algorithm.cc}
+    (abort removal), \texttt{merge\_and\_shrink\_heuristic.cc}
+    (language-support annotation).
 \end{description}
 
 % ─────────────────────────────────────────────────────────────────────────────
@@ -2416,9 +2420,11 @@ The following was implemented:
     while preserving goal/non-goal distinctions and admissibility of the
     heuristic.
   \item \textbf{Main loop integration}
-    (\texttt{merge\_and\_shrink\_algorithm.cc}): removed the axiom abort,
-    inserted axiom-induced factors at the front of the factor list, and updated
-    the language-support annotation to \texttt{"supported"}.
+    (\texttt{merge\_and\_shrink\_algorithm.cc},
+    \texttt{merge\_and\_shrink\_heuristic.cc}): removed the axiom abort,
+    appended axiom-induced factors to the factored transition system before the
+    main M\&S loop begins, and updated the language-support annotation to
+    \texttt{"supported"}.
 \end{itemize}
 
 \textbf{Next steps for Phase~1.}

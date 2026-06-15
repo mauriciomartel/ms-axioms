@@ -392,7 +392,7 @@ void MergeAndShrinkAlgorithm::main_loop(
           transition systems to be non-empty, i.e. the initial state
           not to be pruned/not to be evaluated as infinity.
         */
-        if (!fts.is_factor_solvable(merged_index)) {
+        if (!is_axiom_derived[merged_index] && !fts.is_factor_solvable(merged_index)) {
             if (log.is_at_least_normal()) {
                 log << "Abstract problem is unsolvable, stopping "
                        "computation. "

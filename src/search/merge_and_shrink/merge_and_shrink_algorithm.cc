@@ -357,10 +357,12 @@ void MergeAndShrinkAlgorithm::main_loop(
         }
 
         // Pruning
-        // Skip prune_unreachable_states for merged factors that incorporate
-        // derived variables: axioms set their values, not operators, so
-        // reachability analysis based on operators alone would incorrectly
-        // mark non-initial derived-variable values as unreachable.
+        // - Factors with derived variables in incorporated_variables (derived
+        //   atomic TS): skip both prunings; axiom rules set derived values,
+        //   not operators, so operator-based analysis is incorrect.
+        // - Axiom-derived merged factors (is_axiom_derived): skip
+        //   prune_irrelevant_states; backward reachability within the partial
+        //   subspace misses paths that require variables not yet merged in.
         bool merged_has_derived = false;
         for (int v : fts.get_transition_system(merged_index).get_incorporated_variables()) {
             if (task_proxy.get_variables()[v].is_derived()) {
@@ -373,10 +375,8 @@ void MergeAndShrinkAlgorithm::main_loop(
         bool effective_prune_irrelevant =
             prune_irrelevant_states && !merged_has_derived && !is_axiom_derived[merged_index];
         if (effective_prune_unreachable || effective_prune_irrelevant) {
-            bool effective_prune_irrelevant =
-                prune_irrelevant_states && !is_axiom_derived[merged_index];
             bool pruned = prune_step(
-                fts, merged_index, prune_unreachable_states,
+                fts, merged_index, effective_prune_unreachable,
                 effective_prune_irrelevant, log);
             if (log.is_at_least_normal() && pruned) {
                 if (log.is_at_least_verbose()) {
@@ -385,7 +385,7 @@ void MergeAndShrinkAlgorithm::main_loop(
                 log_main_loop_progress("after pruning");
             }
         }
-
+        
         /*
           NOTE: both the shrink strategy classes and the construction
           of the composite transition system require the input

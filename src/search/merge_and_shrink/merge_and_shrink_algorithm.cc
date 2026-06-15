@@ -269,6 +269,17 @@ void MergeAndShrinkAlgorithm::main_loop(
         log << "M&S algorithm main loop timer: " << timer.get_elapsed_time()
             << " (" << msg << ")" << endl;
     };
+    /*
+      Track which factors incorporate axiom-factor information. Axiom factors
+      sit at indices >= num_variables. Any merged factor inheriting from one
+      must skip prune_irrelevant_states for the same reason the initial loop
+      skips it: backward reachability within the partial subspace does not
+      capture all operator paths to the goal in the full system.
+    */
+    int num_variables = task_proxy.get_variables().size();
+    vector<bool> is_axiom_derived(fts.get_size(), false);
+    for (int i = num_variables; i < fts.get_size(); ++i)
+        is_axiom_derived[i] = true;
     while (fts.get_num_active_entries() > 1) {
         // Choose next transition systems to merge
         pair<int, int> merge_indices = merge_strategy->get_next();
@@ -325,6 +336,8 @@ void MergeAndShrinkAlgorithm::main_loop(
             break;
         }
 
+        is_axiom_derived.push_back(
+            is_axiom_derived[merge_index1] || is_axiom_derived[merge_index2]);
         // Merging
         int merged_index = fts.merge(merge_index1, merge_index2, log);
         int abs_size = fts.get_transition_system(merged_index).get_size();
@@ -360,8 +373,10 @@ void MergeAndShrinkAlgorithm::main_loop(
         bool effective_prune_irrelevant =
             prune_irrelevant_states && !merged_has_derived;
         if (effective_prune_unreachable || effective_prune_irrelevant) {
+            bool effective_prune_irrelevant =
+                prune_irrelevant_states && !is_axiom_derived[merged_index];
             bool pruned = prune_step(
-                fts, merged_index, effective_prune_unreachable,
+                fts, merged_index, prune_unreachable_states,
                 effective_prune_irrelevant, log);
             if (log.is_at_least_normal() && pruned) {
                 if (log.is_at_least_verbose()) {

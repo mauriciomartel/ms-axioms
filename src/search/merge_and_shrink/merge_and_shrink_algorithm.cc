@@ -371,7 +371,7 @@ void MergeAndShrinkAlgorithm::main_loop(
         bool effective_prune_unreachable =
             prune_unreachable_states && !merged_has_derived;
         bool effective_prune_irrelevant =
-            prune_irrelevant_states && !merged_has_derived;
+            prune_irrelevant_states && !merged_has_derived && !is_axiom_derived[merged_index];
         if (effective_prune_unreachable || effective_prune_irrelevant) {
             bool effective_prune_irrelevant =
                 prune_irrelevant_states && !is_axiom_derived[merged_index];

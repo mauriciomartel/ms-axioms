@@ -2401,6 +2401,34 @@ yields identical plan costs and dead-end counts, ruling out any spurious
 pruning.  The implementation is currently working correctly on all Philosophers
 instances tested.
 
+\paragraph{Safety analysis: \texttt{is\_factor\_solvable} in the initial pruning loop.}
+During initial pruning (the loop at lines~\textasciitilde{}523--540 of
+\texttt{merge\_and\_shrink\_algorithm.cc}), after calling \texttt{prune\_step}
+for each factor, the algorithm checks
+\begin{verbatim}
+if (!fts.is_factor_solvable(index))
+\end{verbatim}
+and sets \texttt{unsolvable = true} if the factor is unsolvable.  This check is
+applied uniformly to all factors, including axiom factors (indices $\geq$
+\texttt{num\_variables}), without the \texttt{!is\_axiom\_factor} guard that
+was added for Fix~1 in the main merge loop (line~395).
+
+For solvable tasks, this check never triggers spuriously on axiom factors.  The
+reasons are:
+\begin{enumerate}
+  \item Axiom factors are built with \texttt{prune\_unreachable\_states~=~false},
+    so the abstract state corresponding to the concrete initial state is always
+    present and is never marked as pruned.
+  \item The goal is reachable from the initial state in any solvable task, so
+    the init abstract state's goal distance is finite, and
+    \texttt{is\_factor\_solvable} returns \texttt{true}.
+\end{enumerate}
+Together these guarantee that \texttt{is\_factor\_solvable} always returns
+\texttt{true} for axiom factors on solvable tasks.  On a genuinely unsolvable
+task the check correctly signals unsolvability.  A defensive
+\texttt{!is\_axiom\_factor} guard could be added at this location for additional
+robustness, but is not required for correctness.
+
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Phased Implementation Path}
 

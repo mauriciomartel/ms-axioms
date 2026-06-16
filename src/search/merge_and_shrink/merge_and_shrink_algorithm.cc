@@ -371,7 +371,7 @@ void MergeAndShrinkAlgorithm::main_loop(
             }
         }
         bool effective_prune_unreachable =
-            prune_unreachable_states && !merged_has_derived;
+            prune_unreachable_states && !merged_has_derived && !is_axiom_derived[merged_index];
         bool effective_prune_irrelevant =
             prune_irrelevant_states && !merged_has_derived && !is_axiom_derived[merged_index];
         if (effective_prune_unreachable || effective_prune_irrelevant) {
@@ -532,7 +532,7 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
                 log);
             pruned = pruned || pruned_factor;
         }
-        if (!fts.is_factor_solvable(index)) {
+        if (!is_axiom_factor && !fts.is_factor_solvable(index)) {
             log << "Atomic FTS is unsolvable, stopping computation." << endl;
             unsolvable = true;
             break;

@@ -218,6 +218,7 @@ concrete state is a pure table lookup with no search.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{Configuration Example}
+\label{sec:configexample}
 
 The recommended configuration uses SCC-based merging, non-greedy bisimulation
 shrinking, and label reduction before shrinking:
@@ -2357,6 +2358,7 @@ factor compact.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Step 5 — Integration into the Main Loop}
+\label{sec:step5}
 \textbf{Files:} \texttt{merge\_and\_shrink\_algorithm.cc},
 \texttt{merge\_strategy\_sccs.cc} or \texttt{merge\_tree\_factory.cc}
 
@@ -2426,8 +2428,348 @@ reasons are:
 Together these guarantee that \texttt{is\_factor\_solvable} always returns
 \texttt{true} for axiom factors on solvable tasks.  On a genuinely unsolvable
 task the check correctly signals unsolvability.  A defensive
-\texttt{!is\_axiom\_factor} guard could be added at this location for additional
-robustness, but is not required for correctness.
+\texttt{!is\_axiom\_factor} guard was added at this location for additional
+robustness (see below); it is not required for correctness but costs nothing.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Step 6 --- A Merge-Order-Dependent Inadmissibility Bug}
+\label{sec:step6}
+
+\textbf{Files:} \texttt{merge\_and\_shrink\_algorithm.cc}, \texttt{utils.cc/.h},
+\texttt{transition\_system.cc/.h}, \texttt{fts\_factory.cc},
+new \texttt{merge\_scoring\_function\_axiom\_deferral.cc/.h}
+
+After Steps~1--5 were validated against the table in \S\ref{sec:step5} (the
+recommended configuration of \S\ref{sec:configexample}, which uses
+\texttt{merge\_sccs}), the implementation was additionally tested with
+\texttt{merge\_stateless} using \texttt{goal\_relevance} as the first scoring
+function. On the same task (\texttt{phil01}, 2 philosophers, optimal cost~18)
+this configuration incorrectly reported \emph{"Task is provably unsolvable"}.
+This section documents the bug, the fix that was rejected, and the fix that
+was adopted.
+
+\subsubsection{Two Preliminary Fixes (Necessary but Not Sufficient)}
+
+Two smaller bugs were found and fixed first, both in the pruning logic of the
+main M\&S loop in \texttt{merge\_and\_shrink\_algorithm.cc}. Neither was
+specific to a merge strategy, but both had to be fixed before the deeper,
+merge-order-dependent bug could even be isolated.
+
+\paragraph{Fix A --- \texttt{is\_axiom\_factor} guard in the initial pruning loop.}
+At the point where the initial (atomic) factors are pruned, line~535
+originally read
+\begin{lstlisting}
+if (!fts.is_factor_solvable(index)) { ... }
+\end{lstlisting}
+applied uniformly to every atomic factor, including axiom factors at indices
+$\geq$ \texttt{num\_variables}. This was changed to
+\begin{lstlisting}
+if (!is_axiom_factor && !fts.is_factor_solvable(index)) { ... }
+\end{lstlisting}
+As argued above this guard is not strictly required for correctness on
+solvable tasks, but it documents the intent and removes any doubt for
+malformed or partially-pruned axiom factors.
+
+\paragraph{Fix B --- \texttt{effective\_prune\_unreachable} missing the
+\texttt{is\_axiom\_derived} guard in the main loop.}
+The main loop tracks, for every factor index (including ones produced by
+merging), whether that factor's information derives from an axiom factor:
+\begin{lstlisting}
+vector<bool> is_axiom_derived(fts.get_size(), false);
+for (int i = num_variables; i < fts.get_size(); ++i)
+    is_axiom_derived[i] = true;
+// ... on every merge:
+is_axiom_derived.push_back(
+    is_axiom_derived[merge_index1] || is_axiom_derived[merge_index2]);
+\end{lstlisting}
+The pruning block after each merge originally computed
+\begin{lstlisting}
+bool effective_prune_unreachable =
+    prune_unreachable_states && !merged_has_derived;
+\end{lstlisting}
+where \texttt{merged\_has\_derived} checks whether any variable in
+\texttt{get\_incorporated\_variables()} is itself a derived variable. This
+check is structurally always \texttt{false} for an axiom-derived merged
+factor: \texttt{incorporated\_variables} for an axiom factor lists only the
+\emph{primary} variables of $S_d$ (see \texttt{build\_axiom\_factor},
+\S\ref{sec:piece3}), never the derived variable~$d$ itself. As a result,
+\texttt{prune\_unreachable\_states} was firing unconditionally on
+axiom-derived merged factors, even though backward/forward reachability
+within a partial composite cannot soundly be used to prune states whose
+relevance depends on variables not yet incorporated. The fix adds the same
+guard already used for \texttt{effective\_prune\_irrelevant}:
+\begin{lstlisting}
+bool effective_prune_unreachable =
+    prune_unreachable_states && !merged_has_derived
+    && !is_axiom_derived[merged_index];
+\end{lstlisting}
+This was committed as \texttt{e703120c1}, ``Fix prune\_unreachable\_states and
+is\_factor\_solvable for axiom-derived factors''. After this fix and Fix~A,
+\texttt{merge\_sccs} continued to work, and the spurious-pruning log messages
+disappeared from \texttt{merge\_stateless} runs too --- but \texttt{phil01}
+was \emph{still} reported unsolvable under \texttt{merge\_stateless}. This
+showed the remaining bug was not a pruning bug at all.
+
+\subsubsection{Root Cause: Bisimulation Shrinking on a Partial Axiom-Derived Composite}
+\label{sec:rootcause}
+
+\texttt{build\_axiom\_factor} (\S\ref{sec:piece3}) constructs the axiom factor
+$\Theta_{S,d}$ over the \emph{complete} primary-variable dependency set $S_d$,
+computed once up front via a transitive BFS over the axiom-rule dependency
+chain. The factor's goal states are computed by full stratified axiom
+evaluation over this complete $S_d$. In isolation, $\Theta_{S,d}$ therefore
+has exact, correct goal distances from the moment it is built --- the bug is
+not in the axiom factor itself.
+
+The bug appears once $\Theta_{S,d}$ is merged with other, unrelated
+primary-variable factors during the main M\&S loop, \emph{before} all
+variables that are needed to actually \emph{reach} the goal (via multi-step
+operator sequences that change variables in $S_d$ through other
+preconditions) have also been incorporated into the same composite factor.
+\texttt{shrink\_before\_merge\_step} (\texttt{utils.cc}) is called on the two
+factors chosen for the \emph{next} merge, \emph{before} that merge happens,
+and it bisimulation-shrinks each of them using \texttt{Distances}, which
+computes goal distances via a backward search restricted to that factor's
+own (partial) transition system. Operators that only affect variables not
+yet incorporated into the composite appear as self-loops on the axiom
+component of the abstract state. If a concrete state can only reach the
+derived goal through a path that requires one of those not-yet-incorporated
+variables to change first, that path is invisible inside the partial
+composite, and the composite's local goal distance for that abstract state
+is (locally, validly) computed as $\infty$.
+
+This is where the difference from an ordinary (non-axiom) M\&S factor
+matters. For an ordinary factor, an abstract state's ``goal'' is simply the
+projection of the task's real goal condition onto that factor's variables;
+forgetting other variables can only ever make the abstraction's heuristic
+value a (sound) \emph{underestimate}, because the abstraction is a strict
+relaxation of the original problem. For an axiom-derived composite, by
+contrast, bisimulation shrinking groups together every abstract state with
+local distance $\infty$ into one equivalence class. Because the self-loops
+on not-yet-incorporated variables never let the composite escape that class
+as further merges happen, the $\infty$-distance label, once assigned, is
+preserved by every subsequent merge --- right through to the single, final
+factor used by the heuristic. The result is a finite, solvable concrete
+state being assigned heuristic value $\infty$ (a ``dead end''), which is an
+inadmissibility bug, not merely a performance loss.
+
+\texttt{merge\_sccs} avoids triggering this bug on the Philosophers benchmark
+because it clusters large strongly-connected components of \emph{primary}
+variables together first (topological order), and only merges the
+axiom-derived factor in once most or all of its surrounding context already
+exists in the other side of the merge. \texttt{merge\_stateless} with
+\texttt{goal\_relevance} as the first scoring function does the opposite: it
+greedily picks the axiom factor for merging as early as possible (because it
+is immediately goal-relevant), creating exactly the small, premature
+composite that triggers the bug.
+
+\subsubsection{Rejected Fix: Skip Shrinking Axiom-Derived Factors Entirely}
+
+The first fix attempted was to make \texttt{shrink\_before\_merge\_step} skip
+shrinking (i.e. skip the bisimulation-based distance computation entirely)
+for whichever side of a merge candidate pair is axiom-derived:
+\begin{lstlisting}
+bool shrink_before_merge_step(
+    FactoredTransitionSystem &fts, int index1, int index2, int max_states,
+    int max_states_before_merge, int shrink_threshold_before_merge,
+    const ShrinkStrategy &shrink_strategy, utils::LogProxy &log,
+    bool skip_shrink1, bool skip_shrink2) {
+    ...
+    if (!skip_shrink1) { /* shrink index1 as before */ }
+    if (!skip_shrink2) { /* shrink index2 as before */ }
+    ...
+}
+\end{lstlisting}
+called from the main loop with
+\texttt{skip\_shrink1~=~is\_axiom\_derived[merge\_index1]},
+\texttt{skip\_shrink2~=~is\_axiom\_derived[merge\_index2]}.
+
+This is sound --- it removes every opportunity for the unsound partial
+distance computation described in \S\ref{sec:rootcause} to occur, regardless
+of merge order --- but it is impractical. Without bisimulation shrinking, an
+axiom-derived factor accumulates states unshrunk through \emph{every}
+subsequent merge step until it is finally combined with everything else.
+On the Philosophers benchmark this caused uncontrolled growth of the
+intermediate transition system; in practice the build/test process became
+unresponsive (CLion froze and had to be force-closed) rather than completing
+in reasonable time or memory. This fix was implemented, found impractical,
+and reverted (never committed) in favour of the approach below.
+
+\subsubsection{Adopted Fix: Defer Axiom-Derived Merges via a New Scoring Function}
+\label{sec:axiomdeferral}
+
+Rather than disabling shrinking, the adopted fix biases the \emph{merge
+order} itself so that an axiom-derived factor is only ever merged once no
+other candidate pair remains --- mirroring, in a strategy-agnostic way, what
+\texttt{merge\_sccs} already does structurally for this benchmark. Shrinking
+continues to run normally on every factor; the fix never lets an
+axiom-derived factor be a candidate for merging while a same axiom-free
+alternative still exists, so the premature small composite from
+\S\ref{sec:rootcause} is never formed in the first place.
+
+\paragraph{Tracking which factors are axiom-derived: \texttt{transition\_system.h/.cc}.}
+A new boolean member is added to \texttt{TransitionSystem}:
+\begin{lstlisting}
+class TransitionSystem {
+private:
+    ...
+    bool axiom_derived;
+public:
+    TransitionSystem(
+        int num_variables, std::vector<int> &&incorporated_variables,
+        const Labels &labels, std::vector<int> &&label_to_local_label,
+        std::vector<LocalLabelInfo> &&local_label_infos, int num_states,
+        std::vector<bool> &&goal_states, int init_state,
+        bool axiom_derived = false);
+    ...
+    bool is_axiom_derived() const { return axiom_derived; }
+};
+\end{lstlisting}
+The flag is set to \texttt{false} when atomic (primary-variable) factors are
+constructed in \texttt{FTSFactory::create\_transition\_systems}, and to
+\texttt{true} at the single construction site inside
+\texttt{build\_axiom\_factor} (\S\ref{sec:piece3}). It is then propagated
+through every subsequent merge: \texttt{TransitionSystem::merge} sets the
+new factor's flag to \texttt{ts1.axiom\_derived || ts2.axiom\_derived}, so
+the flag is transitively inherited by any composite that contains
+axiom-derived information, exactly mirroring (at the \texttt{TransitionSystem}
+level, rather than as a separate local vector) the \texttt{is\_axiom\_derived}
+bookkeeping already done ad hoc inside the main loop for the pruning fixes
+above.
+
+\paragraph{New merge scoring function: \texttt{merge\_scoring\_function\_axiom\_deferral.h/.cc}.}
+A new \texttt{MergeScoringFunction} subclass scores a merge candidate $0$
+(best) if neither side is axiom-derived, and $1$ (worse) otherwise:
+\begin{lstlisting}
+vector<double> MergeScoringFunctionAxiomDeferral::compute_scores(
+    const FactoredTransitionSystem &fts,
+    const vector<pair<int, int>> &merge_candidates) {
+    vector<double> scores;
+    for (pair<int, int> merge_candidate : merge_candidates) {
+        const TransitionSystem &ts1 =
+            fts.get_transition_system(merge_candidate.first);
+        const TransitionSystem &ts2 =
+            fts.get_transition_system(merge_candidate.second);
+        scores.push_back(
+            (ts1.is_axiom_derived() || ts2.is_axiom_derived()) ? 1 : 0);
+    }
+    return scores;
+}
+\end{lstlisting}
+Registered under the plugin name \texttt{axiom\_deferral}. Used as the
+\emph{first} entry in a \texttt{score\_based\_filtering} scoring-function
+list (\texttt{merge\_selector\_score\_based\_filtering.cc}, which filters
+candidates iteratively, keeping only those tied for the best score at each
+step), this guarantees that any candidate pair not touching an axiom-derived
+factor is strictly preferred. Only once every remaining candidate touches an
+axiom-derived factor does the filtering pass through to the next scoring
+function (e.g.\ \texttt{goal\_relevance}), letting the axiom-derived merge
+finally happen --- by which point the other side of the merge is typically
+the single large composite of (almost) all primary variables, so the
+resulting shrink is no longer operating on a small, premature partial
+factor.
+
+\paragraph{Files changed.} Committed as \texttt{1d7fa739a}:
+\begin{itemize}
+  \item \texttt{transition\_system.h}: add \texttt{axiom\_derived} member,
+    constructor parameter, \texttt{is\_axiom\_derived()} accessor.
+  \item \texttt{transition\_system.cc}: initialise the flag in both
+    constructors; propagate via logical OR in \texttt{TransitionSystem::merge}.
+  \item \texttt{fts\_factory.cc}: pass \texttt{false} at the atomic-factor
+    construction site, \texttt{true} at the axiom-factor construction site
+    in \texttt{build\_axiom\_factor}.
+  \item new \texttt{merge\_and\_shrink/merge\_scoring\_function\_axiom\_deferral.h/.cc}.
+  \item \texttt{CMakeLists.txt}: register the new source file.
+\end{itemize}
+
+\subsubsection{Running with \texttt{merge\_stateless}: What Differs from \texttt{merge\_sccs}}
+
+The only required change relative to a standard \texttt{merge\_stateless}
+configuration is inserting \texttt{axiom\_deferral()} as the \emph{first}
+element of the \texttt{scoring\_functions} list. Everything else
+(\texttt{shrink\_strategy}, \texttt{label\_reduction}, size limits) is
+unchanged and identical to the \texttt{merge\_sccs} configuration of
+\S\ref{sec:configexample}:
+
+\begin{lstlisting}[caption={merge\_stateless configuration with axiom\_deferral}]
+astar(merge_and_shrink(
+    merge_strategy=merge_stateless(
+        merge_selector=score_based_filtering(
+            scoring_functions=[axiom_deferral(), goal_relevance(), dfp(), total_order()])),
+    shrink_strategy=shrink_bisimulation(greedy=false),
+    label_reduction=exact(before_shrinking=true, before_merging=false),
+    max_states=50000,
+    threshold_before_merge=1))
+\end{lstlisting}
+
+For comparison, the \texttt{merge\_sccs} configuration that was already known
+to work (\S\ref{sec:configexample}) needs \emph{no} \texttt{axiom\_deferral}
+at all, since its SCC-based ordering already defers the axiom factor late
+enough to avoid the bug structurally:
+
+\begin{lstlisting}[caption={merge\_sccs configuration, for comparison; no axiom\_deferral needed}]
+astar(merge_and_shrink(
+    merge_strategy=merge_sccs(
+        order_of_sccs=topological,
+        merge_selector=score_based_filtering(
+            scoring_functions=[goal_relevance(), dfp(), total_order()])),
+    shrink_strategy=shrink_bisimulation(greedy=false),
+    label_reduction=exact(before_shrinking=true, before_merging=false),
+    max_states=50000,
+    threshold_before_merge=1))
+\end{lstlisting}
+
+To run either configuration on the Philosophers \texttt{phil01} instance:
+
+\begin{lstlisting}[language=bash, caption={Running phil01 with merge\_stateless + axiom\_deferral}]
+./fast-downward.py \
+    misc/tests/benchmarks/philosophers/domain.pddl \
+    misc/tests/benchmarks/philosophers/phil01.pddl \
+    --search "astar(merge_and_shrink(
+        merge_strategy=merge_stateless(
+            merge_selector=score_based_filtering(
+                scoring_functions=[axiom_deferral(),goal_relevance(),dfp(),total_order()])),
+        shrink_strategy=shrink_bisimulation(greedy=false),
+        label_reduction=exact(before_shrinking=true,before_merging=false),
+        max_states=50000,
+        threshold_before_merge=1))"
+\end{lstlisting}
+
+\subsubsection{Validation}
+
+With \texttt{axiom\_deferral} in place, \texttt{phil01} is solved correctly
+and identically under both merge strategies:
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Merge strategy} & \textbf{Init.\ $h$} & \textbf{Plan cost} & \textbf{Expanded} & \textbf{Dead ends} \\
+\midrule
+\texttt{merge\_sccs} (no \texttt{axiom\_deferral} needed) & 5 & 18 & 91 & 0 \\
+\texttt{merge\_stateless} + \texttt{axiom\_deferral} & 5 & 18 & 91 & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The two configurations produce exactly the same heuristic value, expansion
+count, plan cost, and (zero) dead ends on this instance, despite exploring
+the merge order in a different sequence --- evidence that \texttt{axiom\_deferral}
+restores admissibility for \texttt{merge\_stateless} without simply
+happening to work around this particular benchmark by chance. The log of
+the \texttt{merge\_stateless} run also confirms the deferral takes effect
+as intended: the axiom-derived factors (indices $\geq 37$ for this task) are
+merged only in the last few steps of the main loop, after all other
+candidate pairs have been exhausted, rather than at step~1 as happened
+before the fix (when \texttt{goal\_relevance} alone picked the axiom factor
+immediately).
+
+\paragraph{Status.} \texttt{merge\_stateless} is now considered safe to use
+with axiom-derived factors, provided \texttt{axiom\_deferral} is listed first
+among the scoring functions. \texttt{merge\_sccs} remains correct as well and
+needs no change. Wider testing (larger Philosophers instances, other domains
+with derived predicates) following the same plan as
+\S\ref{sec:nextsteps} is still recommended before generalising this
+conclusion beyond the tested benchmark.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Phased Implementation Path}
@@ -2462,6 +2804,7 @@ The following was implemented:
     \texttt{"supported"}.
 \end{itemize}
 
+\label{sec:nextsteps}
 \textbf{Next steps for Phase~1.}
 The implementation has been validated on the Philosophers benchmark
 (see the table in Step~5).  To build further confidence it should be tested on

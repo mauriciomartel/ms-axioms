@@ -420,7 +420,8 @@ vector<unique_ptr<TransitionSystem>> FTSFactory::create_transition_systems(
         result.push_back(make_unique<TransitionSystem>(
             ts_data.num_variables, move(ts_data.incorporated_variables), labels,
             move(ts_data.label_to_local_label), move(ts_data.local_label_infos),
-            ts_data.num_states, move(ts_data.goal_states), ts_data.init_state));
+            ts_data.num_states, move(ts_data.goal_states), ts_data.init_state,
+            /* axiom_derived */ false));  // ordinary primary-variable factor
     }
     return result;
 }
@@ -856,7 +857,8 @@ int build_axiom_factor(
         move(local_label_infos),
         num_product_states,
         move(goal_states),
-        init_state);
+        init_state,
+        /* axiom_derived */ true);  // carries the derived variable's value
 
     auto mas_rep = make_unique<MergeAndShrinkRepresentationProduct>(
         var_ids, all_dom);

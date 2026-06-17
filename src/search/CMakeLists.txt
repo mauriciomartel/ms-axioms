@@ -47,7 +47,9 @@ project(downward LANGUAGES CXX)
 report_bitwidth()
 add_executable(downward planner.cc
         merge_and_shrink/shrink_quasi_bisimulation.h
-        merge_and_shrink/shrink_quasi_bisimulation.cc)
+        merge_and_shrink/shrink_quasi_bisimulation.cc
+        merge_and_shrink/merge_scoring_function_axiom_deferral.cc
+        merge_and_shrink/merge_scoring_function_axiom_deferral.h)
 
 # obtain git SHA1 hash
 execute_process(
@@ -840,6 +842,7 @@ create_fast_downward_library(
         merge_and_shrink/merge_and_shrink_heuristic
         merge_and_shrink/merge_and_shrink_representation
         merge_and_shrink/merge_scoring_function
+        merge_and_shrink/merge_scoring_function_axiom_deferral
         merge_and_shrink/merge_scoring_function_dfp
         merge_and_shrink/merge_scoring_function_goal_relevance
         merge_and_shrink/merge_scoring_function_miasm

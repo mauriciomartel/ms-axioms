@@ -2763,13 +2763,56 @@ candidate pairs have been exhausted, rather than at step~1 as happened
 before the fix (when \texttt{goal\_relevance} alone picked the axiom factor
 immediately).
 
+\paragraph{A second scoring function: \texttt{sf\_miasm}.} The fix is not
+specific to the \texttt{goal\_relevance}/\texttt{dfp} scoring chain used
+above. \texttt{sf\_miasm} (the scoring function behind ``dyn-MIASM'', which
+favors merges that maximize the proportion of alive states in the resulting
+product) only ever computes distances on a private, shrunk \emph{copy} of a
+candidate product in order to score it --- it never touches the real
+\texttt{fts}. The actual risk identified in \S\ref{sec:rootcause} lies in the
+real \texttt{shrink\_before\_merge\_step} call applied to whichever pair is
+finally selected, so \texttt{axiom\_deferral} must still be listed first in
+the scoring chain even when \texttt{sf\_miasm} is used:
+
+\begin{lstlisting}[language=bash, caption={Running phil01 with merge\_stateless + axiom\_deferral + sf\_miasm}]
+./fast-downward.py \
+    misc/tests/benchmarks/philosophers/domain.pddl \
+    misc/tests/benchmarks/philosophers/p01-phil2.pddl \
+    --search "astar(merge_and_shrink(
+        merge_strategy=merge_stateless(
+            merge_selector=score_based_filtering(
+                scoring_functions=[axiom_deferral(),
+                    sf_miasm(shrink_strategy=shrink_bisimulation(greedy=false),
+                             max_states=50000,threshold_before_merge=1),
+                    total_order(atomic_ts_order=reverse_level,
+                                product_ts_order=new_to_old,
+                                atomic_before_product=true)])),
+        shrink_strategy=shrink_bisimulation(greedy=false),
+        label_reduction=exact(before_shrinking=true,before_merging=false),
+        max_states=50000,
+        threshold_before_merge=1))"
+\end{lstlisting}
+
+The \texttt{shrink\_strategy}, \texttt{max\_states}, and
+\texttt{threshold\_before\_merge} arguments to \texttt{sf\_miasm} are set to
+match the planner's own M\&S options, as recommended by \texttt{sf\_miasm}'s
+plugin documentation; the \texttt{total\_order} tie-break is the recipe from
+the original dyn-MIASM paper. This configuration solved \texttt{phil01}
+identically to the other two (cost~18, $h_{\mathrm{init}}=5$, 91 expanded, 0
+dead ends), confirming \texttt{axiom\_deferral} composes correctly with a
+second, independently implemented scoring function. As expected, it was
+substantially slower ($\approx$21s main-loop runtime versus a fraction of a
+second for \texttt{goal\_relevance}/\texttt{dfp}), since \texttt{sf\_miasm}
+shrinks and computes distances on a candidate product for every remaining
+merge pair at every step.
+
 \paragraph{Status.} \texttt{merge\_stateless} is now considered safe to use
 with axiom-derived factors, provided \texttt{axiom\_deferral} is listed first
-among the scoring functions. \texttt{merge\_sccs} remains correct as well and
-needs no change. Wider testing (larger Philosophers instances, other domains
-with derived predicates) following the same plan as
-\S\ref{sec:nextsteps} is still recommended before generalising this
-conclusion beyond the tested benchmark.
+among the scoring functions, regardless of which other scoring functions
+follow it. \texttt{merge\_sccs} remains correct as well and needs no change.
+Wider testing (larger Philosophers instances, other domains with derived
+predicates) following the same plan as \S\ref{sec:nextsteps} is still
+recommended before generalising this conclusion beyond the tested benchmark.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Phased Implementation Path}

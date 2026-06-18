@@ -2973,6 +2973,28 @@ predicates, and the \texttt{p02-phil3} instance that currently times out
 during axiom-factor construction for unrelated scalability reasons) is
 recommended before generalising this conclusion further.
 
+\paragraph{Scope: this is a soundness fix, not "axioms in preconditions"
+support.} It is worth being precise about what this fix does and does not
+deliver, since the two are easy to conflate. Before the fix, a derived
+variable's naive atomic factor was actively \emph{unsound} whenever that
+variable appeared in an operator precondition: it silently introduced the
+false-restriction bug described above, regardless of whether the variable
+was goal-relevant. After the fix, that same atomic factor is
+\emph{sound but uninformative} for any derived variable not also covered by
+a dedicated axiom factor from \texttt{build\_axiom\_factor}
+(\S\ref{sec:piece3}) -- recall that \texttt{build\_axiom\_factor} is only
+invoked for \emph{goal}-derived variables
+(\texttt{merge\_and\_shrink\_algorithm.cc}, the \texttt{goal\_derived\_vars}
+collection). A derived variable referenced only in operator preconditions,
+never in the goal, therefore still contributes nothing to the heuristic's
+value after this fix -- it is correctly ignored rather than incorrectly
+restrictive. Making the heuristic actually informative about such variables
+-- i.e.\ extending \texttt{goal\_derived\_vars} (or an analogous collection)
+to also include derived variables that appear in operator preconditions, and
+building axiom factors for them too -- is a distinct, not-yet-implemented
+enhancement (``axioms in preconditions''), separate from the correctness fix
+documented in this section.
+
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Phased Implementation Path}
 

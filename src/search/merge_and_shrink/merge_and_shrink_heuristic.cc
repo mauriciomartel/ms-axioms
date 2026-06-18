@@ -111,8 +111,8 @@ void MergeAndShrinkHeuristic::extract_factors(FactoredTransitionSystem &fts) {
         log << "Number of remaining factors: " << num_active_factors << endl;
     }
 
-    bool unsolvalbe = extract_unsolvable_factor(fts);
-    if (!unsolvalbe) {
+    bool unsolvable = extract_unsolvable_factor(fts);
+    if (!unsolvable) {
         extract_nontrivial_factors(fts);
     }
 
@@ -129,7 +129,6 @@ int MergeAndShrinkHeuristic::compute_heuristic(const State &ancestor_state) {
          mas_representations) {
         int cost = mas_representation->get_value(state);
         if (cost == PRUNED_STATE || cost == INF) {
-            // If state is unreachable or irrelevant, we encountered a dead end.
             return DEAD_END;
         }
         heuristic = max(heuristic, cost);
@@ -235,7 +234,7 @@ public:
         document_language_support("action costs", "supported");
         document_language_support(
             "conditional effects", "supported (but see note)");
-        document_language_support("axioms", "not supported");
+        document_language_support("axioms", "supported");
 
         document_property("admissible", "yes (but see note)");
         document_property("consistent", "yes (but see note)");

@@ -156,6 +156,18 @@ private:
     const int num_variables;
     std::vector<int> incorporated_variables;
 
+    /*
+      True iff this transition system was built from (or merged with) an
+      axiom factor, i.e. it carries information about a derived variable.
+      Bisimulation-based shrinking must not be applied to a factor with this
+      flag set until it has absorbed all primary variables the axiom
+      depends on; doing so earlier can compute goal distances within an
+      incomplete subspace and incorrectly mark reachable states as dead
+      ends. See MergeScoringFunctionAxiomDeferral, which uses this flag to
+      keep axiom-derived merges last in the merge order.
+    */
+    bool axiom_derived;
+
     const Labels &labels;
     /*
       All locally equivalent labels are grouped together, and their
@@ -197,7 +209,8 @@ public:
         int num_variables, std::vector<int> &&incorporated_variables,
         const Labels &labels, std::vector<int> &&label_to_local_label,
         std::vector<LocalLabelInfo> &&local_label_infos, int num_states,
-        std::vector<bool> &&goal_states, int init_state);
+        std::vector<bool> &&goal_states, int init_state,
+        bool axiom_derived = false);
     TransitionSystem(const TransitionSystem &other);
     ~TransitionSystem();
     /*
@@ -269,6 +282,11 @@ public:
 
     const std::vector<int> &get_incorporated_variables() const {
         return incorporated_variables;
+    }
+
+    // See axiom_derived member for why this matters to merge scoring.
+    bool is_axiom_derived() const {
+        return axiom_derived;
     }
 };
 }

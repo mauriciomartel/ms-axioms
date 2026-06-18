@@ -2,6 +2,7 @@
 
 #include "distances.h"
 #include "factored_transition_system.h"
+#include "shrink_quasi_bisimulation.h"
 #include "shrink_strategy.h"
 #include "transition_system.h"
 
@@ -11,6 +12,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <map>
 
 using namespace std;
 
@@ -53,16 +55,40 @@ pair<int, int> compute_shrink_sizes(
 }
 
 /*
+  Assign each distinct row of pending_values an integer class id, in order of
+  first occurrence. Rows are the exact value tuples of a factor's pending
+  variables (see shrink_before_merge_step); states with different ids must
+  never be collapsed together while shrinking.
+*/
+static vector<int> compute_pending_seed_classes(
+    const vector<vector<int>> &pending_values) {
+    vector<int> seed(pending_values.size());
+    map<vector<int>, int> row_to_class;
+    for (size_t state = 0; state < pending_values.size(); ++state) {
+        auto result = row_to_class.emplace(
+            pending_values[state], static_cast<int>(row_to_class.size()));
+        seed[state] = result.first->second;
+    }
+    return seed;
+}
+
+/*
   This method checks if the transition system of the factor at index violates
   the size limit given via new_size (e.g. as computed by compute_shrink_sizes)
   or the threshold shrink_threshold_before_merge that triggers shrinking even
   if the size limit is not violated. If so, trigger the shrinking process.
   Return true iff the factor was actually shrunk.
+
+  If pending_values is non-empty, it holds the exact value tuple of some
+  variables that must not be collapsed across (see shrink_before_merge_step);
+  in that case, a constrained quasi-bisimulation is used regardless of
+  shrink_strategy, and pending_values is updated in place to match the
+  factor's state space after shrinking.
 */
 static bool shrink_factor(
     FactoredTransitionSystem &fts, int index, int new_size,
     int shrink_threshold_before_merge, const ShrinkStrategy &shrink_strategy,
-    utils::LogProxy &log) {
+    utils::LogProxy &log, vector<vector<int>> &pending_values) {
     /*
       TODO: think about factoring out common logic of this function and the
       function copy_and_shrink_ts in merge_scoring_function_miasm_utils.cc.
@@ -80,12 +106,33 @@ static bool shrink_factor(
         }
 
         const Distances &distances = fts.get_distances(index);
-        StateEquivalenceRelation equivalence_relation =
-            shrink_strategy.compute_equivalence_relation(
+        StateEquivalenceRelation equivalence_relation;
+        if (!pending_values.empty()) {
+            assert(static_cast<int>(pending_values.size()) == num_states);
+            vector<int> seed = compute_pending_seed_classes(pending_values);
+            ShrinkQuasiBisimulation pending_safe_shrink;
+            equivalence_relation =
+                pending_safe_shrink.compute_equivalence_relation_with_seed(
+                    ts, distances, new_size, seed, log);
+        } else {
+            equivalence_relation = shrink_strategy.compute_equivalence_relation(
                 ts, distances, new_size, log);
+        }
         // TODO: We currently violate this; see issue250
         // assert(equivalence_relation.size() <= target_size);
-        return fts.apply_abstraction(index, equivalence_relation, log);
+        bool shrunk = fts.apply_abstraction(index, equivalence_relation, log);
+        if (shrunk && !pending_values.empty()) {
+            // Every member of an equivalence class agrees on the pending
+            // tuple by construction (see compute_pending_seed_classes), so
+            // any representative's row applies to the whole new state.
+            vector<vector<int>> new_pending_values(equivalence_relation.size());
+            for (size_t group = 0; group < equivalence_relation.size(); ++group) {
+                int representative = equivalence_relation[group].front();
+                new_pending_values[group] = pending_values[representative];
+            }
+            pending_values = move(new_pending_values);
+        }
+        return shrunk;
     }
     return false;
 }
@@ -93,7 +140,8 @@ static bool shrink_factor(
 bool shrink_before_merge_step(
     FactoredTransitionSystem &fts, int index1, int index2, int max_states,
     int max_states_before_merge, int shrink_threshold_before_merge,
-    const ShrinkStrategy &shrink_strategy, utils::LogProxy &log) {
+    const ShrinkStrategy &shrink_strategy, utils::LogProxy &log,
+    vector<vector<int>> &pending_values1, vector<vector<int>> &pending_values2) {
     /*
       Compute the size limit for both transition systems as imposed by
       max_states and max_states_before_merge.
@@ -112,13 +160,13 @@ bool shrink_before_merge_step(
     */
     bool shrunk1 = shrink_factor(
         fts, index1, new_sizes.first, shrink_threshold_before_merge,
-        shrink_strategy, log);
+        shrink_strategy, log, pending_values1);
     if (shrunk1) {
         fts.statistics(index1, log);
     }
     bool shrunk2 = shrink_factor(
         fts, index2, new_sizes.second, shrink_threshold_before_merge,
-        shrink_strategy, log);
+        shrink_strategy, log, pending_values2);
     if (shrunk2) {
         fts.statistics(index2, log);
     }

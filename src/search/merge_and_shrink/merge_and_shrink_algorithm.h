@@ -4,6 +4,9 @@
 #include "../utils/logging.h"
 
 #include <memory>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 class TaskProxy;
 
@@ -47,6 +50,32 @@ class MergeAndShrinkAlgorithm {
     const double main_loop_max_time;
 
     long starting_peak_memory;
+
+    /*
+      For each axiom-induced factor (keyed by its FTS index at the time it
+      was built), the set of primary variables (S_d) it embeds that have not
+      yet been absorbed via merge as a standalone atomic factor. Bisimulation
+      shrinking of such a factor is unsound while this set is non-empty: the
+      same primary variable would otherwise be represented both exactly (in
+      its still-separate atomic factor) and approximately (collapsed by
+      bisimulation inside the axiom factor), and merging the two later does
+      not enforce them to agree.
+    */
+    std::unordered_map<int, std::unordered_set<int>> axiom_factor_pending_vars;
+
+    /*
+      For each entry in axiom_factor_pending_vars, the exact value of those
+      pending primary variables for every state of the factor at creation
+      time: axiom_factor_pending_var_order[index] gives the variable ids (in
+      the order used by axiom_factor_pending_values[index][state]). This lets
+      the main loop shrink a pending axiom factor without ever collapsing two
+      states that disagree on a pending variable's value (which would be
+      unsound while that variable is still also represented exactly
+      elsewhere), instead of forbidding shrinking it outright.
+    */
+    std::unordered_map<int, std::vector<int>> axiom_factor_pending_var_order;
+    std::unordered_map<int, std::vector<std::vector<int>>>
+        axiom_factor_pending_values;
 
     void report_peak_memory_delta(bool final = false) const;
     void dump_options() const;

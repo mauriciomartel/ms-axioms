@@ -43,11 +43,24 @@ extern std::pair<int, int> compute_shrink_sizes(
   If shrinking is triggered, apply the abstraction to the two factors
   within the factored transition system. Return true iff at least one of the
   factors was shrunk.
+
+  pending_values1/pending_values2 carry, for the factor at index1/index2, the
+  exact value of any primary variables it still shares with a separate,
+  exact atomic factor elsewhere in the FTS (see
+  MergeAndShrinkAlgorithm::axiom_factor_pending_vars): pending_valuesX[state]
+  is the tuple of those variables' values for that state. When non-empty,
+  shrinking that factor uses a constrained equivalence that never collapses
+  two states with different tuples (which would be unsound, since the
+  variable is still tracked exactly elsewhere), and the vector is updated in
+  place to match the factor's state space after shrinking. When empty,
+  shrinking proceeds as normal with no such constraint.
 */
 extern bool shrink_before_merge_step(
     FactoredTransitionSystem &fts, int index1, int index2, int max_states,
     int max_states_before_merge, int shrink_threshold_before_merge,
-    const ShrinkStrategy &shrink_strategy, utils::LogProxy &log);
+    const ShrinkStrategy &shrink_strategy, utils::LogProxy &log,
+    std::vector<std::vector<int>> &pending_values1,
+    std::vector<std::vector<int>> &pending_values2);
 
 /*
   Prune unreachable and/or irrelevant states of the factor at index. This

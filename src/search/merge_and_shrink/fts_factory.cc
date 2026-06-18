@@ -1,4 +1,5 @@
 #include "fts_factory.h"
+#include "primary_representation.h"
 
 #include "distances.h"
 #include "factored_transition_system.h"
@@ -14,7 +15,11 @@
 
 #include <algorithm>
 #include <cassert>
+#include <functional>
+#include <iostream>
+#include <queue>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 using namespace std;
@@ -119,6 +124,7 @@ void FTSFactory::build_state_data(VariableProxy var) {
     int range = task_proxy.get_variables()[var_id].get_domain_size();
     ts_data.num_states = range;
 
+    // Find the goal value for this variable, if any (-1 means no goal condition).
     int goal_value = -1;
     GoalsProxy goals = task_proxy.get_goals();
     for (FactProxy goal : goals) {
@@ -128,6 +134,12 @@ void FTSFactory::build_state_data(VariableProxy var) {
             break;
         }
     }
+
+    // Derived variables have no operator transitions; their goal condition is
+    // fully encoded in the axiom factor Θ_{S,d}. Mark all states as goals so
+    // the atomic factor does not falsely declare the task unsolvable.
+    if (var.is_derived())
+        goal_value = -1;
 
     ts_data.goal_states.resize(range, false);
     for (int value = 0; value < range; ++value) {
@@ -140,6 +152,23 @@ void FTSFactory::build_state_data(VariableProxy var) {
 void FTSFactory::initialize_transition_system_data(const Labels &labels) {
     VariablesProxy variables = task_proxy.get_variables();
     transition_system_data_by_var.resize(variables.size());
+
+    /*
+      Precompute primary representations for all derived variables that
+      appear in the goal. Each PrimaryRepresentation encodes, for every
+      primary variable v and value c, whether c is compatible with the
+      derived goal variable being true (i.e., whether v=c lies in the
+      projection of S_d). These are passed to build_state_data so that
+      goal states in atomic factors are restricted accordingly.
+    */
+    vector<PrimaryRepresentation> derived_goal_reprs;
+    for (FactProxy goal : task_proxy.get_goals()) {
+        if (goal.get_variable().is_derived()) {
+            derived_goal_reprs.emplace_back(task_proxy,
+                                            goal.get_variable().get_id());
+        }
+    }
+
     for (VariableProxy var : variables) {
         TransitionSystemData &ts_data =
             transition_system_data_by_var[var.get_id()];
@@ -245,7 +274,23 @@ void FTSFactory::handle_operator_precondition(
     const vector<bool> &has_effect_on_var,
     vector<vector<Transition>> &transitions_by_var) {
     int label = op.get_id();
-    int var_id = precondition.get_variable().get_id();
+    VariableProxy var = precondition.get_variable();
+    int var_id = var.get_id();
+    /*
+      Derived variables are never targeted by operator effects (their value
+      is determined exclusively by axiom evaluation, which depends on the
+      primary variables in their dependency closure). The naive atomic
+      factor built for a derived variable therefore never changes its value
+      and would incorrectly gate this label on the variable's *initial*
+      value forever, even though the true value changes dynamically as
+      primary variables change. The correct, value-correlated precondition
+      check (if any) is performed by the axiom-induced factor for this
+      derived variable's dependency closure; here we must not add any
+      restriction, so this label stays irrelevant (i.e. self-loops on all
+      values) in the derived variable's atomic factor.
+    */
+    if (var.is_derived())
+        return;
     if (!has_effect_on_var[var_id]) {
         int value = precondition.get_value();
         transitions_by_var[var_id].emplace_back(value, value);
@@ -391,7 +436,8 @@ vector<unique_ptr<TransitionSystem>> FTSFactory::create_transition_systems(
         result.push_back(make_unique<TransitionSystem>(
             ts_data.num_variables, move(ts_data.incorporated_variables), labels,
             move(ts_data.label_to_local_label), move(ts_data.local_label_infos),
-            ts_data.num_states, move(ts_data.goal_states), ts_data.init_state));
+            ts_data.num_states, move(ts_data.goal_states), ts_data.init_state,
+            /* axiom_derived */ false));  // ordinary primary-variable factor
     }
     return result;
 }
@@ -458,5 +504,440 @@ FactoredTransitionSystem create_factored_transition_system(
     const bool compute_goal_distances, utils::LogProxy &log) {
     return FTSFactory(task_proxy)
         .create(compute_init_distances, compute_goal_distances, log);
+}
+
+unordered_set<int> compute_axiom_factor_primary_vars(
+    const TaskProxy &task_proxy, int derived_var_id) {
+    VariablesProxy variables = task_proxy.get_variables();
+    unordered_set<int> visited_derived;
+    queue<int> derived_queue;
+    derived_queue.push(derived_var_id);
+    visited_derived.insert(derived_var_id);
+    unordered_set<int> primary_var_set;
+    while (!derived_queue.empty()) {
+        int cur_derived = derived_queue.front();
+        derived_queue.pop();
+        for (OperatorProxy axiom : task_proxy.get_axioms()) {
+            EffectProxy eff = axiom.get_effects()[0];
+            if (eff.get_fact().get_variable().get_id() != cur_derived)
+                continue;
+            for (FactProxy pre : axiom.get_effects()[0].get_conditions()) {
+                VariableProxy pvar = pre.get_variable();
+                if (pvar.is_derived()) {
+                    if (!visited_derived.count(pvar.get_id())) {
+                        visited_derived.insert(pvar.get_id());
+                        derived_queue.push(pvar.get_id());
+                    }
+                } else {
+                    primary_var_set.insert(pvar.get_id());
+                }
+            }
+        }
+    }
+    return primary_var_set;
+}
+
+int build_axiom_factor(
+    const TaskProxy &task_proxy,
+    const vector<int> &derived_var_ids,
+    FactoredTransitionSystem &fts,
+    utils::LogProxy &log,
+    vector<int> *out_pending_var_order,
+    vector<vector<int>> *out_state_pending_values) {
+
+    const Labels &labels = fts.get_labels();
+    VariablesProxy variables = task_proxy.get_variables();
+    int num_total_vars = variables.size();
+
+    // Step 1: Identify primary variables in S_d via transitive dependency BFS,
+    // seeded from *all* derived_var_ids at once. Derived variables can depend
+    // on other derived variables ("blocked" -> "blocked-trans" -> primary
+    // var), so we must follow the chain. Combining all derived_var_ids that
+    // share any primary variable into a single factor is required: M&S
+    // assumes each variable is represented by exactly one live factor at a
+    // time, so building separate factors with overlapping primary variables
+    // (and independently bisimulation-shrinking each before they are later
+    // merged) would destroy the correlation between the shared variables.
+    unordered_set<int> visited_derived;
+    queue<int> derived_queue;
+    for (int derived_var_id : derived_var_ids) {
+        derived_queue.push(derived_var_id);
+        visited_derived.insert(derived_var_id);
+    }
+    unordered_set<int> primary_var_set;
+    while (!derived_queue.empty()) {
+        int cur_derived = derived_queue.front();
+        derived_queue.pop();
+        for (OperatorProxy axiom : task_proxy.get_axioms()) {
+            EffectProxy eff = axiom.get_effects()[0];
+            if (eff.get_fact().get_variable().get_id() != cur_derived)
+                continue;
+            for (FactProxy pre : axiom.get_effects()[0].get_conditions()) {
+                VariableProxy pvar = pre.get_variable();
+                if (pvar.is_derived()) {
+                    if (!visited_derived.count(pvar.get_id())) {
+                        visited_derived.insert(pvar.get_id());
+                        derived_queue.push(pvar.get_id());
+                    }
+                } else {
+                    primary_var_set.insert(pvar.get_id());
+                }
+            }
+        }
+    }
+
+    vector<int> var_ids(primary_var_set.begin(), primary_var_set.end());
+    sort(var_ids.begin(), var_ids.end());
+    int n = var_ids.size();
+
+    // Fast reverse lookup: variable ID -> position in var_ids.
+    unordered_map<int, int> var_id_to_idx;
+    for (int i = 0; i < n; ++i)
+        var_id_to_idx[var_ids[i]] = i;
+
+    // -----------------------------------------------------------------------
+    // Step 2: Domain sizes and mixed-radix multipliers
+    //
+    // Product state ID = sum_i( val_i * mult[i] ), where
+    //   mult[0] = 1,  mult[i] = mult[i-1] * dom[i-1].
+    // Decoding: val_i = (state_id / mult[i]) % dom[i].
+    // -----------------------------------------------------------------------
+    vector<int> dom(n);
+    for (int i = 0; i < n; ++i)
+        dom[i] = variables[var_ids[i]].get_domain_size();
+
+    vector<int> mult(n, 1);
+    int num_product_states = 1;
+    for (int i = 0; i < n; ++i) {
+        mult[i] = num_product_states;
+        num_product_states *= dom[i];
+    }
+
+    // Per-variable domain sizes indexed by global variable ID, needed by
+    // MergeAndShrinkRepresentationProduct.
+    vector<int> all_dom(num_total_vars);
+    for (int v = 0; v < num_total_vars; ++v)
+        all_dom[v] = variables[v].get_domain_size();
+
+    // Helper: decode the value of product variable at index i from a product state id.
+    auto decode_val = [&](int state_id, int i) {
+        return (state_id / mult[i]) % dom[i];
+    };
+
+    // -----------------------------------------------------------------------
+    // Step 3: Initial state
+    //
+    // Encode the initial values of the product variables using the same
+    // mixed-radix scheme as the lookup table in MergeAndShrinkRepresentationProduct.
+    // -----------------------------------------------------------------------
+    State init = task_proxy.get_initial_state();
+    int init_state = 0;
+    for (int i = 0; i < n; ++i)
+        init_state += init[var_ids[i]].get_value() * mult[i];
+
+    // Step 4: Goal states — product states in which every variable in
+    // derived_var_ids evaluates to its goal value after full stratified
+    // axiom evaluation.
+    //
+    // For each product state s, seed all closure-derived variables at their
+    // default values, then run forward chaining in axiom-layer order.
+    // Primary conditions are checked against s; derived conditions are checked
+    // against the evolving derived_vals. This correctly handles negation-by-
+    // failure (a derived var stays at its default unless a rule fires) without
+    // over-approximation.
+
+    unordered_map<int, int> goal_value_for_derived_var;
+    for (FactProxy g : task_proxy.get_goals()) {
+        int gvar = g.get_variable().get_id();
+        if (visited_derived.count(gvar) &&
+            find(derived_var_ids.begin(), derived_var_ids.end(), gvar) !=
+                derived_var_ids.end()) {
+            goal_value_for_derived_var[gvar] = g.get_value();
+        }
+    }
+    assert(goal_value_for_derived_var.size() == derived_var_ids.size());
+
+    // Default values for all derived variables in the dependency closure.
+    unordered_map<int, int> derived_default;
+    for (int d : visited_derived)
+        derived_default[d] = variables[d].get_default_axiom_value();
+
+    // Axioms relevant to the closure, sorted by axiom layer.
+    struct AxiomRule {
+        int layer, eff_var, eff_val;
+        vector<pair<int, int>> conditions; // (var_id, required_value)
+    };
+    vector<AxiomRule> relevant_axioms;
+    for (OperatorProxy axiom : task_proxy.get_axioms()) {
+        EffectProxy eff = axiom.get_effects()[0];
+        int eff_var_id = eff.get_fact().get_variable().get_id();
+        if (!visited_derived.count(eff_var_id)) continue;
+        AxiomRule rule;
+        rule.layer   = variables[eff_var_id].get_axiom_layer();
+        rule.eff_var = eff_var_id;
+        rule.eff_val = eff.get_fact().get_value();
+        for (FactProxy cond : eff.get_conditions())
+            rule.conditions.emplace_back(
+                cond.get_variable().get_id(), cond.get_value());
+        relevant_axioms.push_back(move(rule));
+    }
+    sort(relevant_axioms.begin(), relevant_axioms.end(),
+         [](const AxiomRule &a, const AxiomRule &b) {
+             return a.layer < b.layer;
+         });
+
+    // Evaluate axiom closure for each product state.
+    vector<int> derived_vals(variables.size());
+    vector<bool> goal_states(num_product_states, false);
+    for (int s = 0; s < num_product_states; ++s) {
+        for (auto &[d, def] : derived_default)
+            derived_vals[d] = def;
+
+        // One pass in layer order suffices: FD stratification prevents
+        // intra-layer positive cycles.
+        for (const AxiomRule &rule : relevant_axioms) {
+            if (derived_vals[rule.eff_var] != derived_default.at(rule.eff_var))
+                continue; // already fired; axioms fire at most once
+            bool satisfied = true;
+            for (auto [cvar, cval] : rule.conditions) {
+                int cur_val;
+                if (variables[cvar].is_derived()) {
+                    auto it = derived_default.find(cvar);
+                    cur_val = (it != derived_default.end())
+                              ? derived_vals[cvar]
+                              : variables[cvar].get_default_axiom_value();
+                } else {
+                    auto it = var_id_to_idx.find(cvar);
+                    if (it == var_id_to_idx.end())
+                        continue; // not in product space: over-approximate
+                    cur_val = decode_val(s, it->second);
+                }
+                if (cur_val != cval) { satisfied = false; break; }
+            }
+            if (satisfied)
+                derived_vals[rule.eff_var] = rule.eff_val;
+        }
+
+        bool is_goal = true;
+        for (auto &[gvar, gval] : goal_value_for_derived_var) {
+            if (derived_vals[gvar] != gval) {
+                is_goal = false;
+                break;
+            }
+        }
+        goal_states[s] = is_goal;
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 5: Transitions for each operator label
+    //
+    // An operator is relevant to the product factor if it has a precondition
+    // or effect on at least one variable in var_ids. Irrelevant operators
+    // are handled together as self-loops (Step 6).
+    //
+    // For conditional effects: if an effect on a product variable has a
+    // condition that references a variable outside S_d, we cannot determine
+    // from the product state alone whether the condition holds. We conservatively
+    // add both the forward transition (effect fires) and a self-loop (effect
+    // does not fire), which over-approximates but preserves admissibility.
+    //
+    // Multiple effects on the same product variable are applied sequentially
+    // to the target state, which correctly models the case where all such
+    // effects fire. The self-loop handles the case where none fire. The
+    // intermediate case (some fire, some do not) is not modelled in full
+    // generality; this is an accepted limitation for a first implementation.
+    // -----------------------------------------------------------------------
+    int num_labels = labels.get_num_total_labels();
+    vector<bool> is_relevant(num_labels, false);
+    vector<vector<Transition>> label_trans(num_labels);
+
+    for (OperatorProxy op : task_proxy.get_operators()) {
+        int label = op.get_id();
+
+        // Operator-level preconditions on product variables.
+        vector<int> op_pre(n, -1);
+        for (FactProxy pre : op.get_preconditions()) {
+            auto it = var_id_to_idx.find(pre.get_variable().get_id());
+            if (it != var_id_to_idx.end())
+                op_pre[it->second] = pre.get_value();
+        }
+
+        // Determine relevance: does the operator touch any product variable?
+        bool relevant = false;
+        for (int i = 0; i < n; ++i) {
+            if (op_pre[i] != -1) { relevant = true; break; }
+        }
+        if (!relevant) {
+            for (EffectProxy eff : op.get_effects()) {
+                if (var_id_to_idx.count(
+                        eff.get_fact().get_variable().get_id())) {
+                    relevant = true;
+                    break;
+                }
+            }
+        }
+        if (!relevant)
+            continue;
+
+        is_relevant[label] = true;
+        auto &transitions = label_trans[label];
+
+        for (int s = 0; s < num_product_states; ++s) {
+            // Check operator preconditions on product variables.
+            bool applicable = true;
+            for (int i = 0; i < n; ++i) {
+                if (op_pre[i] != -1 && decode_val(s, i) != op_pre[i]) {
+                    applicable = false;
+                    break;
+                }
+            }
+            if (!applicable)
+                continue;
+
+            // Compute the target state by applying each effect on a product
+            // variable. We update t incrementally: subtract the current value
+            // of the target variable (from t, not s, to correctly handle
+            // multiple effects on the same variable) and add the post-value.
+            int t = s;
+            bool need_self_loop = false;
+
+            for (EffectProxy eff : op.get_effects()) {
+                int eff_var_id = eff.get_fact().get_variable().get_id();
+                auto it = var_id_to_idx.find(eff_var_id);
+                if (it == var_id_to_idx.end())
+                    continue;
+                int idx = it->second;
+                int post = eff.get_fact().get_value();
+
+                // Inspect effect conditions.
+                //   - Condition on the same variable: can be checked against s;
+                //     if not satisfied, this effect definitely does not fire.
+                //   - Condition on another variable: cannot be verified from the
+                //     product state; we optimistically assume the effect fires
+                //     (adds the forward transition) and set need_self_loop to
+                //     also cover the case where it does not.
+                bool fires = true;
+                bool has_outside_cond = false;
+                for (FactProxy cond : eff.get_conditions()) {
+                    if (cond.get_variable().get_id() == eff_var_id) {
+                        if (decode_val(s, idx) != cond.get_value()) {
+                            fires = false;
+                            break;
+                        }
+                    } else {
+                        has_outside_cond = true;
+                    }
+                }
+                if (!fires)
+                    continue;
+
+                if (has_outside_cond)
+                    need_self_loop = true;
+
+                // Apply the effect to t. Decode from t (not s) so that earlier
+                // effects on the same variable are taken into account.
+                t -= decode_val(t, idx) * mult[idx];
+                t += post * mult[idx];
+            }
+
+            // t == s when the operator only has preconditions on product variables
+            // (no effect changes them); emplace_back covers that self-loop naturally.
+            transitions.emplace_back(s, t);
+            // Add the self-loop for the case where an outside-conditioned effect
+            // does not fire, but only when the forward transition actually moves.
+            if (need_self_loop && t != s)
+                transitions.emplace_back(s, s);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 6: Group labels with identical transitions into local labels
+    //
+    // Follows FTSFactory::build_transitions_for_operator: scan existing local
+    // labels for a matching transition set; if found, merge the current label
+    // into that group; otherwise create a new local label.
+    // Irrelevant labels are all grouped into a single self-loop local label,
+    // following FTSFactory::build_transitions_for_irrelevant_ops.
+    // -----------------------------------------------------------------------
+    // Size to max_num_labels (not num_total_labels) so that apply_label_reduction
+    // can access indices beyond the current label count, matching the convention
+    // used throughout FTSFactory.
+    vector<int> label_to_local_label(labels.get_max_num_labels(), -1);
+    vector<LocalLabelInfo> local_label_infos;
+
+    for (OperatorProxy op : task_proxy.get_operators()) {
+        int label = op.get_id();
+        if (!is_relevant[label])
+            continue;
+
+        auto &transitions = label_trans[label];
+        utils::sort_unique(transitions);
+
+        bool found = false;
+        for (size_t ll = 0; ll < local_label_infos.size(); ++ll) {
+            if (local_label_infos[ll].get_transitions() == transitions) {
+                label_to_local_label[label] = static_cast<int>(ll);
+                local_label_infos[ll].add_label(label, op.get_cost());
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            int new_ll = local_label_infos.size();
+            LabelGroup lg = {label};
+            local_label_infos.emplace_back(
+                move(lg), move(transitions), op.get_cost());
+            label_to_local_label[label] = new_ll;
+        }
+    }
+
+    // Group all irrelevant labels as self-loops at every product state.
+    LabelGroup irrelevant_lg;
+    int irr_cost = INF;
+    for (int label : labels) {
+        if (!is_relevant[label]) {
+            irrelevant_lg.push_back(label);
+            irr_cost = min(irr_cost, labels.get_label_cost(label));
+        }
+    }
+    if (!irrelevant_lg.empty()) {
+        vector<Transition> self_loops;
+        self_loops.reserve(num_product_states);
+        for (int s = 0; s < num_product_states; ++s)
+            self_loops.emplace_back(s, s);
+        int new_ll = local_label_infos.size();
+        for (int label : irrelevant_lg)
+            label_to_local_label[label] = new_ll;
+        local_label_infos.emplace_back(
+            move(irrelevant_lg), move(self_loops), irr_cost);
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 7: Construct the TransitionSystem and the corresponding
+    //         MergeAndShrinkRepresentationProduct, then inject the factor.
+    // -----------------------------------------------------------------------
+    auto ts = make_unique<TransitionSystem>(
+        num_total_vars,
+        vector<int>(var_ids),  // incorporated_variables = primary vars of S_d
+        labels,
+        move(label_to_local_label),
+        move(local_label_infos),
+        num_product_states,
+        move(goal_states),
+        init_state,
+        /* axiom_derived */ true);  // carries the derived variable's value
+
+    auto mas_rep = make_unique<MergeAndShrinkRepresentationProduct>(
+        var_ids, all_dom);
+
+    if (out_pending_var_order && out_state_pending_values) {
+        *out_pending_var_order = var_ids;
+        out_state_pending_values->assign(num_product_states, vector<int>(n));
+        for (int s = 0; s < num_product_states; ++s)
+            for (int i = 0; i < n; ++i)
+                (*out_state_pending_values)[s][i] = decode_val(s, i);
+    }
+
+    return fts.add_factor(move(ts), move(mas_rep), log);
 }
 }

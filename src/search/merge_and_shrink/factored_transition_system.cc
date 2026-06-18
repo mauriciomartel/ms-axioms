@@ -184,6 +184,42 @@ int FactoredTransitionSystem::merge(
     return new_index;
 }
 
+int FactoredTransitionSystem::add_factor(
+    unique_ptr<TransitionSystem> ts,
+    unique_ptr<MergeAndShrinkRepresentation> mas_representation,
+    utils::LogProxy &log) {
+    /*
+      Push the new components onto their respective vectors. The Distances
+      object is not provided by the caller — it is created here from the
+      transition system, following the same pattern as merge(). This keeps
+      the caller free from knowing about the Distances lifecycle.
+    */
+    transition_systems.push_back(move(ts));
+    mas_representations.push_back(move(mas_representation));
+    const TransitionSystem &new_ts = *transition_systems.back();
+    distances.push_back(make_unique<Distances>(new_ts));
+    int new_index = transition_systems.size() - 1;
+
+    /*
+      Compute distances immediately so that the invariant "all active factors
+      have up-to-date distances" holds as soon as this method returns. This
+      mirrors the constructor and merge(), both of which compute distances
+      right after the factor is added.
+    */
+    if (compute_init_distances || compute_goal_distances) {
+        distances[new_index]->compute_distances(
+            compute_init_distances, compute_goal_distances, log);
+    }
+
+    /*
+      Unlike merge(), which replaces two factors with one (net -1), add_factor
+      introduces a genuinely new factor, so the active count increases by one.
+    */
+    ++num_active_entries;
+    assert(is_component_valid(new_index));
+    return new_index;
+}
+
 pair<unique_ptr<MergeAndShrinkRepresentation>, unique_ptr<Distances>>
 FactoredTransitionSystem::extract_factor(int index) {
     assert(is_component_valid(index));

@@ -124,7 +124,7 @@ TransitionSystem::TransitionSystem(
     int num_variables, vector<int> &&incorporated_variables,
     const Labels &labels, vector<int> &&label_to_local_label,
     vector<LocalLabelInfo> &&local_label_infos, int num_states,
-    vector<bool> &&goal_states, int init_state)
+    vector<bool> &&goal_states, int init_state, bool axiom_derived)
     : num_variables(num_variables),
       incorporated_variables(move(incorporated_variables)),
       labels(move(labels)),
@@ -132,7 +132,8 @@ TransitionSystem::TransitionSystem(
       local_label_infos(move(local_label_infos)),
       num_states(num_states),
       goal_states(move(goal_states)),
-      init_state(init_state) {
+      init_state(init_state),
+      axiom_derived(axiom_derived) {
     assert(is_valid());
 }
 
@@ -144,7 +145,8 @@ TransitionSystem::TransitionSystem(const TransitionSystem &other)
       local_label_infos(other.local_label_infos),
       num_states(other.num_states),
       goal_states(other.goal_states),
-      init_state(other.init_state) {
+      init_state(other.init_state),
+      axiom_derived(other.axiom_derived) {
 }
 
 TransitionSystem::~TransitionSystem() {
@@ -280,7 +282,10 @@ unique_ptr<TransitionSystem> TransitionSystem::merge(
     return make_unique<TransitionSystem>(
         num_variables, move(incorporated_variables), ts1.labels,
         move(label_to_local_label), move(local_label_infos), num_states,
-        move(goal_states), init_state);
+        move(goal_states), init_state,
+        // A merged factor is axiom-derived if either side is, so the flag
+        // sticks until the factor is finally combined with everything else.
+        ts1.axiom_derived || ts2.axiom_derived);
 }
 
 void TransitionSystem::compute_equivalent_local_labels() {

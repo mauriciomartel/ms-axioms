@@ -274,7 +274,23 @@ void FTSFactory::handle_operator_precondition(
     const vector<bool> &has_effect_on_var,
     vector<vector<Transition>> &transitions_by_var) {
     int label = op.get_id();
-    int var_id = precondition.get_variable().get_id();
+    VariableProxy var = precondition.get_variable();
+    int var_id = var.get_id();
+    /*
+      Derived variables are never targeted by operator effects (their value
+      is determined exclusively by axiom evaluation, which depends on the
+      primary variables in their dependency closure). The naive atomic
+      factor built for a derived variable therefore never changes its value
+      and would incorrectly gate this label on the variable's *initial*
+      value forever, even though the true value changes dynamically as
+      primary variables change. The correct, value-correlated precondition
+      check (if any) is performed by the axiom-induced factor for this
+      derived variable's dependency closure; here we must not add any
+      restriction, so this label stays irrelevant (i.e. self-loops on all
+      values) in the derived variable's atomic factor.
+    */
+    if (var.is_derived())
+        return;
     if (!has_effect_on_var[var_id]) {
         int value = precondition.get_value();
         transitions_by_var[var_id].emplace_back(value, value);

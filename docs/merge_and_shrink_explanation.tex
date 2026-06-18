@@ -2815,6 +2815,165 @@ predicates) following the same plan as \S\ref{sec:nextsteps} is still
 recommended before generalising this conclusion beyond the tested benchmark.
 
 % ─────────────────────────────────────────────────────────────────────────────
+\subsection{Step 7 --- The Real Root Cause: a Frozen Atomic Factor for
+Derived Variables}
+\label{sec:step7}
+
+\textbf{File:} \texttt{fts\_factory.cc}
+(\texttt{FTSFactory::handle\_operator\_precondition}).
+
+Step~6 made \texttt{merge\_stateless} work with axiom-derived factors by
+\emph{avoiding} the suspected trigger (a premature partial axiom composite)
+through \texttt{axiom\_deferral}. This section documents a second, distinct,
+and more fundamental bug that was found afterwards while investigating
+why \texttt{merge\_stateless} still produced a false
+\emph{"Task is provably unsolvable"} on \texttt{p01-phil2} under some
+configurations even with the Step~6 fixes in place. Fixing this bug at its
+source makes \texttt{axiom\_deferral} unnecessary for this benchmark: with the
+fix below, plain \texttt{merge\_stateless} -- using only
+\texttt{score\_based\_filtering(goal\_relevance(), dfp(), total\_order())},
+with no \texttt{axiom\_deferral} anywhere in the scoring chain -- solves
+\texttt{p01-phil2} correctly.
+
+\subsubsection{The Bug}
+
+\texttt{FTSFactory::create\_transition\_systems} builds one naive
+\emph{atomic} factor per task variable, including derived variables, before
+any axiom-specific machinery runs. For each operator that has a precondition
+on a variable $v$ but no effect on $v$, \texttt{handle\_operator\_precondition}
+adds a self-loop transition that restricts the label to states where $v$
+already holds the required value:
+\begin{lstlisting}
+if (!has_effect_on_var[var_id]) {
+    int value = precondition.get_value();
+    transitions_by_var[var_id].emplace_back(value, value);
+    mark_as_relevant(var_id, label);
+}
+\end{lstlisting}
+This is correct for a \emph{primary} variable: such a variable's value only
+ever changes through operator effects, so gating the label on its
+\emph{current} atomic-factor value is exact. It is \textbf{not} correct for a
+\emph{derived} variable. A derived variable is never the target of an
+operator effect -- its value is determined exclusively by axiom evaluation,
+which is re-run after every operator application and depends on the
+\emph{primary} variables in the derived variable's dependency closure
+$S_d$. The naive atomic factor for a derived variable therefore never
+changes state: it has exactly one reachable abstract state, frozen at the
+variable's value in the initial state. Once
+\texttt{handle\_operator\_precondition} adds the self-loop restriction above,
+any label whose precondition references a derived variable becomes
+permanently gated on whatever that variable's value happened to be
+\emph{initially} -- even though the variable's true value changes constantly
+as the plan progresses. If the derived variable's initial value differs from
+the value some operator's precondition requires, that operator's label is
+marked irrelevant/blocked in this atomic factor forever, and once this
+atomic factor is merged into the rest of the FTS, the corresponding
+operators become globally inapplicable in the abstraction -- producing
+exactly the kind of false dead end described at a different level in
+\S\ref{sec:rootcause}.
+
+This is a strictly separate mechanism from the bisimulation-on-partial-
+composite issue of \S\ref{sec:rootcause}: it does not involve
+\texttt{build\_axiom\_factor}, \texttt{shrink\_before\_merge\_step}, or merge
+order at all. It is purely a property of the naive, single-variable atomic
+factor that \texttt{FTSFactory} builds for \emph{every} variable -- including
+derived ones -- before any axiom-aware factor exists.
+
+\subsubsection{The Fix}
+
+The value-correlated precondition check for a derived variable is already
+performed correctly elsewhere: \texttt{build\_axiom\_factor}
+(\S\ref{sec:piece3}) constructs a dedicated product factor
+$\Theta_{S,d}$ whose flat lookup table is computed from a full,
+correct stratified axiom evaluation over $S_d$, and that factor's labels are
+not artificially restricted by this code path. The derived variable's naive
+\emph{atomic} factor therefore does not need to (and must not) impose any
+restriction of its own; the fix is to make
+\texttt{handle\_operator\_precondition} skip the self-loop restriction
+whenever the precondition's variable is derived, leaving that label
+irrelevant (self-looping on all values) in the atomic factor:
+\begin{lstlisting}
+void FTSFactory::handle_operator_precondition(
+    OperatorProxy op, FactProxy precondition,
+    const vector<bool> &has_effect_on_var,
+    vector<vector<Transition>> &transitions_by_var) {
+    int label = op.get_id();
+    VariableProxy var = precondition.get_variable();
+    int var_id = var.get_id();
+    // Derived variables are never targeted by operator effects; their
+    // value is determined by axiom evaluation over the variables in their
+    // dependency closure, not by the (frozen) value in this naive atomic
+    // factor. Gating a label on that frozen value would incorrectly block
+    // it forever. The real, value-correlated check for this variable is
+    // performed by the axiom-induced factor for its dependency closure.
+    if (var.is_derived())
+        return;
+    if (!has_effect_on_var[var_id]) {
+        int value = precondition.get_value();
+        transitions_by_var[var_id].emplace_back(value, value);
+        mark_as_relevant(var_id, label);
+    }
+}
+\end{lstlisting}
+The change is local to this one function and has no effect on tasks without
+derived variables, since \texttt{var.is\_derived()} is always \texttt{false}
+for primary variables.
+
+\subsubsection{Validation: \texttt{axiom\_deferral} Is No Longer Required}
+
+With this fix alone (and without removing \texttt{axiom\_deferral}, which
+remains available and harmless to use), \texttt{p01-phil2} is solved
+correctly by \texttt{merge\_stateless} \emph{without} any
+\texttt{axiom\_deferral} scoring function:
+\begin{lstlisting}[language=bash, caption={merge\_stateless without axiom\_deferral, after the Step~7 fix}]
+astar(merge_and_shrink(
+    merge_strategy=merge_stateless(
+        merge_selector=score_based_filtering(
+            scoring_functions=[goal_relevance(), dfp(), total_order()])),
+    shrink_strategy=shrink_bisimulation(greedy=false),
+    label_reduction=exact(before_shrinking=true, before_merging=false),
+    max_states=50000,
+    threshold_before_merge=1))
+\end{lstlisting}
+This is the same configuration that produced \emph{"Task is provably
+unsolvable"} before the fix; after the fix it finds the optimal plan
+(cost~18), matching every other validated configuration in this section.
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Configuration} & \textbf{Before Step~7 fix} & \textbf{After Step~7 fix} \\
+\midrule
+\texttt{merge\_sccs} & Plan cost 18 & Plan cost 18 \\
+\texttt{merge\_stateless} + \texttt{axiom\_deferral} & Plan cost 18 & Plan cost 18 \\
+\texttt{merge\_stateless}, no \texttt{axiom\_deferral} & \emph{Provably unsolvable (false)} & Plan cost 18 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Relationship to Step 6.} This result indicates that, at least on
+the tested benchmark, the atomic-factor bug fixed here was sufficient by
+itself to explain the original \texttt{merge\_stateless} failure, and that
+the bisimulation-on-partial-composite mechanism hypothesised in
+\S\ref{sec:rootcause} -- while a real, theoretically sound concern in its own
+right -- was not necessarily the operative cause of the specific dead end
+observed on \texttt{p01-phil2}. The two mechanisms are independent and not
+mutually exclusive: a task could in principle still trigger the
+partial-composite issue even with the Step~7 fix applied, so
+\texttt{axiom\_deferral} is kept in the codebase as a defence-in-depth option
+rather than removed. It is, however, no longer a \emph{required} part of a
+working \texttt{merge\_stateless} configuration for the benchmarks tested so
+far.
+
+\paragraph{Status.} The original goal of this investigation --
+\texttt{merge\_stateless} working correctly on axiom tasks without relying on
+\texttt{axiom\_deferral} -- is met for \texttt{p01-phil2}. As with Step~6,
+wider testing (larger Philosophers instances, other domains with derived
+predicates, and the \texttt{p02-phil3} instance that currently times out
+during axiom-factor construction for unrelated scalability reasons) is
+recommended before generalising this conclusion further.
+
+% ─────────────────────────────────────────────────────────────────────────────
 \subsection{Phased Implementation Path}
 
 \hrule\medskip

@@ -157,12 +157,12 @@ var20
 9
 Atom activate(philosopher-0, forks--pid-rfork)
 Atom activate(philosopher-0, forks--pid-wfork)
-Atom activate(philosopher-0, forks-__-pidp1__2_-rfork)
-Atom activate(philosopher-0, forks-__-pidp1__2_-wfork)
+Atom activate(philosopher-0, forks-__-pidp1__3_-rfork)
+Atom activate(philosopher-0, forks-__-pidp1__3_-wfork)
 Atom enabled(philosopher-0, forks--pid-rfork)
 Atom enabled(philosopher-0, forks--pid-wfork)
-Atom enabled(philosopher-0, forks-__-pidp1__2_-rfork)
-Atom enabled(philosopher-0, forks-__-pidp1__2_-wfork)
+Atom enabled(philosopher-0, forks-__-pidp1__3_-rfork)
+Atom enabled(philosopher-0, forks-__-pidp1__3_-wfork)
 Atom pending(philosopher-0)
 end_variable
 begin_variable
@@ -181,12 +181,12 @@ var22
 9
 Atom activate(philosopher-1, forks--pid-rfork)
 Atom activate(philosopher-1, forks--pid-wfork)
-Atom activate(philosopher-1, forks-__-pidp1__2_-rfork)
-Atom activate(philosopher-1, forks-__-pidp1__2_-wfork)
+Atom activate(philosopher-1, forks-__-pidp1__3_-rfork)
+Atom activate(philosopher-1, forks-__-pidp1__3_-wfork)
 Atom enabled(philosopher-1, forks--pid-rfork)
 Atom enabled(philosopher-1, forks--pid-wfork)
-Atom enabled(philosopher-1, forks-__-pidp1__2_-rfork)
-Atom enabled(philosopher-1, forks-__-pidp1__2_-wfork)
+Atom enabled(philosopher-1, forks-__-pidp1__3_-rfork)
+Atom enabled(philosopher-1, forks-__-pidp1__3_-wfork)
 Atom pending(philosopher-1)
 end_variable
 begin_variable
@@ -205,12 +205,12 @@ var24
 9
 Atom activate(philosopher-2, forks--pid-rfork)
 Atom activate(philosopher-2, forks--pid-wfork)
-Atom activate(philosopher-2, forks-__-pidp1__2_-rfork)
-Atom activate(philosopher-2, forks-__-pidp1__2_-wfork)
+Atom activate(philosopher-2, forks-__-pidp1__3_-rfork)
+Atom activate(philosopher-2, forks-__-pidp1__3_-wfork)
 Atom enabled(philosopher-2, forks--pid-rfork)
 Atom enabled(philosopher-2, forks--pid-wfork)
-Atom enabled(philosopher-2, forks-__-pidp1__2_-rfork)
-Atom enabled(philosopher-2, forks-__-pidp1__2_-wfork)
+Atom enabled(philosopher-2, forks-__-pidp1__3_-rfork)
+Atom enabled(philosopher-2, forks-__-pidp1__3_-wfork)
 Atom pending(philosopher-2)
 end_variable
 begin_variable
@@ -252,8 +252,8 @@ begin_variable
 var30
 0
 2
-Atom blocked-trans(philosopher-2, forks-__-pidp1__2_-wfork)
-NegatedAtom blocked-trans(philosopher-2, forks-__-pidp1__2_-wfork)
+Atom blocked-trans(philosopher-2, forks-__-pidp1__3_-wfork)
+NegatedAtom blocked-trans(philosopher-2, forks-__-pidp1__3_-wfork)
 end_variable
 begin_variable
 var31
@@ -266,8 +266,8 @@ begin_variable
 var32
 0
 2
-Atom blocked-trans(philosopher-2, forks-__-pidp1__2_-rfork)
-NegatedAtom blocked-trans(philosopher-2, forks-__-pidp1__2_-rfork)
+Atom blocked-trans(philosopher-2, forks-__-pidp1__3_-rfork)
+NegatedAtom blocked-trans(philosopher-2, forks-__-pidp1__3_-rfork)
 end_variable
 begin_variable
 var33
@@ -315,8 +315,8 @@ begin_variable
 var39
 0
 2
-Atom blocked-trans(philosopher-1, forks-__-pidp1__2_-wfork)
-NegatedAtom blocked-trans(philosopher-1, forks-__-pidp1__2_-wfork)
+Atom blocked-trans(philosopher-1, forks-__-pidp1__3_-wfork)
+NegatedAtom blocked-trans(philosopher-1, forks-__-pidp1__3_-wfork)
 end_variable
 begin_variable
 var40
@@ -329,8 +329,8 @@ begin_variable
 var41
 0
 2
-Atom blocked-trans(philosopher-1, forks-__-pidp1__2_-rfork)
-NegatedAtom blocked-trans(philosopher-1, forks-__-pidp1__2_-rfork)
+Atom blocked-trans(philosopher-1, forks-__-pidp1__3_-rfork)
+NegatedAtom blocked-trans(philosopher-1, forks-__-pidp1__3_-rfork)
 end_variable
 begin_variable
 var42
@@ -392,8 +392,8 @@ begin_variable
 var50
 0
 2
-Atom blocked-trans(philosopher-0, forks-__-pidp1__2_-wfork)
-NegatedAtom blocked-trans(philosopher-0, forks-__-pidp1__2_-wfork)
+Atom blocked-trans(philosopher-0, forks-__-pidp1__3_-wfork)
+NegatedAtom blocked-trans(philosopher-0, forks-__-pidp1__3_-wfork)
 end_variable
 begin_variable
 var51
@@ -406,8 +406,8 @@ begin_variable
 var52
 0
 2
-Atom blocked-trans(philosopher-0, forks-__-pidp1__2_-rfork)
-NegatedAtom blocked-trans(philosopher-0, forks-__-pidp1__2_-rfork)
+Atom blocked-trans(philosopher-0, forks-__-pidp1__3_-rfork)
+NegatedAtom blocked-trans(philosopher-0, forks-__-pidp1__3_-rfork)
 end_variable
 begin_variable
 var53
@@ -516,7 +516,7 @@ activate-trans philosopher-0 philosopher forks--pid-wfork state-4 state-5
 1
 end_operator
 begin_operator
-activate-trans philosopher-0 philosopher forks-__-pidp1__2_-rfork state-3 state-4
+activate-trans philosopher-0 philosopher forks-__-pidp1__3_-rfork state-3 state-4
 2
 19 1
 10 1
@@ -525,7 +525,7 @@ activate-trans philosopher-0 philosopher forks-__-pidp1__2_-rfork state-3 state-
 1
 end_operator
 begin_operator
-activate-trans philosopher-0 philosopher forks-__-pidp1__2_-wfork state-5 state-6
+activate-trans philosopher-0 philosopher forks-__-pidp1__3_-wfork state-5 state-6
 2
 19 3
 10 1
@@ -561,7 +561,7 @@ activate-trans philosopher-1 philosopher forks--pid-wfork state-4 state-5
 1
 end_operator
 begin_operator
-activate-trans philosopher-1 philosopher forks-__-pidp1__2_-rfork state-3 state-4
+activate-trans philosopher-1 philosopher forks-__-pidp1__3_-rfork state-3 state-4
 2
 21 1
 10 1
@@ -570,7 +570,7 @@ activate-trans philosopher-1 philosopher forks-__-pidp1__2_-rfork state-3 state-
 1
 end_operator
 begin_operator
-activate-trans philosopher-1 philosopher forks-__-pidp1__2_-wfork state-5 state-6
+activate-trans philosopher-1 philosopher forks-__-pidp1__3_-wfork state-5 state-6
 2
 21 3
 10 1
@@ -606,7 +606,7 @@ activate-trans philosopher-2 philosopher forks--pid-wfork state-4 state-5
 1
 end_operator
 begin_operator
-activate-trans philosopher-2 philosopher forks-__-pidp1__2_-rfork state-3 state-4
+activate-trans philosopher-2 philosopher forks-__-pidp1__3_-rfork state-3 state-4
 2
 23 1
 10 1
@@ -615,7 +615,7 @@ activate-trans philosopher-2 philosopher forks-__-pidp1__2_-rfork state-3 state-
 1
 end_operator
 begin_operator
-activate-trans philosopher-2 philosopher forks-__-pidp1__2_-wfork state-5 state-6
+activate-trans philosopher-2 philosopher forks-__-pidp1__3_-wfork state-5 state-6
 2
 23 3
 10 1
@@ -750,7 +750,7 @@ perform-trans philosopher-0 philosopher forks--pid-wfork state-4 state-5
 1
 end_operator
 begin_operator
-perform-trans philosopher-0 philosopher forks-__-pidp1__2_-rfork state-3 state-4
+perform-trans philosopher-0 philosopher forks-__-pidp1__3_-rfork state-3 state-4
 1
 10 1
 2
@@ -759,7 +759,7 @@ perform-trans philosopher-0 philosopher forks-__-pidp1__2_-rfork state-3 state-4
 1
 end_operator
 begin_operator
-perform-trans philosopher-0 philosopher forks-__-pidp1__2_-wfork state-5 state-6
+perform-trans philosopher-0 philosopher forks-__-pidp1__3_-wfork state-5 state-6
 1
 10 1
 2
@@ -795,7 +795,7 @@ perform-trans philosopher-1 philosopher forks--pid-wfork state-4 state-5
 1
 end_operator
 begin_operator
-perform-trans philosopher-1 philosopher forks-__-pidp1__2_-rfork state-3 state-4
+perform-trans philosopher-1 philosopher forks-__-pidp1__3_-rfork state-3 state-4
 1
 10 1
 2
@@ -804,7 +804,7 @@ perform-trans philosopher-1 philosopher forks-__-pidp1__2_-rfork state-3 state-4
 1
 end_operator
 begin_operator
-perform-trans philosopher-1 philosopher forks-__-pidp1__2_-wfork state-5 state-6
+perform-trans philosopher-1 philosopher forks-__-pidp1__3_-wfork state-5 state-6
 1
 10 1
 2
@@ -840,7 +840,7 @@ perform-trans philosopher-2 philosopher forks--pid-wfork state-4 state-5
 1
 end_operator
 begin_operator
-perform-trans philosopher-2 philosopher forks-__-pidp1__2_-rfork state-3 state-4
+perform-trans philosopher-2 philosopher forks-__-pidp1__3_-rfork state-3 state-4
 1
 10 1
 2
@@ -849,7 +849,7 @@ perform-trans philosopher-2 philosopher forks-__-pidp1__2_-rfork state-3 state-4
 1
 end_operator
 begin_operator
-perform-trans philosopher-2 philosopher forks-__-pidp1__2_-wfork state-5 state-6
+perform-trans philosopher-2 philosopher forks-__-pidp1__3_-wfork state-5 state-6
 1
 10 1
 2
@@ -867,7 +867,7 @@ queue-read philosopher-0 forks--pid-rfork forks-0- fork
 1
 end_operator
 begin_operator
-queue-read philosopher-0 forks-__-pidp1__2_-rfork forks-1- fork
+queue-read philosopher-0 forks-__-pidp1__3_-rfork forks-1- fork
 1
 6 0
 2
@@ -885,7 +885,7 @@ queue-read philosopher-1 forks--pid-rfork forks-1- fork
 1
 end_operator
 begin_operator
-queue-read philosopher-1 forks-__-pidp1__2_-rfork forks-2- fork
+queue-read philosopher-1 forks-__-pidp1__3_-rfork forks-2- fork
 1
 11 0
 2
@@ -903,7 +903,7 @@ queue-read philosopher-2 forks--pid-rfork forks-2- fork
 1
 end_operator
 begin_operator
-queue-read philosopher-2 forks-__-pidp1__2_-rfork forks-0- fork
+queue-read philosopher-2 forks-__-pidp1__3_-rfork forks-0- fork
 1
 15 0
 2
@@ -921,7 +921,7 @@ queue-write philosopher-0 forks--pid-wfork forks-0- fork
 1
 end_operator
 begin_operator
-queue-write philosopher-0 forks-__-pidp1__2_-wfork forks-1- fork
+queue-write philosopher-0 forks-__-pidp1__3_-wfork forks-1- fork
 0
 3
 0 20 3 7
@@ -939,7 +939,7 @@ queue-write philosopher-1 forks--pid-wfork forks-1- fork
 1
 end_operator
 begin_operator
-queue-write philosopher-1 forks-__-pidp1__2_-wfork forks-2- fork
+queue-write philosopher-1 forks-__-pidp1__3_-wfork forks-2- fork
 0
 3
 0 22 3 7
@@ -957,7 +957,7 @@ queue-write philosopher-2 forks--pid-wfork forks-2- fork
 1
 end_operator
 begin_operator
-queue-write philosopher-2 forks-__-pidp1__2_-wfork forks-0- fork
+queue-write philosopher-2 forks-__-pidp1__3_-wfork forks-0- fork
 0
 3
 0 24 3 7

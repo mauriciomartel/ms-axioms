@@ -13,6 +13,10 @@
           philosopher-1 
           philosopher-2 
           philosopher-3 
+          philosopher-4 
+          philosopher-5 
+          philosopher-6 
+          philosopher-7 
            - process 
  
            ;; available comunication channels 
@@ -21,6 +25,10 @@
           forks-1-
           forks-2-
           forks-3-
+          forks-4-
+          forks-5-
+          forks-6-
+          forks-7-
            - queue
  
            ;; available comunication channels types 
@@ -63,8 +71,8 @@
  
           forks--pid-Wfork
           forks--pid-Rfork
-          forks-__-pidp1__4_-Rfork
-          forks-__-pidp1__4_-Wfork
+          forks-__-pidp1__8_-Rfork
+          forks-__-pidp1__8_-Wfork
            - transition
 )
 (:init
@@ -89,6 +97,22 @@
   (pending philosopher-3)
   (at-process philosopher-3 state-1)
   (is-a-process philosopher-3 philosopher)
+ 
+  (pending philosopher-4)
+  (at-process philosopher-4 state-1)
+  (is-a-process philosopher-4 philosopher)
+ 
+  (pending philosopher-5)
+  (at-process philosopher-5 state-1)
+  (is-a-process philosopher-5 philosopher)
+ 
+  (pending philosopher-6)
+  (at-process philosopher-6 state-1)
+  (is-a-process philosopher-6 philosopher)
+ 
+  (pending philosopher-7)
+  (at-process philosopher-7 state-1)
+  (is-a-process philosopher-7 philosopher)
  
   ;; numerics 
  
@@ -126,6 +150,34 @@
   (queue-size forks-3- zero)
   (settled forks-3-)
 
+  (is-a-queue forks-4- queue-1)
+  (queue-head forks-4- qs-0)
+  (queue-tail forks-4- qs-0)
+  (queue-head-msg forks-4- empty)
+  (queue-size forks-4- zero)
+  (settled forks-4-)
+
+  (is-a-queue forks-5- queue-1)
+  (queue-head forks-5- qs-0)
+  (queue-tail forks-5- qs-0)
+  (queue-head-msg forks-5- empty)
+  (queue-size forks-5- zero)
+  (settled forks-5-)
+
+  (is-a-queue forks-6- queue-1)
+  (queue-head forks-6- qs-0)
+  (queue-tail forks-6- qs-0)
+  (queue-head-msg forks-6- empty)
+  (queue-size forks-6- zero)
+  (settled forks-6-)
+
+  (is-a-queue forks-7- queue-1)
+  (queue-head forks-7- qs-0)
+  (queue-tail forks-7- qs-0)
+  (queue-head-msg forks-7- empty)
+  (queue-size forks-7- zero)
+  (settled forks-7-)
+
   ;; special operations 
  
   ;; queue access operations 
@@ -136,47 +188,83 @@
   (reads philosopher-0 forks-0- forks--pid-Rfork)
   (trans-msg forks--pid-Rfork fork)
  
-  (reads philosopher-0 forks-1- forks-__-pidp1__4_-Rfork)
-  (trans-msg forks-__-pidp1__4_-Rfork fork)
+  (reads philosopher-0 forks-1- forks-__-pidp1__8_-Rfork)
+  (trans-msg forks-__-pidp1__8_-Rfork fork)
  
  
-  (writes philosopher-0 forks-1- forks-__-pidp1__4_-Wfork)
-  (trans-msg forks-__-pidp1__4_-Wfork fork)
+  (writes philosopher-0 forks-1- forks-__-pidp1__8_-Wfork)
+  (trans-msg forks-__-pidp1__8_-Wfork fork)
  
   (writes philosopher-1 forks-1- forks--pid-Wfork)
  
   (reads philosopher-1 forks-1- forks--pid-Rfork)
  
-  (reads philosopher-1 forks-2- forks-__-pidp1__4_-Rfork)
+  (reads philosopher-1 forks-2- forks-__-pidp1__8_-Rfork)
  
  
-  (writes philosopher-1 forks-2- forks-__-pidp1__4_-Wfork)
+  (writes philosopher-1 forks-2- forks-__-pidp1__8_-Wfork)
  
   (writes philosopher-2 forks-2- forks--pid-Wfork)
  
   (reads philosopher-2 forks-2- forks--pid-Rfork)
  
-  (reads philosopher-2 forks-3- forks-__-pidp1__4_-Rfork)
+  (reads philosopher-2 forks-3- forks-__-pidp1__8_-Rfork)
  
  
-  (writes philosopher-2 forks-3- forks-__-pidp1__4_-Wfork)
+  (writes philosopher-2 forks-3- forks-__-pidp1__8_-Wfork)
  
   (writes philosopher-3 forks-3- forks--pid-Wfork)
  
   (reads philosopher-3 forks-3- forks--pid-Rfork)
  
-  (reads philosopher-3 forks-0- forks-__-pidp1__4_-Rfork)
+  (reads philosopher-3 forks-4- forks-__-pidp1__8_-Rfork)
  
  
-  (writes philosopher-3 forks-0- forks-__-pidp1__4_-Wfork)
+  (writes philosopher-3 forks-4- forks-__-pidp1__8_-Wfork)
+ 
+  (writes philosopher-4 forks-4- forks--pid-Wfork)
+ 
+  (reads philosopher-4 forks-4- forks--pid-Rfork)
+ 
+  (reads philosopher-4 forks-5- forks-__-pidp1__8_-Rfork)
+ 
+ 
+  (writes philosopher-4 forks-5- forks-__-pidp1__8_-Wfork)
+ 
+  (writes philosopher-5 forks-5- forks--pid-Wfork)
+ 
+  (reads philosopher-5 forks-5- forks--pid-Rfork)
+ 
+  (reads philosopher-5 forks-6- forks-__-pidp1__8_-Rfork)
+ 
+ 
+  (writes philosopher-5 forks-6- forks-__-pidp1__8_-Wfork)
+ 
+  (writes philosopher-6 forks-6- forks--pid-Wfork)
+ 
+  (reads philosopher-6 forks-6- forks--pid-Rfork)
+ 
+  (reads philosopher-6 forks-7- forks-__-pidp1__8_-Rfork)
+ 
+ 
+  (writes philosopher-6 forks-7- forks-__-pidp1__8_-Wfork)
+ 
+  (writes philosopher-7 forks-7- forks--pid-Wfork)
+ 
+  (reads philosopher-7 forks-7- forks--pid-Rfork)
+ 
+  (reads philosopher-7 forks-0- forks-__-pidp1__8_-Rfork)
+ 
+ 
+  (writes philosopher-7 forks-0- forks-__-pidp1__8_-Wfork)
  
   ;; state transition function: state x trans -> state 
  
   (trans philosopher forks--pid-Wfork state-1 state-6)
   (trans philosopher forks--pid-Rfork state-6 state-3)
-  (trans philosopher forks-__-pidp1__4_-Rfork state-3 state-4)
+  (trans philosopher forks-__-pidp1__8_-Rfork state-3 state-4)
   (trans philosopher forks--pid-Wfork state-4 state-5)
-  (trans philosopher forks-__-pidp1__4_-Wfork state-5 state-6)
+  (trans philosopher forks-__-pidp1__8_-Wfork state-5 state-6)
 )
 (:goal
  (and
@@ -186,6 +274,10 @@
   (blocked philosopher-1)
   (blocked philosopher-2)
   (blocked philosopher-3)
+  (blocked philosopher-4)
+  (blocked philosopher-5)
+  (blocked philosopher-6)
+  (blocked philosopher-7)
  )
 )
 )

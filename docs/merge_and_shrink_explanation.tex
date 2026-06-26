@@ -3321,6 +3321,47 @@ batched closures stay within a representable product size -- e.g.\
 currently exercise any merge-strategy choice at all, since execution never
 reaches the main M\&S loop where merge strategies operate.
 
+\subsubsection{The Same Comparison, Unbatched (\texttt{feature/axioms-in-ms}):
+Merge Strategy Matters a Great Deal}
+
+Repeating the same three configurations -- the \texttt{merge\_sccs} baseline,
+\texttt{merge\_stateless}+\texttt{dfp}, and \texttt{merge\_stateless}+
+\texttt{sf\_miasm} -- on \texttt{p01-opt2} against
+\texttt{feature/axioms-in-ms} (commit \texttt{52e34ae}, the unbatched
+reachability fix from \S\ref{sec:step8}, one axiom factor built per derived
+variable rather than one merged factor for all four) sidesteps the
+\S\ref{sec:step8-batching} ceiling entirely and lets all three configurations
+run to completion:
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Configuration} & \textbf{Axiom-factor build} & \textbf{Main loop} & \textbf{Total time} & \textbf{Peak mem.} \\
+\midrule
+\texttt{merge\_sccs} + \texttt{dfp} (baseline) & 15.59\,s & 20.69\,s & 36.38\,s & 284\,MB \\
+\texttt{merge\_stateless} + \texttt{dfp} & 14.88\,s & 90.13\,s & 105.14\,s & 290\,MB \\
+\texttt{merge\_stateless} + \texttt{sf\_miasm} & 17.68\,s & 758.45\,s & 776.22\,s & 1334\,MB \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All three runs find a plan of \textbf{cost 28 with 0 dead ends}, confirming
+the choice of merge strategy does not affect correctness here, only
+performance. Axiom-factor build time is, as expected, the same (within
+measurement noise) across all three configurations, since it happens once
+during \texttt{FTSFactory::create}, before any merge strategy runs. The
+differences are entirely in the main M\&S loop: \texttt{merge\_sccs}'s
+topological, SCC-grouped merge order is $\approx 2.9\times$ faster than
+unconstrained \texttt{merge\_stateless}+\texttt{dfp}, and $\approx 21\times$
+faster than \texttt{merge\_stateless}+\texttt{sf\_miasm}, which also peaks at
+$\approx 4.6\times$ the memory of the other two configurations. This is
+consistent with \texttt{merge\_sccs} exploiting the causal-graph structure to
+restrict which pairs of factors are ever considered for merging, while
+\texttt{merge\_stateless} scores every viable pair at every step and
+\texttt{sf\_miasm}'s scoring function is itself the most expensive of the
+three to evaluate (it shrinks a trial merge to compute its score, rather than
+using a cheap structural heuristic).
+
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Phased Implementation Path}
 

@@ -3192,83 +3192,20 @@ now sized by the much smaller \texttt{num\_reachable\_states}, so the
 memory saving compounds across every one of those arrays rather than being
 limited to whichever single array the BFS itself touches.
 
-\subsubsection{Interaction With Batched Closures (\S\ref{sec:step7}-era
-architecture)}
-\label{sec:step8-batching}
+\subsubsection{Merge-Strategy Comparison on \texttt{p01-opt2}}
 
-The port described at the start of \S\ref{sec:step7}'s predecessor work
-extended \texttt{build\_axiom\_factor} to accept \emph{multiple} derived
-variable IDs at once, building one combined factor for every group of
-derived variables whose dependency closures share at least one primary
-variable -- merging them into a single factor is a correctness requirement
-(building separate, independently-shrunk factors with overlapping primary
-variables would destroy the correlation between the shared variables; see
-the comment on \texttt{visited\_derived}/\texttt{primary\_var\_set} at the
-top of the function). The reachability fix above was ported onto this
-batched signature unchanged in spirit -- the BFS, the
-\texttt{RelevantOperator} precomputation, and the sparse lookup-table
-constructor all apply identically regardless of whether $S_d$ is the
-closure of one derived variable or several merged together -- and was
-validated correct on \texttt{p01-phil2} (plan cost~18, matching every other
-validated configuration in this document).
-
-However, testing the ported version on \texttt{p01-opt2} surfaced a
-separate, pre-existing limitation that batching exposes but the reachability
-fix cannot, by itself, solve. On \texttt{p01-opt2}, variables 161, 162, 169,
-and 176 -- each individually a $14$-variable closure when built separately,
-as in the measurement above -- turn out to share primary variables
-pairwise, so the batched implementation builds \emph{one} factor for all
-four together, over the \emph{union} of their closures: $n = 42$ primary
-variables. The product of 42 variables' domain sizes overflows a 32-bit
-\texttt{int} (\texttt{num\_product\_states} is computed as a negative
-number in practice), and even disregarding the overflow, the true product
-is far larger than any reachable subset could amortize: the sparse lookup
-table built by the fix above is still sized by
-\texttt{num\_product\_states} (\S\ref{sec:piece1}; \texttt{get\_value}
-must be able to encode \emph{any} concrete state via the full mixed-radix
-formula, not just the reachable ones), so even a correctly-widened,
-overflow-free counter would require allocating a table with on the order of
-$4^{42}$ entries -- far beyond any feasible amount of memory, independent
-of how the BFS explores it. This is therefore \textbf{not} a bug in the
-reachability fix itself (which is correct and effective whenever the
-\emph{closure}, batched or not, stays within a representable and
-allocatable product size) but a separate scalability ceiling specific to
-the full-mixed-radix-table representation combined with batching's
-unbounded closure growth. It is not yet fixed and is recorded here as a
-known limitation rather than papered over:
-\begin{itemize}
-  \item \textbf{Immediate, partial mitigation:} widen
-        \texttt{num\_product\_states} and the lookup-table index type from
-        \texttt{int} to a 64-bit type would remove the silent overflow
-        (turning an incorrect negative size into a correctly large one) but
-        would not make the allocation feasible for closures this large; it
-        only helps when the true product still fits in memory.
-  \item \textbf{Real fix (future work):} replace the full
-        mixed-radix table in \texttt{MergeAndShrinkRepresentationProduct}
-        with a sparse, hash-map-based representation for
-        \texttt{get\_value()}, so that memory scales with
-        \texttt{num\_reachable\_states} (already computed by the BFS above)
-        rather than with the full product of the batched closure's
-        domains -- removing the last place in the axiom-factor pipeline
-        where cost still depends on the full product instead of on what is
-        reachable.
-\end{itemize}
-
-\subsubsection{Merge-Strategy Comparison on \texttt{p01-opt2}: Blocked
-Upstream of Merge Strategy}
-
-Having validated the reachability fix and characterized the batching
-limitation above, the natural next experiment is to compare \texttt{p01-opt2}
-across merge strategies -- e.g.\ \texttt{merge\_stateless} with
-\texttt{dfp()} scoring versus \texttt{merge\_stateless} with
-\texttt{sf\_miasm()} scoring -- the same way \S\ref{sec:step8} compared
-before/after the reachability fix under \texttt{merge\_sccs}. Both
-configurations were attempted, keeping \texttt{shrink\_strategy},
-\texttt{label\_reduction}, \texttt{max\_states}, and
-\texttt{threshold\_before\_merge} identical to the \texttt{merge\_sccs}
+The natural next experiment after validating the reachability fix is to
+compare \texttt{p01-opt2} across merge strategies -- e.g.\
+\texttt{merge\_stateless} with \texttt{dfp()} scoring versus
+\texttt{merge\_stateless} with \texttt{sf\_miasm()} scoring -- the same way
+\S\ref{sec:step8} compared before/after the reachability fix under
+\texttt{merge\_sccs}. Both configurations were run on
+\texttt{feature/axioms-in-ms} (commit \texttt{52e34ae}), keeping
+\texttt{shrink\_strategy}, \texttt{label\_reduction}, \texttt{max\_states},
+and \texttt{threshold\_before\_merge} identical to the \texttt{merge\_sccs}
 baseline so that only the merge strategy and its scoring functions differ:
 
-\begin{lstlisting}[language=bash, caption={stateless+DFP configuration attempted on p01-opt2}]
+\begin{lstlisting}[language=bash, caption={stateless+DFP configuration on p01-opt2}]
 astar(merge_and_shrink(
     merge_strategy=merge_stateless(
         merge_selector=score_based_filtering(
@@ -3279,7 +3216,7 @@ astar(merge_and_shrink(
     threshold_before_merge=1))
 \end{lstlisting}
 
-\begin{lstlisting}[language=bash, caption={stateless+MIASM configuration attempted on p01-opt2}]
+\begin{lstlisting}[language=bash, caption={stateless+MIASM configuration on p01-opt2}]
 astar(merge_and_shrink(
     merge_strategy=merge_stateless(
         merge_selector=score_based_filtering(
@@ -3293,45 +3230,7 @@ astar(merge_and_shrink(
     threshold_before_merge=1))
 \end{lstlisting}
 
-Neither configuration produced a comparable timing or plan-quality result:
-both runs stall at the exact same line,
-\texttt{Building axiom factor for derived variable(s) 161 162 169 176},
-and were killed after running far longer than the entire \texttt{merge\_sccs}
-baseline took end-to-end (DFP: 300\,s wall-clock timeout, peak memory
-3.43\,GB and climbing; MIASM: killed at 25\,s for confirmation, peak memory
-already 393\,MB and climbing identically). This is not a difference between
-\texttt{dfp} and \texttt{sf\_miasm} as merge-scoring functions -- it is the
-\S\ref{sec:step8-batching} limitation, reproduced identically regardless of
-merge strategy. \texttt{build\_axiom\_factor} runs once, during
-\texttt{FTSFactory::create} (\S\ref{sec:piece3}), \emph{before} the main
-merge-and-shrink loop -- and therefore before \texttt{merge\_stateless} vs.\
-\texttt{merge\_sccs} or \texttt{dfp} vs.\ \texttt{sf\_miasm} ever come into
-play. Both attempted runs are blocked on the same 42-primary-variable batched
-closure that overflows \texttt{num\_product\_states} (\S\ref{sec:step8-batching}),
-independent of which merge strategy would have run afterward.
-
-\textbf{Conclusion.} A meaningful stateless+DFP vs.\ stateless+MIASM
-comparison on \texttt{p01-opt2} is not obtainable on this branch until the
-batching limitation is resolved (via the sparse-representation fix discussed
-above, or by not batching derived variables whose combined closure would
-overflow). The comparison remains valid and informative on instances whose
-batched closures stay within a representable product size -- e.g.\
-\texttt{p01-phil2}, already validated correct in
-\S\ref{sec:step8-batching} -- but \texttt{p01-opt2} specifically cannot
-currently exercise any merge-strategy choice at all, since execution never
-reaches the main M\&S loop where merge strategies operate.
-
-\subsubsection{The Same Comparison, Unbatched (\texttt{feature/axioms-in-ms}):
-Merge Strategy Matters a Great Deal}
-
-Repeating the same three configurations -- the \texttt{merge\_sccs} baseline,
-\texttt{merge\_stateless}+\texttt{dfp}, and \texttt{merge\_stateless}+
-\texttt{sf\_miasm} -- on \texttt{p01-opt2} against
-\texttt{feature/axioms-in-ms} (commit \texttt{52e34ae}, the unbatched
-reachability fix from \S\ref{sec:step8}, one axiom factor built per derived
-variable rather than one merged factor for all four) sidesteps the
-\S\ref{sec:step8-batching} ceiling entirely and lets all three configurations
-run to completion:
+Both configurations run to completion:
 
 \begin{center}
 \begin{tabular}{lrrrr}

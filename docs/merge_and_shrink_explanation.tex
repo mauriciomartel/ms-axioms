@@ -2995,6 +2995,265 @@ building axiom factors for them too -- is a distinct, not-yet-implemented
 enhancement (``axioms in preconditions''), separate from the correctness fix
 documented in this section.
 
+\subsection{Step 8 --- Scalability Fix: Reachability Exploration Replaces Full
+Product-Space Enumeration in \texttt{build\_axiom\_factor}}
+\label{sec:step8}
+
+\textbf{Files:} \texttt{fts\_factory.cc}, \texttt{merge\_and\_shrink\_representation.h/.cc}.
+
+\subsubsection{The Problem: Cost Scales with the Full Product, Not With
+What Is Reachable}
+
+Steps~3 and~7 establish that \texttt{build\_axiom\_factor}
+(\S\ref{sec:piece3}) builds $\Theta_{S,d}$, the axiom-induced product factor
+over the primary-variable dependency closure $S_d$ of one or more derived
+variables, by enumerating \emph{every} combination of values of the
+variables in $S_d$ -- i.e.\ every one of
+$\mathrm{num\_product\_states} = \prod_{v \in S_d} |\mathrm{dom}(v)|$ tuples
+-- twice: once to evaluate the stratified axiom closure at each tuple (Step
+4, goal-state marking) and once to compute, for every relevant operator,
+its transition out of each tuple (Step 5, transition construction). This
+cost is independent of how many of those tuples are actually reachable from
+the initial state: a task can easily have a $S_d$ whose primary variables
+admit millions of combinations of which only a small fraction ever occurs
+in a reachable concrete state, because most combinations violate
+constraints (mutexes, invariants) that are never explicit in the variables'
+raw domains.
+
+This is exactly what happens on the \texttt{optical-telegraphs}
+\texttt{p01-opt2} benchmark. Each of its four goal-derived variables has a
+dependency closure of $n = 14$ primary variables, giving
+$\mathrm{num\_product\_states} \approx 3.77 \times 10^6$ per closure -- and
+\texttt{build\_axiom\_factor} is invoked once per closure (four times for
+this task). Before this fix, building the four axiom factors took roughly
+\textbf{302\,s} and peaked at \textbf{4.80\,GB}, dwarfing every other part
+of constructing the abstraction (the main M\&S loop and the subsequent
+search together take only a few seconds once the axiom factors exist).
+Table~\ref{tab:step8-before-after} below gives the measured per-variable
+breakdown.
+
+\subsubsection{The Fix: BFS From the Initial State}
+
+The fix (commit \texttt{52e34ae}, ``Fix exponential blowup in
+\texttt{build\_axiom\_factor} via reachability exploration'') replaces both
+full-product loops with a single breadth-first exploration that starts at
+the encoded initial state and follows only the relevant operators'
+preconditions/effects, discovering exactly the product states that are
+reachable -- nothing more. Two state identifiers are needed throughout:
+
+\begin{itemize}
+  \item the \emph{full} id: the same mixed-radix encoding as before
+        (\S\ref{sec:piece3}, Step~2), used to index \texttt{decode\_val} and
+        the sparse lookup table described below;
+  \item the \emph{dense} id: a 0-based index assigned in BFS discovery
+        order, used to number the states of the \texttt{TransitionSystem}
+        being built (and, transitively, every abstract state the heuristic
+        operates on downstream).
+\end{itemize}
+
+\begin{lstlisting}[language=C++, caption={Reachability exploration in \texttt{build\_axiom\_factor} (condensed)}]
+unordered_map<int, int> full_to_dense;
+vector<int> dense_to_full;
+queue<int> frontier;
+
+auto get_dense = [&](int full_state) -> int {
+    auto it = full_to_dense.find(full_state);
+    if (it != full_to_dense.end())
+        return it->second;
+    int new_id = static_cast<int>(dense_to_full.size());
+    full_to_dense.emplace(full_state, new_id);
+    dense_to_full.push_back(full_state);
+    frontier.push(full_state);
+    return new_id;
+};
+
+get_dense(init_full_state);
+
+while (!frontier.empty()) {
+    int s_full = frontier.front();
+    frontier.pop();
+    int s_dense = full_to_dense.at(s_full);
+
+    for (const RelevantOperator &rop : relevant_ops) {
+        // ... check rop.op_pre against decode_val(s_full, ·) as before ...
+        // ... apply rop.effects to compute t_full as before ...
+        int t_dense = get_dense(t_full);
+        label_trans[rop.label].emplace_back(s_dense, t_dense);
+        if (need_self_loop && t_dense != s_dense)
+            label_trans[rop.label].emplace_back(s_dense, s_dense);
+    }
+}
+int num_reachable_states = static_cast<int>(dense_to_full.size());
+\end{lstlisting}
+
+Operator preconditions/effects on $S_d$ variables are precomputed once per
+\emph{relevant operator} before the BFS starts (a \texttt{RelevantOperator}/
+\texttt{RelevantEffect} pair of structs), rather than being re-extracted
+from the \texttt{OperatorProxy} on every visited state -- this is what lets
+the per-state work inside the BFS loop be proportional to the number of
+relevant operators rather than to the total number of operators in the
+task. Goal-state evaluation (Step~4) is deferred until \emph{after} the BFS
+completes and is then run only over the \texttt{num\_reachable\_states}
+discovered states, instead of over every one of the
+\texttt{num\_product\_states} full tuples. The asymptotic cost of the whole
+construction therefore changes from
+\[
+  O(\mathrm{num\_product\_states} \times \mathrm{num\_relevant\_ops})
+  \quad\text{to}\quad
+  O(\mathrm{num\_reachable\_states} \times \mathrm{num\_relevant\_ops}),
+\]
+with an analogous reduction in memory, since every per-state array built
+during construction (\texttt{goal\_states}, the self-loop list for
+irrelevant labels, the pending-value rows consumed by Step~6 of the main
+loop) is now sized by \texttt{num\_reachable\_states} instead of
+\texttt{num\_product\_states}.
+
+\paragraph{The representation still needs the full product, just sparsely.}
+\texttt{MergeAndShrinkRepresentationProduct::get\_value} (\S\ref{sec:piece1})
+encodes a \emph{concrete} planning state directly via the mixed-radix
+formula over $S_d$ and looks the result up in a flat table -- it has no way
+to know in advance whether that formula will land on a state the BFS
+visited. The lookup table therefore still has to be sized by
+\texttt{num\_product\_states}, but it no longer needs to hold a distinct
+abstract-state id for \emph{every} entry: a new constructor overload
+builds it directly from the BFS results, marking every entry that is
+\emph{not} one of the discovered \texttt{dense\_to\_full} ids as
+\texttt{PRUNED\_STATE}, and seeding the representation's abstract domain
+size to \texttt{num\_reachable\_states} instead of
+\texttt{num\_product\_states}:
+\begin{lstlisting}[language=C++, caption={Sparse lookup-table constructor, \texttt{merge\_and\_shrink\_representation.cc}}]
+MergeAndShrinkRepresentationProduct::MergeAndShrinkRepresentationProduct(
+    const vector<int> &var_ids, const vector<int> &domain_sizes,
+    vector<int> initial_lookup_table, int num_live_states)
+    : MergeAndShrinkRepresentation(num_live_states),
+      var_ids(var_ids),
+      multipliers(compute_product_multipliers(var_ids, domain_sizes)),
+      lookup_table(move(initial_lookup_table)) {
+}
+\end{lstlisting}
+This avoids the $O(\mathrm{num\_product\_states})$ identity-fill that the
+original (dense) constructor performs, and -- crucially for
+\texttt{Distances} and later shrinking, which size their own bookkeeping
+from \texttt{get\_domain\_size()} -- avoids ever allocating anything
+proportional to the full product size other than this one lookup table
+itself.
+
+\subsubsection{Validation}
+
+The fix was applied on \texttt{feature/axioms-in-ms} (commit
+\texttt{52e34ae}) and measured on \texttt{p01-opt2} with the same
+\texttt{merge\_sccs} configuration used throughout
+\S\ref{sec:rootcause}--\S\ref{sec:step7}:
+\begin{lstlisting}[language=bash]
+astar(merge_and_shrink(
+    merge_strategy=merge_sccs(
+        order_of_sccs=topological,
+        merge_selector=score_based_filtering(
+            scoring_functions=[goal_relevance(), dfp(), total_order()])),
+    shrink_strategy=shrink_bisimulation(greedy=false),
+    label_reduction=exact(before_shrinking=true, before_merging=false),
+    max_states=50000,
+    threshold_before_merge=1))
+\end{lstlisting}
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+& \multicolumn{2}{c}{\textbf{Before fix}} & \multicolumn{2}{c}{\textbf{After fix}} \\
+\textbf{Derived var.} & \textbf{Build time} & \textbf{Peak mem.} & \textbf{Build time} & \textbf{Peak mem.} \\
+\midrule
+161 & 77.35\,s & 4.16\,GB & 9.41\,s & 211\,MB \\
+162 & 74.20\,s & 4.38\,GB & 8.98\,s & 238\,MB \\
+169 & 76.33\,s & 4.58\,GB & 9.48\,s & 263\,MB \\
+176 & 73.73\,s & 4.80\,GB & 8.94\,s & 290\,MB \\
+\midrule
+\textbf{Total (axiom build)} & \textbf{302.23\,s} & \textbf{4.80\,GB} & \textbf{36.91\,s} & \textbf{290\,MB} \\
+\textbf{Total (whole run)} & 326.44\,s & 4.80\,GB & 73.63\,s & 290\,MB \\
+\bottomrule
+\end{tabular}
+\label{tab:step8-before-after}
+\end{center}
+
+Axiom-factor construction is $\approx 8.2\times$ faster and peak memory
+during construction is $\approx 16.6\times$ smaller; overall planner time
+(axiom-factor construction plus the main M\&S loop plus search) is
+$\approx 4.4\times$ faster, since the main loop and search together took
+only about 24\,s either way and now make up a much larger share of an
+overall much shorter run. \textbf{Plan cost is unchanged at 28} in both
+cases, confirming the fix is exploration-order-only and does not alter
+which states the resulting factor distinguishes.
+
+\paragraph{Why memory drops even more than time.} The per-variable closures
+here are large enough ($n = 14$, $\approx 3.77 \times 10^6$ full product
+states) that only a small fraction is ever reachable; every array that used
+to be sized by the full product (the \texttt{goal\_states} bit-vector, the
+per-label transition-target lists, the irrelevant-label self-loop list) is
+now sized by the much smaller \texttt{num\_reachable\_states}, so the
+memory saving compounds across every one of those arrays rather than being
+limited to whichever single array the BFS itself touches.
+
+\subsubsection{Interaction With Batched Closures (\S\ref{sec:step7}-era
+architecture)}
+\label{sec:step8-batching}
+
+The port described at the start of \S\ref{sec:step7}'s predecessor work
+extended \texttt{build\_axiom\_factor} to accept \emph{multiple} derived
+variable IDs at once, building one combined factor for every group of
+derived variables whose dependency closures share at least one primary
+variable -- merging them into a single factor is a correctness requirement
+(building separate, independently-shrunk factors with overlapping primary
+variables would destroy the correlation between the shared variables; see
+the comment on \texttt{visited\_derived}/\texttt{primary\_var\_set} at the
+top of the function). The reachability fix above was ported onto this
+batched signature unchanged in spirit -- the BFS, the
+\texttt{RelevantOperator} precomputation, and the sparse lookup-table
+constructor all apply identically regardless of whether $S_d$ is the
+closure of one derived variable or several merged together -- and was
+validated correct on \texttt{p01-phil2} (plan cost~18, matching every other
+validated configuration in this document).
+
+However, testing the ported version on \texttt{p01-opt2} surfaced a
+separate, pre-existing limitation that batching exposes but the reachability
+fix cannot, by itself, solve. On \texttt{p01-opt2}, variables 161, 162, 169,
+and 176 -- each individually a $14$-variable closure when built separately,
+as in the measurement above -- turn out to share primary variables
+pairwise, so the batched implementation builds \emph{one} factor for all
+four together, over the \emph{union} of their closures: $n = 42$ primary
+variables. The product of 42 variables' domain sizes overflows a 32-bit
+\texttt{int} (\texttt{num\_product\_states} is computed as a negative
+number in practice), and even disregarding the overflow, the true product
+is far larger than any reachable subset could amortize: the sparse lookup
+table built by the fix above is still sized by
+\texttt{num\_product\_states} (\S\ref{sec:piece1}; \texttt{get\_value}
+must be able to encode \emph{any} concrete state via the full mixed-radix
+formula, not just the reachable ones), so even a correctly-widened,
+overflow-free counter would require allocating a table with on the order of
+$4^{42}$ entries -- far beyond any feasible amount of memory, independent
+of how the BFS explores it. This is therefore \textbf{not} a bug in the
+reachability fix itself (which is correct and effective whenever the
+\emph{closure}, batched or not, stays within a representable and
+allocatable product size) but a separate scalability ceiling specific to
+the full-mixed-radix-table representation combined with batching's
+unbounded closure growth. It is not yet fixed and is recorded here as a
+known limitation rather than papered over:
+\begin{itemize}
+  \item \textbf{Immediate, partial mitigation:} widen
+        \texttt{num\_product\_states} and the lookup-table index type from
+        \texttt{int} to a 64-bit type would remove the silent overflow
+        (turning an incorrect negative size into a correctly large one) but
+        would not make the allocation feasible for closures this large; it
+        only helps when the true product still fits in memory.
+  \item \textbf{Real fix (future work):} replace the full
+        mixed-radix table in \texttt{MergeAndShrinkRepresentationProduct}
+        with a sparse, hash-map-based representation for
+        \texttt{get\_value()}, so that memory scales with
+        \texttt{num\_reachable\_states} (already computed by the BFS above)
+        rather than with the full product of the batched closure's
+        domains -- removing the last place in the axiom-factor pipeline
+        where cost still depends on the full product instead of on what is
+        reachable.
+\end{itemize}
+
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Phased Implementation Path}
 

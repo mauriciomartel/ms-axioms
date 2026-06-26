@@ -229,6 +229,22 @@ MergeAndShrinkRepresentationProduct::MergeAndShrinkRepresentationProduct(
     iota(lookup_table.begin(), lookup_table.end(), 0);
 }
 
+MergeAndShrinkRepresentationProduct::MergeAndShrinkRepresentationProduct(
+    const vector<int> &var_ids, const vector<int> &domain_sizes,
+    vector<int> initial_lookup_table, int num_live_states)
+    : MergeAndShrinkRepresentation(num_live_states),
+      var_ids(var_ids),
+      multipliers(compute_product_multipliers(var_ids, domain_sizes)),
+      /*
+        Unlike the dense constructor above, the caller already built the
+        full-size lookup table themselves (mapping reachable product states
+        to dense ids 0..num_live_states-1 and everything else to
+        PRUNED_STATE), so it is taken as-is instead of filled with the
+        identity mapping.
+      */
+      lookup_table(move(initial_lookup_table)) {
+}
+
 void MergeAndShrinkRepresentationProduct::set_distances(
     const Distances &distances) {
     // Replace each abstract state ID with its precomputed goal distance.

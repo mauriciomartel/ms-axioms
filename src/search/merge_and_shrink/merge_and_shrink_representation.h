@@ -113,6 +113,22 @@ public:
     MergeAndShrinkRepresentationProduct(
         const std::vector<int> &var_ids,
         const std::vector<int> &domain_sizes);
+    /*
+      Sparse variant: used when the caller has already determined, via
+      reachability exploration, that only a subset of the full product space
+      is reachable. initial_lookup_table must have size
+      product_of(domain_sizes[v] for v in var_ids) and map each reachable
+      product state to a dense abstract state id in [0, num_live_states),
+      with every other entry set to PRUNED_STATE. This skips the O(product
+      size) identity-fill that the other constructor performs, and seeds the
+      abstract domain size to num_live_states instead of the full product
+      size.
+    */
+    MergeAndShrinkRepresentationProduct(
+        const std::vector<int> &var_ids,
+        const std::vector<int> &domain_sizes,
+        std::vector<int> initial_lookup_table,
+        int num_live_states);
     virtual ~MergeAndShrinkRepresentationProduct() = default;
 
     /*

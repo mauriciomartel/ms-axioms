@@ -229,6 +229,26 @@ MergeAndShrinkRepresentationProduct::MergeAndShrinkRepresentationProduct(
     iota(lookup_table.begin(), lookup_table.end(), 0);
 }
 
+MergeAndShrinkRepresentationProduct::MergeAndShrinkRepresentationProduct(
+    const vector<int> &var_ids, const vector<int> &domain_sizes,
+    vector<int> &&initial_lookup_table, int num_reachable_states)
+    : MergeAndShrinkRepresentation(compute_product_size(var_ids, domain_sizes)),
+      var_ids(var_ids),
+      multipliers(compute_product_multipliers(var_ids, domain_sizes)),
+      lookup_table(move(initial_lookup_table)) {
+    assert(static_cast<int>(lookup_table.size()) == domain_size);
+    /*
+      domain_size was just set by the base class to the full Cartesian
+      product size, since the lookup table must stay indexed by full product
+      state for get_value() to work (it encodes states the same way
+      regardless of reachability). But the number of *abstract* states this
+      factor actually distinguishes is only num_reachable_states, so override
+      domain_size to that, exactly as if the unreachable tuples had never
+      existed.
+    */
+    domain_size = num_reachable_states;
+}
+
 void MergeAndShrinkRepresentationProduct::set_distances(
     const Distances &distances) {
     // Replace each abstract state ID with its precomputed goal distance.

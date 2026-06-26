@@ -113,6 +113,26 @@ public:
     MergeAndShrinkRepresentationProduct(
         const std::vector<int> &var_ids,
         const std::vector<int> &domain_sizes);
+    /*
+      Reachability-restricted variant: used when the abstract factor was built
+      by exploring only the product states reachable from the initial state
+      (see build_axiom_factor in fts_factory.cc), instead of enumerating the
+      full Cartesian product of all variable domains.
+
+      initial_lookup_table must have size equal to the full product of
+      domain_sizes[v] for v in var_ids (one entry per possible tuple of
+      variable values, exactly as compute_product_size would compute). Each
+      entry is either the dense ID of the corresponding reachable abstract
+      state (in [0, num_reachable_states)) or PRUNED_STATE if that tuple of
+      values is unreachable from the initial state. num_reachable_states
+      becomes the representation's initial domain_size, instead of the full
+      product size.
+    */
+    MergeAndShrinkRepresentationProduct(
+        const std::vector<int> &var_ids,
+        const std::vector<int> &domain_sizes,
+        std::vector<int> &&initial_lookup_table,
+        int num_reachable_states);
     virtual ~MergeAndShrinkRepresentationProduct() = default;
 
     /*

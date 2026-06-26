@@ -3254,6 +3254,73 @@ known limitation rather than papered over:
         reachable.
 \end{itemize}
 
+\subsubsection{Merge-Strategy Comparison on \texttt{p01-opt2}: Blocked
+Upstream of Merge Strategy}
+
+Having validated the reachability fix and characterized the batching
+limitation above, the natural next experiment is to compare \texttt{p01-opt2}
+across merge strategies -- e.g.\ \texttt{merge\_stateless} with
+\texttt{dfp()} scoring versus \texttt{merge\_stateless} with
+\texttt{sf\_miasm()} scoring -- the same way \S\ref{sec:step8} compared
+before/after the reachability fix under \texttt{merge\_sccs}. Both
+configurations were attempted, keeping \texttt{shrink\_strategy},
+\texttt{label\_reduction}, \texttt{max\_states}, and
+\texttt{threshold\_before\_merge} identical to the \texttt{merge\_sccs}
+baseline so that only the merge strategy and its scoring functions differ:
+
+\begin{lstlisting}[language=bash, caption={stateless+DFP configuration attempted on p01-opt2}]
+astar(merge_and_shrink(
+    merge_strategy=merge_stateless(
+        merge_selector=score_based_filtering(
+            scoring_functions=[goal_relevance(), dfp(), total_order()])),
+    shrink_strategy=shrink_bisimulation(greedy=false),
+    label_reduction=exact(before_shrinking=true, before_merging=false),
+    max_states=50000,
+    threshold_before_merge=1))
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash, caption={stateless+MIASM configuration attempted on p01-opt2}]
+astar(merge_and_shrink(
+    merge_strategy=merge_stateless(
+        merge_selector=score_based_filtering(
+            scoring_functions=[sf_miasm(
+                shrink_strategy=shrink_bisimulation(greedy=false),
+                max_states=50000, threshold_before_merge=1),
+                total_order()])),
+    shrink_strategy=shrink_bisimulation(greedy=false),
+    label_reduction=exact(before_shrinking=true, before_merging=false),
+    max_states=50000,
+    threshold_before_merge=1))
+\end{lstlisting}
+
+Neither configuration produced a comparable timing or plan-quality result:
+both runs stall at the exact same line,
+\texttt{Building axiom factor for derived variable(s) 161 162 169 176},
+and were killed after running far longer than the entire \texttt{merge\_sccs}
+baseline took end-to-end (DFP: 300\,s wall-clock timeout, peak memory
+3.43\,GB and climbing; MIASM: killed at 25\,s for confirmation, peak memory
+already 393\,MB and climbing identically). This is not a difference between
+\texttt{dfp} and \texttt{sf\_miasm} as merge-scoring functions -- it is the
+\S\ref{sec:step8-batching} limitation, reproduced identically regardless of
+merge strategy. \texttt{build\_axiom\_factor} runs once, during
+\texttt{FTSFactory::create} (\S\ref{sec:piece3}), \emph{before} the main
+merge-and-shrink loop -- and therefore before \texttt{merge\_stateless} vs.\
+\texttt{merge\_sccs} or \texttt{dfp} vs.\ \texttt{sf\_miasm} ever come into
+play. Both attempted runs are blocked on the same 42-primary-variable batched
+closure that overflows \texttt{num\_product\_states} (\S\ref{sec:step8-batching}),
+independent of which merge strategy would have run afterward.
+
+\textbf{Conclusion.} A meaningful stateless+DFP vs.\ stateless+MIASM
+comparison on \texttt{p01-opt2} is not obtainable on this branch until the
+batching limitation is resolved (via the sparse-representation fix discussed
+above, or by not batching derived variables whose combined closure would
+overflow). The comparison remains valid and informative on instances whose
+batched closures stay within a representable product size -- e.g.\
+\texttt{p01-phil2}, already validated correct in
+\S\ref{sec:step8-batching} -- but \texttt{p01-opt2} specifically cannot
+currently exercise any merge-strategy choice at all, since execution never
+reaches the main M\&S loop where merge strategies operate.
+
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Phased Implementation Path}
 

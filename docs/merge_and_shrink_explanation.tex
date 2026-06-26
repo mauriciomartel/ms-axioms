@@ -3088,15 +3088,20 @@ int num_reachable_states = static_cast<int>(dense_to_full.size());
 
 Operator preconditions/effects on $S_d$ variables are precomputed once per
 \emph{relevant operator} before the BFS starts (a \texttt{RelevantOperator}/
-\texttt{RelevantEffect} pair of structs), rather than being re-extracted
-from the \texttt{OperatorProxy} on every visited state -- this is what lets
-the per-state work inside the BFS loop be proportional to the number of
-relevant operators rather than to the total number of operators in the
+\texttt{RelevantEffect} pair of structs), avoiding repeated re-derivation of
+those projections from the \texttt{OperatorProxy} on every BFS pop. This
+precomputation was already implicit in the pre-fix code, which also checked
+relevance once per operator and skipped the per-state work entirely for
+irrelevant ones -- so it does not by itself change the asymptotic cost on the
+operator side, before or after the fix, the per-state work is proportional to
+\texttt{num\_relevant\_ops}, not to the total number of operators in the
 task. Goal-state evaluation (Step~4) is deferred until \emph{after} the BFS
 completes and is then run only over the \texttt{num\_reachable\_states}
 discovered states, instead of over every one of the
-\texttt{num\_product\_states} full tuples. The asymptotic cost of the whole
-construction therefore changes from
+\texttt{num\_product\_states} full tuples. The real asymptotic win is
+entirely on the \emph{state} side: visiting only reachable states instead of
+the full product. The asymptotic cost of the whole construction therefore
+changes from
 \[
   O(\mathrm{num\_product\_states} \times \mathrm{num\_relevant\_ops})
   \quad\text{to}\quad

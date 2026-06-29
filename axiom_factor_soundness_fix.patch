@@ -1,5 +1,5 @@
 diff --git a/src/search/merge_and_shrink/fts_factory.cc b/src/search/merge_and_shrink/fts_factory.cc
-index 168b1ac..ea9984c 100644
+index 168b1ac..184bab3 100644
 --- a/src/search/merge_and_shrink/fts_factory.cc
 +++ b/src/search/merge_and_shrink/fts_factory.cc
 @@ -612,6 +612,13 @@ int build_axiom_factor(
@@ -25,7 +25,89 @@ index 168b1ac..ea9984c 100644
  
      // Default values for all derived variables in the dependency closure.
      unordered_map<int, int> derived_default;
-@@ -828,32 +835,47 @@ int build_axiom_factor(
+@@ -781,10 +788,21 @@ int build_axiom_factor(
+             if (!applicable)
+                 continue;
+ 
+-            int t_full = s_full;
+-            bool need_self_loop = false;
+-
+-            for (const RelevantEffect &re : rop.effects) {
++            // Among effects whose self-conditions are satisfied ("active"),
++            // ones without an outside condition always fire. Ones with an
++            // outside condition (referencing a variable outside S_d) may or
++            // may not fire, INDEPENDENTLY of every other such effect on this
++            // same operator application -- the product space has no way to
++            // tell. Enumerate every subset of the active outside-conditioned
++            // effects rather than just "all fire" / "none fire": with two or
++            // more independent optional effects, the partial-firing
++            // combinations (exactly one fires, not the other) are also real
++            // reachable transitions, and skipping them silently shrinks the
++            // transition relation, making the heuristic overestimate.
++            vector<bool> effect_active(rop.effects.size());
++            vector<int> optional_effect_positions;
++            for (size_t i = 0; i < rop.effects.size(); ++i) {
++                const RelevantEffect &re = rop.effects[i];
+                 bool fires = true;
+                 for (int cval : re.self_cond_vals) {
+                     if (decode_val(s_full, re.idx) != cval) {
+@@ -792,29 +810,35 @@ int build_axiom_factor(
+                         break;
+                     }
+                 }
+-                if (!fires)
+-                    continue;
++                effect_active[i] = fires;
++                if (fires && re.has_outside_cond)
++                    optional_effect_positions.push_back(i);
++            }
+ 
+-                if (re.has_outside_cond)
+-                    need_self_loop = true;
++            int num_subsets = 1 << optional_effect_positions.size();
++            for (int subset = 0; subset < num_subsets; ++subset) {
++                vector<bool> optional_fires(rop.effects.size(), false);
++                for (size_t b = 0; b < optional_effect_positions.size(); ++b)
++                    if (subset & (1 << b))
++                        optional_fires[optional_effect_positions[b]] = true;
++
++                int t_full = s_full;
++                for (size_t i = 0; i < rop.effects.size(); ++i) {
++                    if (!effect_active[i])
++                        continue;
++                    const RelevantEffect &re = rop.effects[i];
++                    if (re.has_outside_cond && !optional_fires[i])
++                        continue;
++                    // Apply the effect to t_full. Decode from t_full (not
++                    // s_full) so that earlier effects on the same variable
++                    // (within this operator) are taken into account.
++                    t_full -= decode_val(t_full, re.idx) * mult[re.idx];
++                    t_full += re.post * mult[re.idx];
++                }
+ 
+-                // Apply the effect to t_full. Decode from t_full (not
+-                // s_full) so that earlier effects on the same variable
+-                // (within this operator) are taken into account.
+-                t_full -= decode_val(t_full, re.idx) * mult[re.idx];
+-                t_full += re.post * mult[re.idx];
++                int t_dense = get_dense(t_full);
++                label_trans[rop.label].emplace_back(s_dense, t_dense);
+             }
+-
+-            int t_dense = get_dense(t_full);
+-            // t_dense == s_dense when the operator only has preconditions on
+-            // product variables (no effect changes them); this covers that
+-            // self-loop naturally.
+-            label_trans[rop.label].emplace_back(s_dense, t_dense);
+-            // Add the self-loop for the case where an outside-conditioned
+-            // effect does not fire, but only when the forward transition
+-            // actually moves.
+-            if (need_self_loop && t_dense != s_dense)
+-                label_trans[rop.label].emplace_back(s_dense, s_dense);
+         }
+     }
+ 
+@@ -828,32 +852,47 @@ int build_axiom_factor(
          for (auto &[dv, def] : derived_default)
              derived_vals[dv] = def;
  

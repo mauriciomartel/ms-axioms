@@ -35,6 +35,43 @@ Fixed by iterating the axiom rules to a fixpoint (bounded by the number of
 relevant axioms, since each variable fires at most once) instead of doing
 a single linear pass.
 
+## Second bug: suboptimal plans (muddy-child)
+
+After the fixpoint fix above, all three benchmark domains became solvable,
+but `muddy-child/3-muddy_1.sas` still produced a **suboptimal** plan (cost
+5) under `astar(merge_and_shrink(...))` with exact bisimulation, while
+`astar(blind())` found the true optimum (cost 4). Since exact bisimulation
+is supposed to make merge_and_shrink's heuristic admissible (in fact
+perfect, absent state-limit truncation), this was a second, independent
+soundness bug: the heuristic was overestimating somewhere, causing A* to
+miss the optimal path.
+
+Root cause, in `build_axiom_factor`'s reachability exploration (Step 5 of
+`fts_factory.cc`): when an operator has two or more effects that each
+touch a product (primary) variable in S_d and are each conditioned on a
+*different* variable outside S_d, the old code could only generate two
+outcomes per operator application: "all such effects fire" or "none of
+them fire" (the latter modeled as a self-loop). It never generated the
+"exactly one of them fires, not the other(s)" combinations, even though
+these are real, independently reachable transitions — the two outside
+conditions are unrelated, so any subset of them can hold in a real state.
+
+Concretely, in `muddy-child`, for the axiom factor built for derived
+variable 40 (closure S_40 = primary variables {7, 31, 19, 15}), operator
+`a_asks_b` has two relevant effects: `var31` conditioned on `var26==0`,
+and `var19` conditioned on `var10==0` — both `var26` and `var10` are
+derived variables outside S_40, and the two conditions are independent.
+The old code only added a transition where both fire and one where
+neither fires, silently dropping the two partial-firing transitions. This
+under-approximated the transition relation, which can only ever make the
+abstract distances *larger* than the true distances (never smaller),
+breaking admissibility and causing A* to return a non-optimal plan.
+
+Fixed by enumerating every subset of the "active" (self-conditions
+satisfied) outside-conditioned effects on a given operator application,
+instead of just the two extremes, and adding the corresponding transition
+for each subset.
+
 ## Other fixes bundled in the same patch
 
 While diagnosing this, two related pre-existing gaps were also fixed
@@ -63,19 +100,11 @@ precondition or a conditional-effect `when`-clause):
 
 ## Verification
 
-All three benchmark domains with `when`-clauses now solve correctly under
-`astar(merge_and_shrink(...))` with `shrink_bisimulation` (exact), built
-in both debug (asserts on, run under gdb — no crashes) and release:
+All three benchmark domains with `when`-clauses now solve correctly *and
+optimally* under `astar(merge_and_shrink(...))` with `shrink_bisimulation`
+(exact), built in both debug (asserts on, run under gdb — no crashes) and
+release, matching `astar(blind())` exactly:
 
 - `sum/sum_3.sas`: plan cost 3 (matches `astar(blind())`).
 - `muddy-children/3-muddy.sas`: plan cost 6 (matches `astar(blind())`).
-- `muddy-child/3-muddy_1.sas`: plan cost 5, but `astar(blind())` finds
-  cost 4. Since exact bisimulation should make merge_and_shrink's
-  heuristic perfect, A* finding a worse-than-optimal plan here means the
-  heuristic is not admissible somewhere along this run — this is not
-  explained by the bug fixed above (the within-layer fixpoint fix is
-  general and this domain's axioms are also single-layer with chained
-  dependencies, same shape as `sum_3` and `muddy-children`, both of which
-  now reproduce the optimal cost). **This looks like a second, separate
-  bug** that hasn't been root-caused yet and needs further investigation
-  before this fix can be considered complete.
+- `muddy-child/3-muddy_1.sas`: plan cost 4 (matches `astar(blind())`).

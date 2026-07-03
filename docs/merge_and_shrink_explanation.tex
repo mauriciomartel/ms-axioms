@@ -1181,10 +1181,12 @@ Two sub-cases arise for conditional effects:
         is also added to model the case where the condition is not met.  This is
         again a safe over-approximation.
 \end{itemize}
-A known limitation: when an operator has multiple conditional effects on the
-same $S_d$ variable, each with an outside condition, only the case where all
-such effects fire and the case where none fires are modelled.  This is
-acceptable for a first implementation and does not affect admissibility.
+A known limitation at the time of writing (later fixed in Step~9): when an
+operator has multiple effects on \emph{different} $S_d$ variables, each
+conditioned on a different variable outside $S_d$, only the ``all fire'' and
+``none fire'' combinations were modelled.  The partial-firing combinations
+were missing, under-approximating the transition relation and breaking
+admissibility.  See \S\ref{sec:step9} for the fix.
 
 \paragraph{Step 6 — Grouping into local labels.}
 Labels (operators) with identical transition sets are grouped into a single
@@ -2973,7 +2975,7 @@ predicates, and the \texttt{p02-phil3} instance that currently times out
 during axiom-factor construction for unrelated scalability reasons) is
 recommended before generalising this conclusion further.
 
-\paragraph{Scope: this is a soundness fix, not "axioms in preconditions"
+\paragraph{Scope: this is a soundness fix, not full "axioms in preconditions"
 support.} It is worth being precise about what this fix does and does not
 deliver, since the two are easy to conflate. Before the fix, a derived
 variable's naive atomic factor was actively \emph{unsound} whenever that
@@ -2982,18 +2984,14 @@ false-restriction bug described above, regardless of whether the variable
 was goal-relevant. After the fix, that same atomic factor is
 \emph{sound but uninformative} for any derived variable not also covered by
 a dedicated axiom factor from \texttt{build\_axiom\_factor}
-(\S\ref{sec:piece3}) -- recall that \texttt{build\_axiom\_factor} is only
-invoked for \emph{goal}-derived variables
-(\texttt{merge\_and\_shrink\_algorithm.cc}, the \texttt{goal\_derived\_vars}
-collection). A derived variable referenced only in operator preconditions,
-never in the goal, therefore still contributes nothing to the heuristic's
-value after this fix -- it is correctly ignored rather than incorrectly
-restrictive. Making the heuristic actually informative about such variables
--- i.e.\ extending \texttt{goal\_derived\_vars} (or an analogous collection)
-to also include derived variables that appear in operator preconditions, and
-building axiom factors for them too -- is a distinct, not-yet-implemented
-enhancement (``axioms in preconditions''), separate from the correctness fix
-documented in this section.
+(\S\ref{sec:piece3}) -- which at the time of this step was only invoked for
+\emph{goal}-derived variables. A derived variable referenced only in operator
+preconditions or conditional-effect conditions, never in the goal, therefore
+still contributed nothing to the heuristic's value after this fix -- it was
+correctly ignored rather than incorrectly restrictive. Step~9
+(\S\ref{sec:step9}) extends \texttt{build\_axiom\_factor} to also cover
+derived variables that appear in operator preconditions and
+conditional-effect (\texttt{when}-clause) conditions.
 
 \subsection{Step 8 --- Scalability Fix: Reachability Exploration Replaces Full
 Product-Space Enumeration in \texttt{build\_axiom\_factor}}
@@ -3265,6 +3263,369 @@ restrict which pairs of factors are ever considered for merging, while
 \texttt{sf\_miasm}'s scoring function is itself the most expensive of the
 three to evaluate (it shrinks a trial merge to compute its score, rather than
 using a cheap structural heuristic).
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Step 9 --- Three Soundness Fixes on Domains with When-Clauses}
+\label{sec:step9}
+
+\textbf{Files:} \texttt{fts\_factory.cc},
+\texttt{merge\_and\_shrink\_algorithm.cc},
+\texttt{merge\_scoring\_function\_total\_order.cc}
+
+\subsubsection{Background: When-Clauses and Derived Variables}
+
+SAS$^+$ \emph{conditional effects} (PDDL \texttt{when}-clauses) appear in
+the operator section of a \texttt{.sas} file as effect lines of the form
+
+\begin{lstlisting}
+<n_conds> <cond_var1> <cond_val1> ... <eff_var> <pre_val> <post_val>
+\end{lstlisting}
+
+with $n\_conds > 0$.  A \texttt{when}-clause fires only when all of its
+conditions hold in the current state; otherwise the operator applies but the
+effect is skipped.
+
+Domains that use \texttt{when}-clauses often also have derived variables
+(axioms) because both mechanisms arise from existential or conditional
+reasoning in PDDL.  The interaction of the two features exposed three
+soundness bugs in \texttt{build\_axiom\_factor} and the surrounding
+infrastructure.  All three were found by testing on benchmark domains
+containing \texttt{when}-clauses:
+
+\begin{itemize}
+  \item \texttt{misc/tests/benchmarks/sum/sum\_3.sas} — 36 derived
+    variables at axiom layer~0, chained same-layer dependencies.
+  \item \texttt{misc/tests/benchmarks/muddy-children/3-muddy.sas} — derived
+    variables with same-layer chains, some operators with \texttt{when}-clauses.
+  \item \texttt{misc/tests/benchmarks/muddy-child/3-muddy\_1.sas} — derived
+    variables at axiom layer~0, operators with two independent
+    \texttt{when}-clause effects on different product-space variables.
+\end{itemize}
+
+\subsubsection{Fix A — Axiom Closure Needs Fixpoint Iteration, Not a Single
+Pass}
+\label{sec:fix-a}
+
+\paragraph{Symptom.}
+\texttt{astar(merge\_and\_shrink(\ldots))} with exact bisimulation reported
+\texttt{sum\_3.sas} as provably unsolvable, while \texttt{astar(blind())}
+found a plan of cost~3.
+
+\paragraph{Root cause.}
+Step~4 of \texttt{build\_axiom\_factor} (the stratified forward-chaining
+loop that marks goal states by evaluating axiom rules over each product
+state) ran a single pass over \texttt{relevant\_axioms} sorted by axiom
+layer.  The comment that justified this --- ``FD stratification prevents
+intra-layer positive cycles'' --- was wrong in a subtle but important way.
+
+FD's stratification rules forbid intra-layer \emph{negative} dependencies
+(a rule at layer $\ell$ that conditions on the \emph{default} value of a
+variable must be in a layer strictly higher than that variable's rule).
+They impose no ordering constraint on intra-layer \emph{positive}
+dependencies (a rule that conditions on the \emph{non-default} value of a
+same-layer variable is legal).  As a result, two rules at the same layer
+can legally form a chain: rule~$A$ fires only when derived variable~$d_1$
+has been set (non-default), while rule~$B$ is the one that sets $d_1$.
+Nothing in the stratification algorithm guarantees that rule~$B$ appears
+before rule~$A$ in the axiom file; in \texttt{sum\_3.sas} the dependent
+rule came first.  A single pass therefore evaluated rule~$A$ before rule~$B$
+had fired, leaving $d_1$ at its default, so rule~$A$ was never satisfied and
+the ultimate goal-derived variable was never set to its goal value.  The
+result was zero goal states in every axiom factor, which the algorithm
+interpreted as a provably unsolvable task.
+
+\paragraph{Fix.}
+Replace the single linear pass with a fixpoint loop.  Each iteration
+re-evaluates all rules that have not yet fired.  The loop terminates as
+soon as no new rule fires in a complete pass --- which is guaranteed within
+at most $|\mathit{relevant\_axioms}|$ iterations because each derived
+variable fires at most once (axioms are monotone: once set to a non-default
+value the variable is never reset):
+
+\begin{lstlisting}[language=C++, caption={Fixpoint axiom evaluation in \texttt{build\_axiom\_factor} (fts\_factory.cc)}]
+bool changed = true;
+while (changed) {
+    changed = false;
+    for (const AxiomRule &rule : relevant_axioms) {
+        if (derived_vals[rule.eff_var] != derived_default.at(rule.eff_var))
+            continue; // already fired; axioms fire at most once
+        bool satisfied = true;
+        for (auto [cvar, cval] : rule.conditions) {
+            int cur_val;
+            if (variables[cvar].is_derived()) {
+                auto it = derived_default.find(cvar);
+                cur_val = (it != derived_default.end())
+                          ? derived_vals[cvar]
+                          : variables[cvar].get_default_axiom_value();
+            } else {
+                auto it = var_id_to_idx.find(cvar);
+                if (it == var_id_to_idx.end())
+                    continue; // not in product space: over-approximate
+                cur_val = decode_val(s_full, it->second);
+            }
+            if (cur_val != cval) { satisfied = false; break; }
+        }
+        if (satisfied) {
+            derived_vals[rule.eff_var] = rule.eff_val;
+            changed = true;
+        }
+    }
+}
+\end{lstlisting}
+
+This replaces the previous single \texttt{for}-loop over
+\texttt{relevant\_axioms} (which was identical except for lacking the outer
+\texttt{while(changed)} wrapper and the \texttt{changed = true} assignment).
+
+\subsubsection{Fix B — Partial-Firing Combinations for Multiple Independent
+When-Clause Effects}
+\label{sec:fix-b}
+
+\paragraph{Symptom.}
+After Fix~A, \texttt{sum\_3.sas} and \texttt{muddy-children/3-muddy.sas}
+both matched \texttt{astar(blind())} in plan cost.
+\texttt{muddy-child/3-muddy\_1.sas} became solvable (previously reported
+unsolvable), but A$^*$ returned a plan of cost~5 while
+\texttt{astar(blind())} found the optimal plan of cost~4.  Since exact
+bisimulation should yield a heuristic equal to the true goal distance
+(absent state-limit truncation), returning a worse-than-optimal plan implies
+the heuristic \emph{overestimates} somewhere --- breaking admissibility.
+
+\paragraph{Root cause.}
+Step~5 of \texttt{build\_axiom\_factor} (reachability exploration) correctly
+handles a \texttt{when}-clause effect whose condition references a variable
+outside $S_d$ by both applying the effect (over-approximating that it fires)
+and adding a self-loop (modelling the case where it does not).  However,
+when a \emph{single operator} has \textbf{two or more} such effects, each
+conditioned on a \emph{different} outside variable, the previous code only
+generated two outcomes: ``all outside-conditioned effects fire'' (the
+computed $t\_full$) and ``none fire'' (the self-loop).  It never generated
+the intermediate cases where exactly one of the effects fires and the others
+do not.
+
+Because the conditions are on independent variables outside $S_d$, any
+subset of them can hold in a real state.  The missing partial-firing
+combinations are \emph{real, reachable transitions}; omitting them
+\emph{under}-approximates the transition relation.  An
+under-approximation can only make abstract distances longer than the true
+distances --- the heuristic overestimates --- breaking admissibility and
+causing A$^*$ to return a non-optimal plan.
+
+\paragraph{Concrete example.}
+In \texttt{muddy-child/3-muddy\_1.sas}, the axiom factor for derived
+variable~40 has primary-variable dependency closure $S_{40} = \{7, 31, 19,
+15\}$.  Operator \texttt{a\_asks\_b} has two effects on $S_{40}$ variables:
+effect on $\mathit{var}_{31}$ conditioned on the derived variable
+$\mathit{var}_{26} = 0$ (outside $S_{40}$), and effect on
+$\mathit{var}_{19}$ conditioned on the derived variable $\mathit{var}_{10}
+= 0$ (also outside $S_{40}$, and independent of $\mathit{var}_{26}$).  The
+old code added only the ``both fire'' transition (setting both
+$\mathit{var}_{31}$ and $\mathit{var}_{19}$ to~0) and the ``neither fires''
+self-loop.  The cases ``$\mathit{var}_{26} = 0$ but $\mathit{var}_{10} \ne
+0$'' and ``$\mathit{var}_{10} = 0$ but $\mathit{var}_{26} \ne 0$'' were
+missing, leaving the abstraction unable to reach certain concrete states
+where only one of the two variables was zeroed by \texttt{a\_asks\_b}.
+
+\paragraph{Fix.}
+Enumerate every subset of the ``active'' (self-conditions satisfied)
+outside-conditioned effects per operator application, and add the
+corresponding transition for each subset.  If there are $k$ such effects,
+$2^k$ transitions are generated (one per subset, including the empty subset,
+which is the self-loop).  In practice $k$ is very small (the operator must
+have multiple relevant effects each with a different outside condition), so
+the $2^k$ factor is harmless.
+
+\begin{lstlisting}[language=C++, caption={Subset enumeration for outside-conditioned effects (fts\_factory.cc)}]
+vector<bool> effect_active(rop.effects.size());
+vector<int> optional_effect_positions;
+for (size_t i = 0; i < rop.effects.size(); ++i) {
+    const RelevantEffect &re = rop.effects[i];
+    bool fires = true;
+    for (int cval : re.self_cond_vals) {
+        if (decode_val(s_full, re.idx) != cval) { fires = false; break; }
+    }
+    effect_active[i] = fires;
+    if (fires && re.has_outside_cond)
+        optional_effect_positions.push_back(i);
+}
+
+int num_subsets = 1 << optional_effect_positions.size();
+for (int subset = 0; subset < num_subsets; ++subset) {
+    vector<bool> optional_fires(rop.effects.size(), false);
+    for (size_t b = 0; b < optional_effect_positions.size(); ++b)
+        if (subset & (1 << b))
+            optional_fires[optional_effect_positions[b]] = true;
+
+    int t_full = s_full;
+    for (size_t i = 0; i < rop.effects.size(); ++i) {
+        if (!effect_active[i]) continue;
+        const RelevantEffect &re = rop.effects[i];
+        if (re.has_outside_cond && !optional_fires[i]) continue;
+        t_full -= decode_val(t_full, re.idx) * mult[re.idx];
+        t_full += re.post * mult[re.idx];
+    }
+    int t_dense = get_dense(t_full);
+    label_trans[rop.label].emplace_back(s_dense, t_dense);
+}
+\end{lstlisting}
+
+This replaces the previous block that computed a single $t\_full$ (all
+outside-conditioned effects applied unconditionally) and then added a
+self-loop if \texttt{need\_self\_loop} was set.  The new code subsumes the
+old: subset~$0$ (no optional effect fires) always produces the self-loop
+transition $s \to s$, and the full subset (all optional effects fire) produces
+the original $t\_full$.  When $k = 0$ (no outside-conditioned effects), there
+is exactly one subset (the empty one), and the loop degenerates to the same
+single transition as before.
+
+\subsubsection{Fix C --- Build Axiom Factors for Non-Goal Derived Variables
+Referenced by Operators}
+\label{sec:fix-c}
+
+\paragraph{Symptom.}
+In domains where a \texttt{when}-clause condition (or an operator precondition)
+references a derived variable that is \emph{not} itself a goal variable,
+\texttt{build\_axiom\_factor} was never invoked for that derived variable.
+Its naive atomic factor (built by \texttt{FTSFactory::create\_transition\_systems}
+for every variable) was therefore left as the sole representation of that
+variable in the FTS.  That atomic factor never changes state through operators
+(derived variables have no operator effects), so the associated operators
+appeared permanently inapplicable or their \texttt{when}-clauses appeared to
+never fire, making a solvable task appear unsolvable.
+
+\paragraph{Fix.}
+Extend the set of derived variables for which axiom factors are built from
+``goal-derived variables only'' to ``all derived variables that are either a
+goal variable, an operator precondition variable, or a condition variable of a
+\texttt{when}-clause effect''.  Derived variables with zero axiom rules are
+excluded regardless (they are translator-introduced constants whose atomic
+factor is already exact).
+
+A new helper \texttt{collect\_relevant\_derived\_variables} in
+\texttt{merge\_and\_shrink\_algorithm.cc} computes this set:
+
+\begin{lstlisting}[language=C++, caption={Collecting all derived variables that need axiom factors (merge\_and\_shrink\_algorithm.cc)}]
+static vector<int> collect_relevant_derived_variables(
+    const TaskProxy &task_proxy) {
+    int num_variables = task_proxy.get_variables().size();
+    vector<bool> needs_axiom_factor(num_variables, false);
+
+    for (FactProxy goal : task_proxy.get_goals())
+        if (goal.get_variable().is_derived())
+            needs_axiom_factor[goal.get_variable().get_id()] = true;
+
+    for (OperatorProxy op : task_proxy.get_operators()) {
+        for (FactProxy pre : op.get_preconditions())
+            if (pre.get_variable().is_derived())
+                needs_axiom_factor[pre.get_variable().get_id()] = true;
+        for (EffectProxy eff : op.get_effects())
+            for (FactProxy cond : eff.get_conditions())
+                if (cond.get_variable().is_derived())
+                    needs_axiom_factor[cond.get_variable().get_id()] = true;
+    }
+
+    vector<bool> has_axiom_rule(num_variables, false);
+    for (OperatorProxy axiom : task_proxy.get_axioms())
+        has_axiom_rule[axiom.get_effects()[0].get_fact()
+                           .get_variable().get_id()] = true;
+
+    vector<int> result;
+    for (int var_id = 0; var_id < num_variables; ++var_id)
+        if (needs_axiom_factor[var_id] && has_axiom_rule[var_id])
+            result.push_back(var_id);
+    return result;
+}
+\end{lstlisting}
+
+The \texttt{build\_factored\_transition\_system} function is updated to call
+this helper instead of iterating over goal variables directly, and the
+\texttt{has\_derived\_goals} boolean is replaced by
+\texttt{has\_relevant\_derived\_vars}:
+
+\begin{lstlisting}[language=C++, caption={Using the extended set in build\_factored\_transition\_system}]
+vector<int> derived_vars_needing_axiom_factor =
+    collect_relevant_derived_variables(task_proxy);
+bool has_relevant_derived_vars = !derived_vars_needing_axiom_factor.empty();
+// ...
+if (has_relevant_derived_vars) {
+    ShrinkQuasiBisimulation qbisim;
+    for (int derived_var_id : derived_vars_needing_axiom_factor) {
+        // build and shrink axiom factor as before ...
+    }
+}
+\end{lstlisting}
+
+\texttt{build\_axiom\_factor} is updated to allow non-goal derived variables
+as targets: \texttt{assert(goal\_derived\_value != -1)} is replaced by a
+boolean flag \texttt{is\_goal\_var}, and the goal-state assignment becomes:
+
+\begin{lstlisting}[language=C++]
+bool is_goal_var = (goal_derived_value != -1);
+// ... (axiom evaluation unchanged) ...
+goal_states[d] = !is_goal_var ||
+                 (derived_vals[derived_var_id] == goal_derived_value);
+\end{lstlisting}
+
+When \texttt{is\_goal\_var} is false, every product state is a local goal
+state for this factor, and all goal-distance constraints are enforced by
+the other factors that do have real goal values.
+
+A matching \texttt{count\_relevant\_derived\_variables} helper is added to
+\texttt{merge\_scoring\_function\_total\_order.cc} to keep the precomputed
+merge order in sync with the actual number of initial factors, avoiding the
+\texttt{assert(scores.size() == candidate\_index + 1)} failure that would
+result from undercounting (the same class of bug as Bug~2 in Step~3,
+\S\ref{sec:piece4}).
+
+\paragraph{Relationship to the three commit-message points and \texttt{when}-clauses.}
+All three fixes concern domains with \texttt{when}-clauses, but in different
+ways:
+
+\begin{itemize}
+  \item \textbf{Fix~A (fixpoint)} addresses axiom rules that chain at the
+    same layer --- a dependency structure that commonly arises in domains
+    with derived predicates, whether or not those predicates also appear in
+    \texttt{when}-clauses.
+
+  \item \textbf{Fix~B (subset enumeration)} is directly caused by
+    \texttt{when}-clause effects in operators.  Each conditional-effect
+    line with a condition on a different outside-$S_d$ derived variable
+    contributes one independent ``bit'' to the subset.  The bug only
+    manifests when two or more such \texttt{when}-clauses appear on the
+    same operator and target different product-space variables.
+
+  \item \textbf{Fix~C (non-goal derived variables)} is also directly
+    connected to \texttt{when}-clauses: the conditions of a
+    \texttt{when}-clause in PDDL/SAS$^+$ can reference derived predicates
+    that never appear in the goal.  Without Fix~C those derived variables
+    lacked real axiom factors and their operators were permanently blocked
+    in the abstraction.
+\end{itemize}
+
+\subsubsection{Verification}
+
+All three benchmark domains solved optimally under
+\texttt{astar(merge\_and\_shrink(\ldots))} with exact bisimulation
+(\texttt{shrink\_bisimulation(greedy=false)}), in both debug builds
+(assertions on, run under \texttt{gdb} --- no crashes) and release builds,
+matching \texttt{astar(blind())} exactly:
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Domain} & \textbf{M\&S cost} & \textbf{Blind cost} & \textbf{Match?} \\
+\midrule
+\texttt{sum/sum\_3.sas}              & 3 & 3 & \checkmark \\
+\texttt{muddy-children/3-muddy.sas}  & 6 & 6 & \checkmark \\
+\texttt{muddy-child/3-muddy\_1.sas}  & 4 & 4 & \checkmark \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Prior to these fixes, \texttt{sum\_3.sas} and \texttt{muddy-child} were
+reported as provably unsolvable, and after Fix~A alone
+\texttt{muddy-child} was solvable but returned a non-optimal plan of
+cost~5.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Phased Implementation Path}

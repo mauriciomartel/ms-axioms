@@ -3745,10 +3745,26 @@ distances longer than the true distances.
 
 Fix~C extends the set of derived variables for which axiom factors are
 built to include all variables referenced in operator preconditions or
-\texttt{when}-clause conditions.  Once $d'$ has a real axiom factor
-that correctly tracks its value, operators conditioned on $d'$ are
-modelled accurately and the transition relation is properly
-over-approximated.
+\texttt{when}-clause conditions.  This replaces the under-approximation
+(operator transitions entirely absent) with an over-approximation:
+since $d'$ is a derived variable and therefore never a member of any
+factor's primary variable set $S_d$, its precondition value is still
+not checkable inside \texttt{build\_axiom\_factor}, so operators that
+condition on $d'$ continue to be treated as applicable regardless of
+$d'$'s value.  The key difference is that this is now an
+\emph{over}-approximation --- operators may fire when they should not ---
+rather than an under-approximation where they could never fire at all.
+Over-approximating is the safe direction for admissibility.
+
+It is important to note that Fix~C is \emph{not} a full implementation
+of axioms in operator preconditions.  A complete treatment would require
+correctly restricting operator applicability based on derived preconditions
+--- for example, by tracking $d'$ jointly with the other primary variables
+in the axiom factor, or by relying on the M\&S merging of the new axiom
+factors to propagate the restriction.  Fix~C is a necessary prerequisite
+(the axiom factor for $d'$ must exist before the M\&S loop can merge it),
+but the precise modelling of derived preconditions in operator applicability
+remains future work.
 
 \paragraph{Summary.}
 

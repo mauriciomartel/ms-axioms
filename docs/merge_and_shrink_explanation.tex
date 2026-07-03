@@ -3630,16 +3630,15 @@ reported as provably unsolvable, and after Fix~A alone
 \texttt{muddy-child} was solvable but returned a non-optimal plan of
 cost~5.
 
-\subsubsection{Theoretical Grounding: When-Clauses and the Reconstruction
+\subsubsection{Theoretical Grounding: All Three Fixes and the Reconstruction
 Property}
 \label{sec:when-clause-theory}
 
 The three fixes above restore soundness at the implementation level; this
-section explains why they are required at the formal level, connecting the
-fixes to the reconstruction property stated in \S\ref{sec:core-idea}.
+section explains why they are required at the formal level, connecting each
+fix to the reconstruction property stated in \S\ref{sec:core-idea}.
 
-\paragraph{What the reconstruction property requires of the transition
-relation.}
+\paragraph{The reconstruction property and its two requirements.}
 
 The reconstruction property guarantees that $\Theta_{S_d,d}$, combined
 with the individual atomic factors, recovers the full axiom language of
@@ -3653,88 +3652,126 @@ the synchronized product:
   \mathcal{L}\!\Bigl(\bigl(\bigotimes_{\Theta_i \in S} \Theta_i\bigr)^{\!A}\Bigr).
 \]
 
-For this guarantee to hold, the transition relation of $\Theta_{S_d,d}$
-must be an \emph{over-approximation} of the true transition relation
-restricted to $S_d$: every transition reachable in some real state must
-have a corresponding edge in the abstract factor.  An over-approximation
-can only make abstract distances \emph{shorter} than the true distances,
+For this to hold, $\Theta_{S_d,d}$ must satisfy two correctness conditions
+simultaneously:
+
+\begin{enumerate}
+  \item \textbf{Goal states must be an over-approximation.}  Every product
+    state where the true axiom closure makes $d$ true must be marked as a
+    goal.  An under-approximation of the goal set (missing goal states)
+    makes abstract distances to those states appear infinite or larger than
+    reality --- the heuristic overestimates, breaking admissibility.
+
+  \item \textbf{Transitions must be an over-approximation.}  Every
+    transition reachable in some real state must have a corresponding edge
+    in the abstract factor.  An under-approximation of the transition
+    relation (missing edges) makes some product states unreachable in the
+    abstraction even though they are reachable in reality --- again making
+    abstract distances longer than the true distances and the heuristic
+    overestimate.
+\end{enumerate}
+
+In both cases, an over-approximation is the safe direction: extra goal
+states or extra transitions can only make abstract distances \emph{shorter},
 so the heuristic \emph{underestimates} --- the admissibility condition.
-Conversely, an under-approximation (missing edges) makes abstract
-distances \emph{longer} than the true distances, the heuristic
-\emph{overestimates}, and A$^*$ can return a suboptimal plan.
+All three bugs were under-approximations, each violating one of these two
+conditions.
 
-The three-phase lifecycle of $\Theta_{S_d,d}$ builds this guarantee in
-layers.  Step~4 marks goal states by running the axiom fixpoint over
-each product state (Fix~A ensures this is correct even for same-layer
-positive dependency chains).  Step~5 builds the transition relation from
-planning operators.  Fix~B corrects Step~5 so that the transition
-relation is a genuine over-approximation.  Together they ensure that the
-abstract factor satisfies the reconstruction property, after which
-quasi-bisimulation shrinking can safely compress it without losing
-admissibility.
+\paragraph{Fix~A --- under-approximation of the goal set.}
 
-\paragraph{How when-clause effects interact with the abstract factor.}
+Step~4 of \texttt{build\_axiom\_factor} marks goal states by evaluating
+the axiom rules over each product state: the $(\cdot)^A$ transformation
+applied to the product space.  A single linear pass over the relevant
+axioms is sufficient only if every rule's dependency has already fired
+before the rule is evaluated.  FD's stratification forbids intra-layer
+\emph{negative} cycles but permits intra-layer \emph{positive} chains,
+meaning a rule can legally condition on a same-layer derived variable
+that the file happens to list later.  When this occurs, the dependent
+rule is evaluated before its dependency has fired, leaving the derived
+variable at its default value and the rule unsatisfied.
 
-An operator's \texttt{when}-clause effect fires only when its condition
-holds in the current state.  When the condition references a variable
-\emph{inside} $S_d$, the product state encodes that variable's value and
-the decision is deterministic: the effect either definitively fires or
-definitively does not.  When the condition references a variable
-\emph{outside} $S_d$, the product state carries no information about it.
-The correct response is to \emph{over-approximate} by generating all
-outcomes that can arise for any assignment to the outside variable:
+The consequence is an under-approximation of the goal set: product
+states where $d$ would genuinely evaluate to true are left unmarked.
+With zero reachable goal states in an axiom factor (as happened for
+every factor in \texttt{sum\_3.sas}), the algorithm declares the task
+provably unsolvable even when a plan exists.  Fix~A replaces the single
+pass with a fixpoint loop that re-evaluates rules until no new variable
+fires, guaranteeing that the $(\cdot)^A$ transformation is applied
+correctly regardless of rule ordering.
 
-\begin{itemize}
-  \item \textbf{One outside-conditioned effect}: two possible outcomes
-    (fires or does not fire).  Step~5 handled this correctly from the
-    start: both a forward edge $s \to t$ (effect fires) and a self-loop
-    $s \to s$ (effect does not fire) were added.
+\paragraph{Fix~B --- under-approximation of the transition relation (when-clause
+effects).}
 
-  \item \textbf{Two or more outside-conditioned effects}, each conditioned
-    on a \emph{different} outside variable: the conditions are independent,
-    so any subset of them can hold in a real state.  For $k$ such effects
-    there are $2^k$ possible outcomes, one per subset of effects that fire.
-\end{itemize}
+Step~5 of \texttt{build\_axiom\_factor} builds the transition relation
+from planning operators.  When an operator's \texttt{when}-clause effect
+is conditioned on a variable \emph{inside} $S_d$, the product state
+encodes that variable's value and the decision is deterministic: the
+effect definitively fires or does not fire.  When the condition references
+a variable \emph{outside} $S_d$, the product state carries no information
+about it; the correct response is to over-approximate by generating all
+outcomes.
 
-\paragraph{The pre-Fix~B under-approximation.}
+For a \emph{single} outside-conditioned effect, two outcomes suffice:
+a forward edge $s \to t$ (effect fires) and a self-loop $s \to s$
+(effect does not fire).  Step~5 handled this correctly from the start.
+For \emph{two or more} outside-conditioned effects, each on a
+\emph{different} outside variable, the conditions are independent and
+any subset of them can hold in a real state: $k$ such effects require
+$2^k$ transitions.  The pre-Fix~B code generated only two outcomes
+regardless of $k$, silently dropping the $2^k - 2$ intermediate subsets.
+Those missing transitions under-approximate the reachable product states,
+inflate abstract distances, and break admissibility.
 
-Before Fix~B, Step~5 generated at most two outcomes regardless of $k$:
-the ``all fire'' transition and the ``none fire'' self-loop.  For $k = 1$
-this is correct and complete.  For $k \geq 2$ it silently drops the
-$2^k - 2$ intermediate subsets --- real, independently reachable
-transitions corresponding to states where exactly some (but not all) of
-the outside conditions hold.  Omitting them \emph{under}-approximates the
-transition relation, making abstract distances longer than the true
-distances and breaking admissibility.
+Fix~B enumerates all $2^k$ subsets.  Subset $\emptyset$ produces the
+self-loop; the full subset produces the ``all fire'' transition; the
+intermediate subsets produce the previously missing partial-firing
+transitions.  For $k = 0$ a single subset degenerates to the original
+unconditional transition, preserving backwards compatibility.
 
-This is the root cause of the \texttt{muddy-child} suboptimality:
-operator \texttt{a\_asks\_b} had $k = 2$ independent outside-conditioned
-effects on $S_{40}$ variables ($\mathit{var}_{31}$ conditioned on
-$\mathit{var}_{26}$, and $\mathit{var}_{19}$ conditioned on
-$\mathit{var}_{10}$).  Two partial-firing transitions were missing, so the
-abstract factor could not reach certain product states that are reachable in
-the real task.  The heuristic overestimated the distance from those states
-to the goal, and A$^*$ returned a plan of cost~5 instead of the true
-optimum~4.
+\paragraph{Fix~C --- under-approximation of the transition relation (missing
+axiom factors).}
 
-\paragraph{How Fix~B restores the over-approximation invariant.}
+A derived variable $d'$ that appears only in an operator precondition or
+\texttt{when}-clause condition --- but not in the goal --- was previously
+left without a real axiom factor.  Its atomic factor (built by
+\texttt{FTSFactory} for every variable) has no operator transitions, so
+it stays frozen at its initial value throughout the search.  Any operator
+whose precondition requires $d'$ to hold a non-initial value appears
+permanently inapplicable in the abstraction; any operator whose
+\texttt{when}-clause conditions on $d'$ appears as if the clause never
+fires.  Both effects remove real transitions from the abstract factor,
+under-approximating the transition relation and again making abstract
+distances longer than the true distances.
 
-Fix~B (subset enumeration) generates all $2^k$ transitions per product
-state and operator application.  Subset~$\emptyset$ always produces the
-self-loop $s \to s$; the full subset produces the ``all fire'' transition;
-and the $2^k - 2$ intermediate subsets produce the previously missing
-partial-firing transitions.  When $k = 0$ (no outside-conditioned
-effects), a single subset (the empty one) degenerates to the original
-unconditional transition, so the fix is fully backwards-compatible.
+Fix~C extends the set of derived variables for which axiom factors are
+built to include all variables referenced in operator preconditions or
+\texttt{when}-clause conditions.  Once $d'$ has a real axiom factor
+that correctly tracks its value, operators conditioned on $d'$ are
+modelled accurately and the transition relation is properly
+over-approximated.
 
-After Fix~B, every transition that can occur in some real state (for any
-assignment to the outside variables) has a corresponding edge in
-$\Theta_{S_d,d}$.  The transition relation is a genuine over-approximation,
-the reconstruction property is satisfied, and bisimulation distances in
-the abstract factor correctly lower-bound the true planning distances.
-With all three fixes in place, exact bisimulation shrinking produces a
-heuristic that is both admissible and --- in the absence of state-limit
-truncation --- equal to the true goal distance.
+\paragraph{Summary.}
+
+Each fix addresses a distinct under-approximation that violates the
+reconstruction property:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Fix} & \textbf{What was under-approximated} & \textbf{Effect on heuristic} \\
+\midrule
+Fix~A & Goal set ($(\cdot)^A$ transformation) & Overestimates (false unsolvable) \\
+Fix~B & Transition relation (when-clause subsets) & Overestimates (suboptimal plan) \\
+Fix~C & Transition relation (missing axiom factors) & Overestimates (false unsolvable) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+With all three fixes in place, both the goal set and the transition
+relation of $\Theta_{S_d,d}$ are genuine over-approximations.  The
+reconstruction property is satisfied, and exact bisimulation shrinking
+produces a heuristic that is both admissible and --- in the absence of
+state-limit truncation --- equal to the true goal distance.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Phased Implementation Path}

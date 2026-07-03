@@ -3699,6 +3699,18 @@ pass with a fixpoint loop that re-evaluates rules until no new variable
 fires, guaranteeing that the $(\cdot)^A$ transformation is applied
 correctly regardless of rule ordering.
 
+Fix~A is \emph{independent} of \texttt{when}-clauses.  It concerns the
+axiom stratification layer, not conditional operator effects.  The bug
+would arise in any domain whose axiom rules contain a same-layer positive
+dependency chain, with or without \texttt{when}-clauses.  The indirect
+connection to \texttt{when}-clause domains is that Fix~B (below) determines
+\emph{which} product states are reachable via the transition relation, and
+Fix~A then ensures that each of those reachable states is correctly
+evaluated for goal membership.  The two fixes act on different phases of
+building $\Theta_{S_d,d}$ --- goal-state marking and transition-relation
+construction respectively --- and both are required for the reconstruction
+property to hold.
+
 \paragraph{Fix~B --- under-approximation of the transition relation (when-clause
 effects).}
 

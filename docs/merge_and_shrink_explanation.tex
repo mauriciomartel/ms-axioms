@@ -3778,6 +3778,26 @@ factors to propagate the restriction.  Fix~C is a necessary prerequisite
 but the precise modelling of derived preconditions in operator applicability
 remains future work.
 
+\paragraph{How the three fixes fit together.}
+
+In plain terms, building a correct abstract factor $\Theta_{S_d,d}$ has
+three independent concerns, and each fix corrects exactly one of them.
+Fix~C answers \emph{which factors to build}: it ensures that every derived
+variable the task actually depends on --- not just those that appear
+directly in the goal --- gets a real axiom factor, so that operators
+referencing those variables are not incorrectly blocked.  Fix~A answers
+\emph{which states are goals}: once a factor exists, each of its product
+states must be tested by running the axiom rules to a fixpoint, because a
+single linear pass can miss same-layer dependencies and leave genuinely
+reachable goal states unmarked.  Fix~B answers \emph{what the transitions
+are}: for operators with \texttt{when}-clause effects conditioned on
+variables outside the factor, every combination of those effects firing
+independently must be represented as a separate transition, not just the
+two extremes of all firing or none firing.  A mistake in any one of these
+three aspects produces an under-approximation that inflates abstract
+distances and breaks admissibility --- which is why all three bugs had to
+be fixed together before the benchmarks produced correct, optimal plans.
+
 \paragraph{Summary.}
 
 Each fix addresses a distinct under-approximation that violates the

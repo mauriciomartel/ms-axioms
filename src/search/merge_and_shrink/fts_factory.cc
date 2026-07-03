@@ -612,6 +612,13 @@ int build_axiom_factor(
     // This is now evaluated lazily, once per *reachable* state discovered
     // below, instead of once per full product state.
 
+    // derived_var_id need not be a goal variable: build_axiom_factor is also
+    // called for derived variables that are only read by operators (as a
+    // precondition or as a condition of a conditional effect). In that case
+    // there is no goal value to match, so this factor places no restriction
+    // of its own on which states are goal states -- every state is locally
+    // a "goal state" for this factor; the actual task goal is enforced by
+    // whichever other factor encodes the real goal fact(s).
     int goal_derived_value = -1;
     for (FactProxy g : task_proxy.get_goals()) {
         if (g.get_variable().get_id() == derived_var_id) {
@@ -619,7 +626,7 @@ int build_axiom_factor(
             break;
         }
     }
-    assert(goal_derived_value != -1);
+    bool is_goal_var = (goal_derived_value != -1);
 
     // Default values for all derived variables in the dependency closure.
     unordered_map<int, int> derived_default;
@@ -781,10 +788,21 @@ int build_axiom_factor(
             if (!applicable)
                 continue;
 
-            int t_full = s_full;
-            bool need_self_loop = false;
-
-            for (const RelevantEffect &re : rop.effects) {
+            // Among effects whose self-conditions are satisfied ("active"),
+            // ones without an outside condition always fire. Ones with an
+            // outside condition (referencing a variable outside S_d) may or
+            // may not fire, INDEPENDENTLY of every other such effect on this
+            // same operator application -- the product space has no way to
+            // tell. Enumerate every subset of the active outside-conditioned
+            // effects rather than just "all fire" / "none fire": with two or
+            // more independent optional effects, the partial-firing
+            // combinations (exactly one fires, not the other) are also real
+            // reachable transitions, and skipping them silently shrinks the
+            // transition relation, making the heuristic overestimate.
+            vector<bool> effect_active(rop.effects.size());
+            vector<int> optional_effect_positions;
+            for (size_t i = 0; i < rop.effects.size(); ++i) {
+                const RelevantEffect &re = rop.effects[i];
                 bool fires = true;
                 for (int cval : re.self_cond_vals) {
                     if (decode_val(s_full, re.idx) != cval) {
@@ -792,29 +810,35 @@ int build_axiom_factor(
                         break;
                     }
                 }
-                if (!fires)
-                    continue;
-
-                if (re.has_outside_cond)
-                    need_self_loop = true;
-
-                // Apply the effect to t_full. Decode from t_full (not
-                // s_full) so that earlier effects on the same variable
-                // (within this operator) are taken into account.
-                t_full -= decode_val(t_full, re.idx) * mult[re.idx];
-                t_full += re.post * mult[re.idx];
+                effect_active[i] = fires;
+                if (fires && re.has_outside_cond)
+                    optional_effect_positions.push_back(i);
             }
 
-            int t_dense = get_dense(t_full);
-            // t_dense == s_dense when the operator only has preconditions on
-            // product variables (no effect changes them); this covers that
-            // self-loop naturally.
-            label_trans[rop.label].emplace_back(s_dense, t_dense);
-            // Add the self-loop for the case where an outside-conditioned
-            // effect does not fire, but only when the forward transition
-            // actually moves.
-            if (need_self_loop && t_dense != s_dense)
-                label_trans[rop.label].emplace_back(s_dense, s_dense);
+            int num_subsets = 1 << optional_effect_positions.size();
+            for (int subset = 0; subset < num_subsets; ++subset) {
+                vector<bool> optional_fires(rop.effects.size(), false);
+                for (size_t b = 0; b < optional_effect_positions.size(); ++b)
+                    if (subset & (1 << b))
+                        optional_fires[optional_effect_positions[b]] = true;
+
+                int t_full = s_full;
+                for (size_t i = 0; i < rop.effects.size(); ++i) {
+                    if (!effect_active[i])
+                        continue;
+                    const RelevantEffect &re = rop.effects[i];
+                    if (re.has_outside_cond && !optional_fires[i])
+                        continue;
+                    // Apply the effect to t_full. Decode from t_full (not
+                    // s_full) so that earlier effects on the same variable
+                    // (within this operator) are taken into account.
+                    t_full -= decode_val(t_full, re.idx) * mult[re.idx];
+                    t_full += re.post * mult[re.idx];
+                }
+
+                int t_dense = get_dense(t_full);
+                label_trans[rop.label].emplace_back(s_dense, t_dense);
+            }
         }
     }
 
@@ -828,32 +852,47 @@ int build_axiom_factor(
         for (auto &[dv, def] : derived_default)
             derived_vals[dv] = def;
 
-        // One pass in layer order suffices: FD stratification prevents
-        // intra-layer positive cycles.
-        for (const AxiomRule &rule : relevant_axioms) {
-            if (derived_vals[rule.eff_var] != derived_default.at(rule.eff_var))
-                continue; // already fired; axioms fire at most once
-            bool satisfied = true;
-            for (auto [cvar, cval] : rule.conditions) {
-                int cur_val;
-                if (variables[cvar].is_derived()) {
-                    auto it = derived_default.find(cvar);
-                    cur_val = (it != derived_default.end())
-                              ? derived_vals[cvar]
-                              : variables[cvar].get_default_axiom_value();
-                } else {
-                    auto it = var_id_to_idx.find(cvar);
-                    if (it == var_id_to_idx.end())
-                        continue; // not in product space: over-approximate
-                    cur_val = decode_val(s_full, it->second);
+                // FD stratification only forbids intra-layer *negative* dependencies
+        // (a same-layer condition must use the variable's non-default value);
+        // same-layer positive dependency chains (e.g. rule for d2 conditions
+        // on d1's non-default value, both at layer 0) are legal, and the
+        // order axioms happen to appear in the file does not need to respect
+        // such chains. A single pass in (layer, file-order) is therefore not
+        // sufficient in general: it can evaluate a rule before one of its
+        // same-layer dependencies has fired. Iterate to a fixpoint instead;
+        // this always terminates since each variable fires at most once, so
+        // at most relevant_axioms.size() passes are ever needed.
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (const AxiomRule &rule : relevant_axioms) {
+                if (derived_vals[rule.eff_var] != derived_default.at(rule.eff_var))
+                    continue; // already fired; axioms fire at most once
+                bool satisfied = true;
+                for (auto [cvar, cval] : rule.conditions) {
+                    int cur_val;
+                    if (variables[cvar].is_derived()) {
+                        auto it = derived_default.find(cvar);
+                        cur_val = (it != derived_default.end())
+                                  ? derived_vals[cvar]
+                                  : variables[cvar].get_default_axiom_value();
+                    } else {
+                        auto it = var_id_to_idx.find(cvar);
+                        if (it == var_id_to_idx.end())
+                            continue; // not in product space: over-approximate
+                        cur_val = decode_val(s_full, it->second);
+                    }
+                    if (cur_val != cval) { satisfied = false; break; }
                 }
-                if (cur_val != cval) { satisfied = false; break; }
+                if (satisfied) {
+                    derived_vals[rule.eff_var] = rule.eff_val;
+                    changed = true;
+                }
             }
-            if (satisfied)
-                derived_vals[rule.eff_var] = rule.eff_val;
         }
 
-        goal_states[d] = (derived_vals[derived_var_id] == goal_derived_value);
+        goal_states[d] = !is_goal_var ||
+                         (derived_vals[derived_var_id] == goal_derived_value);
     }
 
     // -----------------------------------------------------------------------

@@ -54,7 +54,50 @@ vector<double> MergeScoringFunctionTotalOrder::compute_scores(
         // We must have inserted a score for the current candidate.
         assert(scores.size() == candidate_index + 1);
     }
-    return scores;
+        return scores;
+}
+
+namespace {
+/*
+  Count every derived variable that build_factored_transition_system will
+  build a real axiom-induced factor Theta_{S,d} for: goal-derived variables,
+  plus any derived variable read directly by an operator (as a precondition
+  or as a condition of one of its conditional effects), excluding derived
+  variables that have zero axiom rules (translator-introduced constants that
+  never get a real factor). This must stay in sync with
+  collect_relevant_derived_variables in merge_and_shrink_algorithm.cc:
+  undercounting here desynchronizes transition_system_order/
+  merge_candidate_order from the factors that actually exist in the FTS,
+  causing compute_scores to fail to find a score for some merge candidates.
+*/
+static int count_relevant_derived_variables(const TaskProxy &task_proxy) {
+    int num_variables = task_proxy.get_variables().size();
+    vector<bool> needs_axiom_factor(num_variables, false);
+
+    for (FactProxy goal : task_proxy.get_goals())
+        if (goal.get_variable().is_derived())
+            needs_axiom_factor[goal.get_variable().get_id()] = true;
+
+    for (OperatorProxy op : task_proxy.get_operators()) {
+        for (FactProxy precondition : op.get_preconditions())
+            if (precondition.get_variable().is_derived())
+                needs_axiom_factor[precondition.get_variable().get_id()] = true;
+        for (EffectProxy effect : op.get_effects())
+            for (FactProxy condition : effect.get_conditions())
+                if (condition.get_variable().is_derived())
+                    needs_axiom_factor[condition.get_variable().get_id()] = true;
+    }
+
+    vector<bool> has_axiom_rule(num_variables, false);
+    for (OperatorProxy axiom : task_proxy.get_axioms())
+        has_axiom_rule[axiom.get_effects()[0].get_fact().get_variable().get_id()] = true;
+
+    int count = 0;
+    for (int var_id = 0; var_id < num_variables; ++var_id)
+        if (needs_axiom_factor[var_id] && has_axiom_rule[var_id])
+            ++count;
+    return count;
+}
 }
 
 void MergeScoringFunctionTotalOrder::initialize(const TaskProxy &task_proxy) {
@@ -62,10 +105,7 @@ void MergeScoringFunctionTotalOrder::initialize(const TaskProxy &task_proxy) {
     // Axiom factors are inserted after atomic factors but before merging starts.
     // Include them so the precomputed order covers all initial factor indices.
     int num_variables = task_proxy.get_variables().size();
-    int num_axiom_factors = 0;
-    for (FactProxy goal : task_proxy.get_goals())
-        if (goal.get_variable().is_derived())
-            ++num_axiom_factors;
+    int num_axiom_factors = count_relevant_derived_variables(task_proxy);
     int num_initial_factors = num_variables + num_axiom_factors;
     int max_transition_system_count = num_initial_factors * 2 - 1;
     vector<int> transition_system_order;

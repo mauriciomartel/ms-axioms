@@ -423,6 +423,61 @@ void MergeAndShrinkAlgorithm::main_loop(
     label_reduction = nullptr;
 }
 
+/*
+  Collect every derived variable that needs a real axiom-induced abstract
+  factor Theta_{S,d}: goal-derived variables, plus any derived variable that
+  is read directly by an operator, either as a precondition or as a
+  condition of one of the operator's conditional effects. Derived variables
+  that are referenced only inside the bodies of other axioms do not need
+  their own factor here: build_axiom_factor resolves those transitively when
+  it evaluates the axiom closure of the variable it is building.
+
+  Without this, any operator whose applicability or conditional effects
+  depend on a non-goal derived variable is unsound in the abstraction: that
+  variable's plain atomic factor never changes (axioms, not operators, are
+  what give it a value), so the operator looks permanently inapplicable (or
+  its conditional effects look like they never fire), which can make a
+  solvable task appear unsolvable even under exact bisimulation shrinking.
+
+  Derived variables with zero axiom rules are excluded even if they pass the
+  checks above: such a variable is a translator-introduced constant that
+  never changes from its initial value (no axiom ever fires for it, and
+  operators cannot set derived variables directly), so its existing atomic
+  factor -- pinned at the initial value forever -- is already correct.
+  build_axiom_factor assumes its target variable has at least one axiom
+  rule (that's how it discovers S_d's primary-variable closure), so calling
+  it on a rule-less variable would yield a degenerate empty closure.
+*/
+static vector<int> collect_relevant_derived_variables(
+    const TaskProxy &task_proxy) {
+    int num_variables = task_proxy.get_variables().size();
+    vector<bool> needs_axiom_factor(num_variables, false);
+
+    for (FactProxy goal : task_proxy.get_goals())
+        if (goal.get_variable().is_derived())
+            needs_axiom_factor[goal.get_variable().get_id()] = true;
+
+    for (OperatorProxy op : task_proxy.get_operators()) {
+        for (FactProxy precondition : op.get_preconditions())
+            if (precondition.get_variable().is_derived())
+                needs_axiom_factor[precondition.get_variable().get_id()] = true;
+        for (EffectProxy effect : op.get_effects())
+            for (FactProxy condition : effect.get_conditions())
+                if (condition.get_variable().is_derived())
+                    needs_axiom_factor[condition.get_variable().get_id()] = true;
+    }
+
+    vector<bool> has_axiom_rule(num_variables, false);
+    for (OperatorProxy axiom : task_proxy.get_axioms())
+        has_axiom_rule[axiom.get_effects()[0].get_fact().get_variable().get_id()] = true;
+
+    vector<int> result;
+    for (int var_id = 0; var_id < num_variables; ++var_id)
+        if (needs_axiom_factor[var_id] && has_axiom_rule[var_id])
+            result.push_back(var_id);
+    return result;
+}
+
 FactoredTransitionSystem
 MergeAndShrinkAlgorithm::build_factored_transition_system(
     const TaskProxy &task_proxy) {
@@ -441,10 +496,11 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
     log << endl;
 
     // ShrinkQuasiBisimulation needs goal distances for axiom factors,
-    // so force them on whenever derived goal variables are present.
-    bool has_derived_goals = false;
-    for (FactProxy goal : task_proxy.get_goals())
-        if (goal.get_variable().is_derived()) { has_derived_goals = true; break; }
+    // so force them on whenever any derived variable needs a real axiom
+    // factor (see collect_relevant_derived_variables below).
+    vector<int> derived_vars_needing_axiom_factor =
+        collect_relevant_derived_variables(task_proxy);
+    bool has_relevant_derived_vars = !derived_vars_needing_axiom_factor.empty();
 
     const bool compute_init_distances =
         shrink_strategy->requires_init_distances() ||
@@ -454,23 +510,27 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
         shrink_strategy->requires_goal_distances() ||
         merge_strategy_factory->requires_goal_distances() ||
         prune_irrelevant_states ||
-        has_derived_goals;
+        has_relevant_derived_vars;
     FactoredTransitionSystem fts = create_factored_transition_system(
         task_proxy, compute_init_distances, compute_goal_distances, log);
     if (log.is_at_least_normal()) {
         log_progress(timer, "after computation of atomic factors", log);
     }
 
-    // For each derived goal variable, build an axiom-induced abstract factor
-    // Theta_{S,d} and immediately shrink it with quasi-bisimulation.
+    // For each derived variable that is either a goal or read by some
+    // operator (as a precondition or as a condition of a conditional
+    // effect), build an axiom-induced abstract factor Theta_{S,d} and
+    // immediately shrink it with quasi-bisimulation. Derived variables that
+    // are only ever read by other axioms (and never by an operator or the
+    // goal) do not need their own factor: build_axiom_factor already
+    // resolves those transitively while evaluating the axiom closure of the
+    // variable that does need a factor.
+    //
     // This must happen before the pruning loop so the loop can detect
     // unsolvable axiom factors and abort early.
-    if (has_derived_goals) {
+    if (has_relevant_derived_vars) {
         ShrinkQuasiBisimulation qbisim;
-        for (FactProxy goal : task_proxy.get_goals()) {
-            if (!goal.get_variable().is_derived())
-                continue;
-            int derived_var_id = goal.get_variable().get_id();
+        for (int derived_var_id : derived_vars_needing_axiom_factor) {
             if (log.is_at_least_normal()) {
                 log << "Building axiom factor for derived variable "
                     << derived_var_id << "." << endl;

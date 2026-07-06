@@ -3878,31 +3878,121 @@ a wider range of domains:
 \noindent\textbf{Phase 2 — Axioms in operator preconditions \hfill\textit{[Planned]}}
 \medskip
 
-Phase~1 only handles derived predicates that appear in the \emph{goal}.
-Many planning domains also use derived predicates in \emph{operator
-preconditions} (e.g.\ a robot may only pick up an object if it is
-\emph{reachable}, where reachability is a derived predicate).  Phase~2 extends
-the M\&S heuristic to handle these cases correctly.
+Phase~1 handles derived predicates that appear in the \emph{goal}. Many
+planning domains also use derived predicates in \emph{operator preconditions}:
+an operator is applicable only when a derived variable holds a particular value
+(e.g.\ ``acquire resource'' may require that the process is not blocked, where
+\texttt{blocked} is a derived predicate).  Phase~2 extends the M\&S heuristic
+to model this restriction correctly.
 
-The core change is to the transition-generation step: a transition is included
-in a factor only if \emph{all} preconditions of the corresponding operator —
-including those on derived variables — are satisfied in the abstract state.
-Concretely:
+\subsubsection*{Prerequisite already in place: Fix~C}
+
+Fix~C (Step~9, \S\ref{sec:step9}) already builds axiom-induced factors for
+every derived variable referenced in operator preconditions or
+\texttt{when}-clause conditions --- not only those that appear in the goal.  The
+necessary factors therefore exist.  What is still missing is the applicability
+restriction: operators conditioned on a derived variable~$d'$ are currently
+over-approximated (assumed applicable regardless of $d'$'s value).  Phase~2
+removes this over-approximation.
+
+\subsubsection*{Core problem}
+
+For operator $\mathit{op}$ with derived precondition $d' = v_{\mathrm{goal}}$,
+in a product state $s$ of axiom factor $\Theta_{S_{d'},d'}$:
 
 \begin{itemize}
-  \item \textbf{Precondition evaluation in abstract states}: when building
-    transitions in \texttt{fts\_factory.cc}, check derived preconditions by
-    evaluating the axiom rules on the projected abstract state, analogously to
-    the goal-marking procedure in Phase~1.
-  \item \textbf{Axiom-induced factors for precondition variables}: for each
-    operator precondition on a derived variable~$d$, build a factor over $S_d$
-    (using the same \texttt{build\_axiom\_factor} machinery) and restrict the
-    transitions of the corresponding primary-variable factors to those states
-    where $d$ evaluates to the required value.
-  \item \textbf{Admissibility}: verify that the extended transition system
-    remains an admissible abstraction — i.e.\ that no concrete transition is
-    absent from the abstraction unless it is genuinely infeasible.
+  \item If $d'$ evaluates to $v_{\mathrm{goal}}$ in $s$ (i.e.\ $s$ is a goal
+    state of the factor): $\mathit{op}$ is applicable --- add the normal
+    transition.
+  \item If $d'$ evaluates to its default value in $s$ (non-goal state):
+    $\mathit{op}$ is inapplicable --- add \textbf{no transition at all} (not
+    even a self-loop).
 \end{itemize}
+
+Once $\Theta_{S_{d'},d'}$ correctly blocks $\mathit{op}$ in non-goal states,
+the M\&S synchronized-product semantics propagates this restriction
+automatically: a transition exists in the product of two factors only if it
+exists in \emph{both} components.  Any factor eventually merged with
+$\Theta_{S_{d'},d'}$ will therefore inherit the applicability restriction
+without further changes to the merging infrastructure.
+
+\subsubsection*{Implementation pieces}
+
+\paragraph{Piece 1 — Restrict transitions by goal state in
+\texttt{build\_axiom\_factor}.}
+
+The goal-states vector is already computed before the transition-building loop
+(it is used to mark goal states, the same vector computed by the fixpoint in
+Fix~A).  The only change needed is to consult it during transition generation:
+for each product state~$s$ and each relevant operator~$\mathit{op}$, if
+$\mathit{op}$ carries a derived precondition matching the factor's variable
+$d'$ and $s$ is \emph{not} a goal state, skip the transition entirely.
+
+\textbf{File:} \texttt{fts\_factory.cc}, function \texttt{build\_axiom\_factor},
+transition-building loop (Step~5).
+
+\paragraph{Piece 2 — Extend the relevant-operator set.}
+
+Currently an operator is \emph{relevant} to a factor if it has a precondition
+or effect on at least one variable in $S_{d'}$.  Operators that condition on
+$d'$ but have no effects on $S_{d'}$ variables are classified as irrelevant and
+receive a blanket self-loop in every state.  For Phase~2 these operators must be
+\emph{relevant}: they get a self-loop in goal states (applicable, $S_{d'}$
+unchanged) and no transition in non-goal states (inapplicable).
+
+The relevance criterion therefore gains a second condition: an operator is
+relevant to $\Theta_{S_{d'},d'}$ if it has a precondition or effect on $S_{d'}$
+variables \emph{or} its derived precondition is $d'$ itself.
+
+\textbf{File:} \texttt{fts\_factory.cc}, function \texttt{build\_axiom\_factor},
+operator-relevance check (Step~5).
+
+\paragraph{Piece 3 — Exact evaluation in factors where $S_{d'} \subseteq S_d$.}
+
+When building $\Theta_{S_d,d}$ for a \emph{different} derived variable $d$, and
+operator $\mathit{op}$ has derived precondition $d'$:
+
+\begin{itemize}
+  \item If $S_{d'} \subseteq S_d$: the product state already encodes all primary
+    variables that determine $d'$.  Run the axiom evaluator on those values to
+    decide $d'$'s truth, and restrict $\mathit{op}$ accordingly.  This gives an
+    exact model rather than an over-approximation for this factor.
+  \item Otherwise: keep the current over-approximation ($\mathit{op}$ assumed
+    applicable).  The M\&S loop will add the restriction when this factor is
+    eventually merged with $\Theta_{S_{d'},d'}$.
+\end{itemize}
+
+\textbf{File:} \texttt{fts\_factory.cc}, function \texttt{build\_axiom\_factor},
+applicability check for derived preconditions.
+
+\subsubsection*{Admissibility}
+
+Removing transitions (Pieces~1--3) can only make abstract distances
+\emph{longer}, not shorter.  Provided no reachable concrete transition is
+omitted --- which is guaranteed because the goal states correctly identify
+exactly the product states where $d'$ is true --- the result is neither an
+over- nor an under-approximation: it is an \emph{exact} model of operator
+applicability for $d'$.  Admissibility is therefore preserved.
+
+\subsubsection*{Testing strategy}
+
+Phase~2 requires domains where at least one operator has a derived variable in
+its precondition (not only in the goal).  Existing Phase~1 test domains
+(\texttt{philosophers}, \texttt{sum}, \texttt{muddy-child},
+\texttt{muddy-children}, \texttt{optical-telegraphs}) may or may not have
+derived preconditions; the SAS$^+$ files should be inspected to confirm.
+Concretely, a variable has a non-negative \texttt{axiom\_layer} in the
+\texttt{begin\_variable} block; any operator whose \texttt{begin\_operator}
+block lists such a variable as a precondition is a Phase~2 case.
+
+Classic IPC benchmark domains known to use derived predicates in operator
+preconditions include \textbf{PSR} (Power Supply Restoration) and
+\textbf{Airport}.  These are the recommended first targets for Phase~2
+validation.
+
+After the changes, \texttt{astar(merge\_and\_shrink(\ldots))} on a Phase~2
+domain should produce the same plan cost as \texttt{astar(blind())}; any
+discrepancy indicates a remaining soundness issue.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

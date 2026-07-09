@@ -3912,7 +3912,8 @@ The following needs to be implemented:
     inspected by reading their PDDL domain files and checking whether any derived
     predicate (introduced by a \texttt{:derived} clause) appears inside an
     operator \texttt{:precondition} block.  25 out of 41 domains qualify as
-    Phase~2; 5 have axioms only in goals (Phase~1); 11 have no axioms at all.
+    Phase~2; 5 have axioms only in goals (Phase~1); 11 contain no explicit
+    \texttt{:derived} clauses in their PDDL source (see note below).
 
     \medskip
     \noindent\textbf{Phase~2 domains} (axioms in operator preconditions):
@@ -3962,12 +3963,23 @@ The following needs to be implemented:
     \texttt{pddl-axioms-conditional-effects/}).
 
     \medskip
-    \noindent\textbf{No axioms} (11 domains):
+    \noindent\textbf{No explicit \texttt{:derived} in PDDL source} (11 domains):
     \texttt{airport-adl}, \texttt{appn-adl}, \texttt{fridge}, \texttt{openstacks},
     \texttt{openstacks-opt08-adl}, \texttt{openstacks-sat08-adl}, \texttt{trucks}
     (from \texttt{pddl-axioms/});
     \texttt{assembly}, \texttt{miconic-fulladl}, \texttt{snowman-basic},
     \texttt{snowman-cheating} (from \texttt{pddl-axioms-conditional-effects/}).
+
+    \smallskip
+    \noindent\textit{Note.}  These 11 domains do have axioms in their grounded
+    SAS$^+$ representation, but not as explicit \texttt{:derived} clauses in the
+    PDDL source.  They use ADL features such as universally or existentially
+    quantified preconditions that the Fast Downward translator
+    (Helmert,~2009) internally compiles into derived variables and axiom rules.
+    The analysis above is based on PDDL inspection only; a complete Phase~2
+    classification would require inspecting the translated SAS$^+$ files.
+    This is consistent with the benchmark survey of Speck, Seipp \&
+    Torralba~(2025), which lists all 11 as axiom-bearing domains.
 
     \medskip
     \noindent\textit{Recommended starting points for Phase~2 testing:}

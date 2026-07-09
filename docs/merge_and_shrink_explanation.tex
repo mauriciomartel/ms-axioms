@@ -3902,10 +3902,80 @@ The following needs to be implemented:
     variable in its precondition.  In a SAS$^+$ file, a variable is derived if
     its \texttt{axiom\_layer} (in the \texttt{begin\_variable} block) is
     non-negative; any operator listing such a variable as a precondition is a
-    Phase~2 case.  Classic IPC domains known to use derived preconditions include
-    \textbf{PSR} (Power Supply Restoration) and \textbf{Airport}.  Verify each
-    candidate by checking that \texttt{astar(blind())} finds a plan while the
-    current M\&S implementation either fails or returns a wrong cost.
+    Phase~2 case.  Verify each candidate by checking that \texttt{astar(blind())}
+    finds a plan while the current M\&S implementation either fails or returns a
+    wrong cost.
+
+    \medskip
+    \noindent\textit{Result.}  All 41 benchmark domains in the test suite
+    (\texttt{pddl-axioms/} and \texttt{pddl-axioms-conditional-effects/}) were
+    inspected by reading their PDDL domain files and checking whether any derived
+    predicate (introduced by a \texttt{:derived} clause) appears inside an
+    operator \texttt{:precondition} block.  25 out of 41 domains qualify as
+    Phase~2; 5 have axioms only in goals (Phase~1); 11 have no axioms at all.
+
+    \medskip
+    \noindent\textbf{Phase~2 domains} (axioms in operator preconditions):
+
+    \smallskip
+    \begin{center}
+    \begin{tabular}{lll}
+    \toprule
+    \textbf{Domain} & \textbf{Folder} & \textbf{Key derived predicate(s)} \\
+    \midrule
+    \texttt{blocker}              & \texttt{pddl-axioms} & \texttt{cat-moves} \\
+    \texttt{blocks-axioms}        & \texttt{pddl-axioms} & \texttt{clear}, \texttt{handempty} \\
+    \texttt{ghosh-etal-JAR-acc-cc2} & \texttt{pddl-axioms} & \texttt{disabled-control-*} (34) \\
+    \texttt{ghosh-etal-JAR-grid-cc2} & \texttt{pddl-axioms} & \texttt{disabled-control-*} (29) \\
+    \texttt{grid-axioms}          & \texttt{pddl-axioms} & \texttt{reachable} \\
+    \texttt{miconic-axioms}       & \texttt{pddl-axioms} & \texttt{reachable} \\
+    \texttt{queens-horndl}        & \texttt{pddl-axioms} & \texttt{datalog\_figure}, \texttt{datalog\_query0} \\
+    \texttt{social-planning}      & \texttt{pddl-axioms} & motive/reason predicates (6) \\
+    \texttt{sokoban-axioms}       & \texttt{pddl-axioms} & \texttt{can-reach}, \texttt{clear} \\
+    \texttt{tpsa-horndl}          & \texttt{pddl-axioms} & \texttt{datalog\_*} (5) \\
+    \texttt{vta-horndl}           & \texttt{pddl-axioms} & \texttt{datalog\_*} (4) \\
+    \texttt{vta-roles-horndl}     & \texttt{pddl-axioms} & \texttt{datalog\_*} (5) \\
+    \midrule
+    \texttt{cats-horndl}          & \texttt{pddl-axioms-ce} & \texttt{datalog\_*} \\
+    \texttt{collab-and-comm}      & \texttt{pddl-axioms-ce} & role predicates (r1a, r1b, \ldots) \\
+    \texttt{drones-horndl}        & \texttt{pddl-axioms-ce} & \texttt{datalog\_*} \\
+    \texttt{elevator-horndl}      & \texttt{pddl-axioms-ce} & \texttt{datalog\_*} \\
+    \texttt{ged1-ds1}             & \texttt{pddl-axioms-ce} & \texttt{not-between} \\
+    \texttt{ged1-ds2nd}           & \texttt{pddl-axioms-ce} & \texttt{not-between} \\
+    \texttt{psr-large}            & \texttt{pddl-axioms-ce} & \texttt{affected} \\
+    \texttt{psr-middle}           & \texttt{pddl-axioms-ce} & \texttt{affected} \\
+    \texttt{robot-horndl}         & \texttt{pddl-axioms-ce} & \texttt{datalog\_*} \\
+    \texttt{robotConj-horndl}     & \texttt{pddl-axioms-ce} & \texttt{datalog\_columns/rows/inconsistent} \\
+    \texttt{snowman-reachability} & \texttt{pddl-axioms-ce} & \texttt{reachable} \\
+    \texttt{taskassign-horndl}    & \texttt{pddl-axioms-ce} & \texttt{datalog\_*} \\
+    \texttt{word-rooms}           & \texttt{pddl-axioms-ce} & \texttt{letter-state} (23) \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    \noindent(\texttt{pddl-axioms-ce} abbreviates \texttt{pddl-axioms-conditional-effects}.)
+
+    \medskip
+    \noindent\textbf{Phase~1 only} (axioms in goals, not in operator preconditions):
+    \texttt{optical-telegraphs}, \texttt{philosophers} (from \texttt{pddl-axioms/});
+    \texttt{muddy-child}, \texttt{muddy-children}, \texttt{sum} (from
+    \texttt{pddl-axioms-conditional-effects/}).
+
+    \medskip
+    \noindent\textbf{No axioms} (11 domains):
+    \texttt{airport-adl}, \texttt{appn-adl}, \texttt{fridge}, \texttt{openstacks},
+    \texttt{openstacks-opt08-adl}, \texttt{openstacks-sat08-adl}, \texttt{trucks}
+    (from \texttt{pddl-axioms/});
+    \texttt{assembly}, \texttt{miconic-fulladl}, \texttt{snowman-basic},
+    \texttt{snowman-cheating} (from \texttt{pddl-axioms-conditional-effects/}).
+
+    \medskip
+    \noindent\textit{Recommended starting points for Phase~2 testing:}
+    \texttt{grid-axioms} and \texttt{miconic-axioms} (single clean \texttt{reachable}
+    predicate, no conditional effects); \texttt{ged1-ds1} (single \texttt{not-between}
+    predicate, with conditional effects).  \texttt{psr-middle}/\texttt{psr-large}
+    are the most realistic but also the most complex (conditional effects
+    conditioned on the same derived variable \texttt{affected}).
 
   \item \textbf{Step 2 — Extend the relevant-operator set}
     (\texttt{fts\_factory.cc}, \texttt{build\_axiom\_factor}, operator-relevance

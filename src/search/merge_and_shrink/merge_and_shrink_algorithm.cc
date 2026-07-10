@@ -540,20 +540,29 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
             // immediately inside add_factor using the FTS-level flags,
             // so goal distances are guaranteed to be available here.
             int axiom_index = build_axiom_factor(
-                task_proxy, derived_var_id, fts, log);
-            // Shrink using quasi-bisimulation to keep the factor within
-            // max_states_before_merge, since it will eventually be merged
-            // with the regular factors in the main loop.
-            StateEquivalenceRelation equiv =
-                qbisim.compute_equivalence_relation(
-                    fts.get_transition_system(axiom_index),
-                    fts.get_distances(axiom_index),
-                    max_states_before_merge,
-                    log);
-            fts.apply_abstraction(axiom_index, equiv, log);
-            if (log.is_at_least_normal()) {
-                log_progress(
-                    timer, "after building and shrinking axiom factor", log);
+    task_proxy, derived_var_id, fts, log);
+            // build_axiom_factor returns -1 when the reachable product state
+            // space exceeds its built-in limit (see fts_factory.cc). In that
+            // case no factor was added to the FTS, so accessing
+            // fts.get_transition_system(-1) below would be undefined behaviour.
+            // Skip the shrinking step entirely: the derived goal variable just
+            // won't be represented in the M&S abstract space, which makes the
+            // heuristic less tight but keeps it admissible.
+            if (axiom_index >= 0) {
+                // Shrink using quasi-bisimulation to keep the factor within
+                // max_states_before_merge, since it will eventually be merged
+                // with the regular factors in the main loop.
+                StateEquivalenceRelation equiv =
+                    qbisim.compute_equivalence_relation(
+                        fts.get_transition_system(axiom_index),
+                        fts.get_distances(axiom_index),
+                        max_states_before_merge,
+                        log);
+                fts.apply_abstraction(axiom_index, equiv, log);
+                if (log.is_at_least_normal()) {
+                    log_progress(
+                        timer, "after building and shrinking axiom factor", log);
+                }
             }
         }
     }

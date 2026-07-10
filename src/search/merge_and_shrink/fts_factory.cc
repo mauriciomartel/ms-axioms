@@ -785,10 +785,37 @@ int build_axiom_factor(
 
     vector<vector<Transition>> label_trans(num_labels);
 
+    log << "  Axiom factor BFS: " << n << " primary vars, "
+    << relevant_ops.size() << " relevant ops" << endl;
+    int _bfs_steps = 0;
+    // Domains with many primary variables (e.g. grid-axioms) can have
+    // reachable product spaces in the millions even for small problem
+    // instances. The unordered_map and transition vectors grow roughly
+    // proportional to (states * relevant_operators), so memory and time
+    // blow up fast. Cap exploration here: if the BFS discovers more than
+    // max_axiom_states states before finishing, abort and return -1.
+    // The caller interprets -1 as "factor not built" and skips it.
+    // Admissibility is preserved: with no axiom factor, M&S simply has no
+    // information about the derived goal variable, so the heuristic
+    // underestimates (i.e. remains a lower bound on actual cost).
+    const int max_axiom_states = 100000;
     while (!frontier.empty()) {
+        // Check the limit before expanding the next state so we bail out
+        // as soon as the discovered set crosses the threshold, without
+        // starting any more operator applications.
+        if (static_cast<int>(dense_to_full.size()) > max_axiom_states) {
+            if (log.is_at_least_normal())
+                log << "  Axiom factor BFS reached " << max_axiom_states
+                    << " states; skipping factor (heuristic remains admissible)."
+                    << endl;
+            return -1;
+        }
         long long s_full = frontier.front();
         frontier.pop();
         int s_dense = full_to_dense.at(s_full);
+        if (++_bfs_steps % 100000 == 0)
+            log << "  BFS: " << _bfs_steps << " steps, "
+                << dense_to_full.size() << " states so far" << endl;
 
         for (const RelevantOperator &rop : relevant_ops) {
             if (rop.has_derived_pre)

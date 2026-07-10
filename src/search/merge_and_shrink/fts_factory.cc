@@ -704,11 +704,16 @@ int build_axiom_factor(
         int label;
         vector<int> op_pre;           // size n; -1 = unconstrained
         vector<RelevantEffect> effects;
+        bool has_derived_pre = false; // only factor connection is a derived precondition on d'
     };
 
     int num_labels = labels.get_num_total_labels();
     vector<bool> is_relevant(num_labels, false);
     vector<RelevantOperator> relevant_ops;
+
+    // Fast lookup for the target derived variables of this factor.
+    unordered_set<int> target_derived_set(derived_var_ids.begin(),
+                                          derived_var_ids.end());
 
     for (OperatorProxy op : task_proxy.get_operators()) {
         int label = op.get_id();
@@ -735,12 +740,27 @@ int build_axiom_factor(
                 }
             }
         }
+        // Phase 2 / Step 2: also relevant when the operator's only factor
+        // connection is a precondition on a target derived variable d'.
+        // Such operators are handled separately after goal states are computed:
+        // self-loop in goal states (d' holds), no transition in non-goal states.
+        bool has_derived_pre = false;
+        if (!relevant) {
+            for (FactProxy pre : op.get_preconditions()) {
+                if (target_derived_set.count(pre.get_variable().get_id())) {
+                    has_derived_pre = true;
+                    relevant = true;
+                    break;
+                }
+            }
+        }
         if (!relevant)
             continue;
 
         is_relevant[label] = true;
         RelevantOperator rop;
         rop.label = label;
+        rop.has_derived_pre = has_derived_pre;
         rop.op_pre = move(op_pre);
 
         // For conditional effects: if an effect on a product variable has a
@@ -822,6 +842,8 @@ int build_axiom_factor(
         int s_dense = full_to_dense.at(s_full);
 
         for (const RelevantOperator &rop : relevant_ops) {
+            if (rop.has_derived_pre)
+                continue; // handled after goal states are computed
             bool applicable = true;
             for (int i = 0; i < n; ++i) {
                 if (rop.op_pre[i] != -1 && decode_val(s_full, i) != rop.op_pre[i]) {
@@ -927,6 +949,18 @@ int build_axiom_factor(
             }
         }
         goal_states[d] = is_goal;
+    }
+
+    // Phase 2 / Step 2: operators whose only factor connection is a derived
+    // precondition on d'. They are applicable (self-loop) in goal states
+    // where d' holds, and inapplicable (no transition) in non-goal states.
+    for (const RelevantOperator &rop : relevant_ops) {
+        if (!rop.has_derived_pre)
+            continue;
+        for (int s = 0; s < num_reachable_states; ++s) {
+            if (goal_states[s])
+                label_trans[rop.label].emplace_back(s, s);
+        }
     }
 
     // -----------------------------------------------------------------------

@@ -4187,6 +4187,48 @@ if (axiom_index >= 0) {
     Steps~3--5 will address the remaining precision once the scalability of
     factor construction for large dependency closures is resolved.
 
+    \paragraph{Further testing on \texttt{miconic-axioms} p01.}
+
+    The \texttt{miconic-axioms} domain is a cleaner test of Phase~2
+    Step~2 because its derived variable dependency closures are small (one
+    primary variable each), so the axiom factors are actually built and used
+    rather than skipped.  The instance \texttt{p01} has 5 planning variables
+    (3 primary, 2 derived) and 10 fact pairs.  Running \texttt{astar(blind())}
+    finds the optimal plan of cost~2 (actions: \texttt{board f1 p0},
+    \texttt{depart f0 p0}).
+
+    M\&S builds two axiom factors:
+    \begin{itemize}
+      \item Derived variable~1: $n = 1$ primary variable, 2 relevant operators
+        (1 with a derived precondition handled by Step~2).
+      \item Derived variable~2: $n = 1$ primary variable, 1 relevant operator.
+    \end{itemize}
+    Both BFS runs complete immediately ($n = 1$ is well below the 25-variable
+    fast-path threshold).  After quasi-bisimulation shrinking, the two axiom
+    factors are appended at indices~5 and~6, giving 7 initial factors that are
+    merged in 6 steps to a single final factor.  Maximum intermediate
+    abstraction size is 4 states.
+
+    \begin{center}
+    \begin{tabular}{lrr}
+    \toprule
+    \textbf{Configuration} & \textbf{Plan cost} & \textbf{States expanded} \\
+    \midrule
+    \texttt{astar(blind())}            & 2 & 3 \\
+    \texttt{astar(merge\_and\_shrink)} & 2 & 3 \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    The initial heuristic value is $h = 2$, equal to the optimal plan cost:
+    the heuristic is \emph{perfect} on this instance.  Total planning time is
+    3.7\,ms; peak memory is 12.96\,MB --- effectively zero overhead compared
+    to a task without axioms.  This confirms that Phase~2 Step~2 produces a
+    correct and informative heuristic when the axiom factors are small enough
+    to build, and contrasts with the \texttt{grid-axioms} result where all
+    factors were skipped and $h = 2$ was less than ideal (though still
+    admissible).
+
   \item \textbf{Step 3 — Restrict transitions to goal states}
     (\texttt{fts\_factory.cc}, \texttt{build\_axiom\_factor},
     transition-building loop).

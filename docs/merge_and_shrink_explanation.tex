@@ -1276,7 +1276,7 @@ After implementing Pieces~1--4, the planner was run on the Philosophers
 benchmark (\texttt{p01-phil2.pddl}, 2~philosophers) with the standard M\&S
 configuration.  Two bugs were discovered and fixed.
 
-\paragraph{Bug 1 — Unsolvable atomic factor for derived goal variables.}
+\paragraph{Bug 1 — Unsolvable atomic factor for derived goal variables.}\hypertarget{par:step3-bug1}{}
 \textbf{Symptom:} The planner immediately reported
 \texttt{Atomic FTS is unsolvable, stopping computation} and returned
 \texttt{infinity} for the initial heuristic value.
@@ -4133,7 +4133,7 @@ The following needs to be implemented:
     \textbf{Admissibility.}  When \texttt{build\_axiom\_factor} returns $-1$,
     no factor is added to the FTS for that derived variable.  The derived
     variable's atomic factor already has all states marked as goals (from the
-    \texttt{goal\_value = -1} fix in Bug~1 of Step~3), so the heuristic treats
+    \texttt{goal\_value = -1} fix in \hyperlink{par:step3-bug1}{Bug~1 of Step~3}), so the heuristic treats
     every concrete state as satisfying the derived constraint.  This is an
     over-approximation: the heuristic can only underestimate, preserving
     admissibility.

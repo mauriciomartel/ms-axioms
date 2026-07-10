@@ -2,6 +2,7 @@
 #define MERGE_AND_SHRINK_MERGE_AND_SHRINK_REPRESENTATION_H
 
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 class State;
@@ -96,15 +97,15 @@ class MergeAndShrinkRepresentationProduct : public MergeAndShrinkRepresentation 
       unique integer in [0, domain_size). Multipliers are computed once at
       construction from the per-variable domain sizes.
     */
-    const std::vector<int> multipliers;
+    const std::vector<long long> multipliers;
     /*
-      Flat lookup table of size = product of all domain sizes of var_ids.
-      Lifecycle:
-        - After construction:                 lookup_table[i] = i  (identity)
-        - After apply_abstraction_to_lookup_table: entries are abstract state IDs
-        - After set_distances:                entries are goal distances
+      Sparse lookup table mapping product state ID (long long mixed-radix key)
+      to abstract state ID. Using long long keys avoids int overflow when the
+      product of all domain sizes exceeds INT_MAX, as occurs in axiom domains
+      with many primary variables. Entries absent from the map are implicitly
+      PRUNED_STATE; only reachable product states have entries.
     */
-    std::vector<int> lookup_table;
+    std::unordered_map<long long, int> lookup_table;
 public:
     /*
       var_ids: variable IDs forming the product (order determines multiplier layout).
@@ -127,8 +128,8 @@ public:
     MergeAndShrinkRepresentationProduct(
         const std::vector<int> &var_ids,
         const std::vector<int> &domain_sizes,
-        std::vector<int> initial_lookup_table,
-        int num_live_states);
+        std::unordered_map<long long, int> &&initial_lookup_table,
+        int num_reachable_states);
     virtual ~MergeAndShrinkRepresentationProduct() = default;
 
     /*

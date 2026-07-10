@@ -606,12 +606,9 @@ int build_axiom_factor(
     for (int i = 0; i < n; ++i)
         dom[i] = variables[var_ids[i]].get_domain_size();
 
-    vector<int> mult(n, 1);
-    int num_product_states = 1;
-    for (int i = 0; i < n; ++i) {
-        mult[i] = num_product_states;
-        num_product_states *= dom[i];
-    }
+    vector<long long> mult(n, 1);
+    for (int i = 1; i < n; ++i)
+        mult[i] = mult[i - 1] * static_cast<long long>(dom[i - 1]);
 
     // Per-variable domain sizes indexed by global variable ID, needed by
     // MergeAndShrinkRepresentationProduct.
@@ -620,8 +617,8 @@ int build_axiom_factor(
         all_dom[v] = variables[v].get_domain_size();
 
     // Helper: decode the value of product variable at index i from a product state id.
-    auto decode_val = [&](int state_id, int i) {
-        return (state_id / mult[i]) % dom[i];
+    auto decode_val = [&](long long state_id, int i) {
+        return static_cast<int>((state_id / mult[i]) % dom[i]);
     };
 
     // -----------------------------------------------------------------------
@@ -631,9 +628,9 @@ int build_axiom_factor(
     // mixed-radix scheme as the lookup table in MergeAndShrinkRepresentationProduct.
     // -----------------------------------------------------------------------
     State init = task_proxy.get_initial_state();
-    int init_full_state = 0;
+    long long init_full_state = 0;
     for (int i = 0; i < n; ++i)
-        init_full_state += init[var_ids[i]].get_value() * mult[i];
+        init_full_state += static_cast<long long>(init[var_ids[i]].get_value()) * mult[i];
 
     // Step 4 setup: goal values and axiom rules relevant to the closure.
     //
@@ -817,11 +814,11 @@ int build_axiom_factor(
     //     (and, transitively, the pending-value rows and the abstract
     //     states the heuristic ultimately operates on).
     // -----------------------------------------------------------------------
-    unordered_map<int, int> full_to_dense;
-    vector<int> dense_to_full;
-    queue<int> frontier;
+    unordered_map<long long, int> full_to_dense;
+    vector<long long> dense_to_full;
+    queue<long long> frontier;
 
-    auto get_dense = [&](int full_state) -> int {
+    auto get_dense = [&](long long full_state) -> int {
         auto it = full_to_dense.find(full_state);
         if (it != full_to_dense.end())
             return it->second;
@@ -837,7 +834,7 @@ int build_axiom_factor(
     vector<vector<Transition>> label_trans(num_labels);
 
     while (!frontier.empty()) {
-        int s_full = frontier.front();
+        long long s_full = frontier.front();
         frontier.pop();
         int s_dense = full_to_dense.at(s_full);
 
@@ -859,7 +856,7 @@ int build_axiom_factor(
             // value of the target variable (from t_full, not s_full, to
             // correctly handle multiple effects on the same variable) and
             // add the post-value.
-            int t_full = s_full;
+            long long t_full = s_full;
             bool need_self_loop = false;
 
             for (const RelevantEffect &re : rop.effects) {
@@ -912,7 +909,7 @@ int build_axiom_factor(
     vector<int> derived_vals(variables.size());
     vector<bool> goal_states(num_reachable_states, false);
     for (int d = 0; d < num_reachable_states; ++d) {
-        int s_full = dense_to_full[d];
+        long long s_full = dense_to_full[d];
         for (auto &[dv, def] : derived_default)
             derived_vals[dv] = def;
 
@@ -1049,18 +1046,14 @@ int build_axiom_factor(
         full_to_dense.at(init_full_state),
         /* axiom_derived */ true);  // carries the derived variable's value
 
-    vector<int> initial_lookup_table(num_product_states, PRUNED_STATE);
-    for (int d = 0; d < num_reachable_states; ++d)
-        initial_lookup_table[dense_to_full[d]] = d;
-
     auto mas_rep = make_unique<MergeAndShrinkRepresentationProduct>(
-        var_ids, all_dom, move(initial_lookup_table), num_reachable_states);
+        var_ids, all_dom, move(full_to_dense), num_reachable_states);
 
     if (out_pending_var_order && out_state_pending_values) {
         *out_pending_var_order = var_ids;
         out_state_pending_values->assign(num_reachable_states, vector<int>(n));
         for (int d = 0; d < num_reachable_states; ++d) {
-            int s_full = dense_to_full[d];
+            long long s_full = dense_to_full[d];
             for (int i = 0; i < n; ++i)
                 (*out_state_pending_values)[d][i] = decode_val(s_full, i);
         }

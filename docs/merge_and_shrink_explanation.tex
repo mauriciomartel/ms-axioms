@@ -3889,9 +3889,13 @@ preconditions, not only those in the goal.  What is still missing is the
 \emph{applicability restriction}: operators conditioned on a derived
 variable~$d'$ are currently over-approximated (assumed applicable regardless of
 $d'$'s value).  The three steps below remove this over-approximation.  Once
-$\Theta_{S_{d'},d'}$ correctly blocks an operator in non-goal states (where $d'$
-is false), the M\&S synchronized-product semantics propagates the restriction
-automatically to every factor that is eventually merged with it.
+$\Theta_{S_{d'},d'}$ correctly blocks an operator~$\ell$ in non-goal states
+(where $d'$ is false), this restriction propagates for free through the M\&S
+merging process: a transition under $\ell$ in a merged factor requires
+\emph{both} sides to have an $\ell$-transition, so any factor that is
+eventually merged with $\Theta_{S_{d'},d'}$ will automatically inherit the
+block wherever $d'$ is false --- no explicit re-implementation is needed in
+each factor.
 
 \subsubsection*{Implementation Overview}
 

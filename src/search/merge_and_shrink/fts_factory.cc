@@ -831,9 +831,22 @@ int build_axiom_factor(
 
     get_dense(init_full_state);
 
+    // Cap the BFS to avoid unbounded memory/time when many primary variables
+    // make the reachable product space too large to enumerate explicitly.
+    // If exceeded, return -1 to signal the caller to skip this axiom factor;
+    // the M&S heuristic remains admissible (just less tight).
+    const int max_axiom_states = 100000;
+
     vector<vector<Transition>> label_trans(num_labels);
 
     while (!frontier.empty()) {
+        if (static_cast<int>(dense_to_full.size()) > max_axiom_states) {
+            if (log.is_at_least_normal())
+                log << "  Axiom factor BFS reached " << max_axiom_states
+                    << " states; skipping factor (heuristic remains admissible)."
+                    << endl;
+            return -1;
+        }
         long long s_full = frontier.front();
         frontier.pop();
         int s_dense = full_to_dense.at(s_full);

@@ -741,34 +741,41 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
             int axiom_index = build_axiom_factor(
                 task_proxy, derived_var_ids, fts, log,
                 &pending_var_order, &pending_state_values);
-            unordered_set<int> pending_vars;
-            for (size_t i = 0; i < goal_derived_vars.size(); ++i) {
-                if (uf_find(i) == root)
-                    pending_vars.insert(
-                        primary_sets[i].begin(), primary_sets[i].end());
-            }
-            // Every primary variable in this axiom factor's pending set is
-            //, right now, *also* represented exactly by its own untouched
-            // atomic factor (FTS index == variable id). That atomic factor
-            // must not be lossily shrunk either until the two
-            // representations of the variable are reunited by a merge (see
-            // the symmetric absorption check in main_loop): seed the same
-            // pending tracking for it (trivially, since an atomic factor's
-            // states already are the variable's values one-to-one).
-            for (int v : pending_vars) {
-                if (!axiom_factor_pending_vars.count(v)) {
-                    int dom = fts.get_transition_system(v).get_size();
-                    vector<vector<int>> identity_values(dom);
-                    for (int val = 0; val < dom; ++val)
-                        identity_values[val] = {val};
-                    axiom_factor_pending_vars[v] = {v};
-                    axiom_factor_pending_var_order[v] = {v};
-                    axiom_factor_pending_values[v] = move(identity_values);
+            // build_axiom_factor returns -1 when the reachable product state
+            // space exceeds the built-in limit. Skip pending-variable tracking
+            // in that case: no factor was added to the FTS, so no absorption
+            // synchronisation is needed, and the atomic factors for the primary
+            // variables can be shrunk freely by the main loop.
+            if (axiom_index >= 0) {
+                unordered_set<int> pending_vars;
+                for (size_t i = 0; i < goal_derived_vars.size(); ++i) {
+                    if (uf_find(i) == root)
+                        pending_vars.insert(
+                            primary_sets[i].begin(), primary_sets[i].end());
                 }
+                // Every primary variable in this axiom factor's pending set is
+                //, right now, *also* represented exactly by its own untouched
+                // atomic factor (FTS index == variable id). That atomic factor
+                // must not be lossily shrunk either until the two
+                // representations of the variable are reunited by a merge (see
+                // the symmetric absorption check in main_loop): seed the same
+                // pending tracking for it (trivially, since an atomic factor's
+                // states already are the variable's values one-to-one).
+                for (int v : pending_vars) {
+                    if (!axiom_factor_pending_vars.count(v)) {
+                        int dom = fts.get_transition_system(v).get_size();
+                        vector<vector<int>> identity_values(dom);
+                        for (int val = 0; val < dom; ++val)
+                            identity_values[val] = {val};
+                        axiom_factor_pending_vars[v] = {v};
+                        axiom_factor_pending_var_order[v] = {v};
+                        axiom_factor_pending_values[v] = move(identity_values);
+                    }
+                }
+                axiom_factor_pending_vars[axiom_index] = move(pending_vars);
+                axiom_factor_pending_var_order[axiom_index] = move(pending_var_order);
+                axiom_factor_pending_values[axiom_index] = move(pending_state_values);
             }
-            axiom_factor_pending_vars[axiom_index] = move(pending_vars);
-            axiom_factor_pending_var_order[axiom_index] = move(pending_var_order);
-            axiom_factor_pending_values[axiom_index] = move(pending_state_values);
             if (log.is_at_least_normal()) {
                 log_progress(timer, "after building axiom factor", log);
             }

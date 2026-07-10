@@ -3893,7 +3893,46 @@ $\Theta_{S_{d'},d'}$ correctly blocks an operator in non-goal states (where $d'$
 is false), the M\&S synchronized-product semantics propagates the restriction
 automatically to every factor that is eventually merged with it.
 
-The following needs to be implemented:
+\subsubsection*{Implementation Overview}
+
+The implementation is divided into five steps:
+
+\begin{description}
+  \item[Step 1 — Find Phase~2 test domains.]
+    Identify benchmark instances where at least one operator has a derived
+    variable in its precondition, and establish a blind-search baseline cost
+    for each.
+    \emph{No code change.}  \textit{[Complete]}
+
+  \item[Step 2 — Block operators in non-goal states.]
+    Make operators that require a derived variable~$d'$ to be true become
+    blocked (no transition) in axiom-factor states where $d'$ is false,
+    and self-looping in states where $d'$ is true.
+    \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Complete]}
+
+  \item[Step 3 — Restrict transitions to goal states.]
+    Extend Step~2 to also gate the ordinary (non-derived-precondition)
+    transitions of each relevant operator: skip them for product states that
+    are non-goal.
+    \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Planned]}
+
+  \item[Step 4 — Exact evaluation when $S_{d'} \subseteq S_d$.]
+    When building $\Theta_{S_d,d}$ for a different derived variable~$d$,
+    run the axiom evaluator to decide $d'$'s truth exactly for operators
+    whose derived precondition $d'$ has $S_{d'} \subseteq S_d$; otherwise
+    keep the current over-approximation.
+    \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Planned]}
+
+  \item[Step 5 — Validation.]
+    Run \texttt{astar(merge\_and\_shrink(\ldots))} with exact bisimulation
+    on the Phase~2 benchmark instances from Step~1 and confirm plan costs
+    match \texttt{astar(blind())} on every instance.
+    \emph{No new files.}  \textit{[Planned]}
+\end{description}
+
+\bigskip
+
+The following details each step:
 
 \begin{itemize}
   \item \textbf{Step 1 — Find Phase~2 test domains}

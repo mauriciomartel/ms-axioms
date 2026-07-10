@@ -8,3 +8,4 @@ __pycache__/
 .idea/
 src/search/cmake-build-*
 src/cmake-build-*
+*.sas

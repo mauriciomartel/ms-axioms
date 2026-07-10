@@ -3921,12 +3921,14 @@ The implementation is divided into five steps:
     \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Complete]}
 
   \item[Step 3 — Restrict transitions to goal states.]
-    Step~2 handled operators that have \emph{no} product-space connection
-    (only a derived precondition on $d'$).  Step~3 handles operators that
-    \emph{do} affect product-space variables but also require $d'$ to be
-    true: their transitions are currently added for every product state,
-    including non-goal states where $d'$ is false.  Step~3 skips those
-    transitions for non-goal states, so that all operators requiring $d'$
+    Step~2 handled operators whose only connection to the factor is the
+    derived precondition on $d'$ (no precondition or effect on any
+    variable in $S_{d'}$).  Step~3 handles operators that \emph{do} have
+    a precondition or effect on a variable in $S_{d'}$ — making them
+    relevant and giving them real transitions — but that also require $d'$
+    to be true.  Currently those transitions are added for every state in
+    the factor, including states where $d'$ is false.  Step~3 skips those
+    transitions in non-goal states, so that all operators requiring $d'$
     are correctly blocked when $d'$ does not hold.
     \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Planned]}
 

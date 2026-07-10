@@ -676,6 +676,7 @@ int build_axiom_factor(
         int label;
         vector<int> op_pre;           // size n; -1 = unconstrained
         vector<RelevantEffect> effects;
+        bool has_derived_pre = false; // only factor connection is a derived precondition on d'
     };
 
     int num_labels = labels.get_num_total_labels();
@@ -707,12 +708,27 @@ int build_axiom_factor(
                 }
             }
         }
+        // An operator is also relevant if its only connection to this factor
+        // is a precondition on the target derived variable. It cannot be
+        // evaluated during the BFS (goal states are not yet known), so it is
+        // deferred: self-loop where d' holds, no transition where d' is false.
+        bool has_derived_pre = false;
+        if (!relevant) {
+            for (FactProxy pre : op.get_preconditions()) {
+                if (pre.get_variable().get_id() == derived_var_id) {
+                    has_derived_pre = true;
+                    relevant = true;
+                    break;
+                }
+            }
+        }
         if (!relevant)
             continue;
 
         is_relevant[label] = true;
         RelevantOperator rop;
         rop.label = label;
+        rop.has_derived_pre = has_derived_pre;
         rop.op_pre = move(op_pre);
 
         // For conditional effects: if an effect on a product variable has a
@@ -778,6 +794,8 @@ int build_axiom_factor(
         int s_dense = full_to_dense.at(s_full);
 
         for (const RelevantOperator &rop : relevant_ops) {
+            if (rop.has_derived_pre)
+                continue; // applicability depends on d'; deferred to after goal states
             bool applicable = true;
             for (int i = 0; i < n; ++i) {
                 if (rop.op_pre[i] != -1 && decode_val(s_full, i) != rop.op_pre[i]) {
@@ -893,6 +911,18 @@ int build_axiom_factor(
 
         goal_states[d] = !is_goal_var ||
                          (derived_vals[derived_var_id] == goal_derived_value);
+    }
+
+    // Operators conditioned on the target derived variable d' are applicable
+    // exactly when d' holds, i.e. in goal states of this factor. Add
+    // self-loops there and nothing elsewhere.
+    for (const RelevantOperator &rop : relevant_ops) {
+        if (!rop.has_derived_pre)
+            continue;
+        for (int s = 0; s < num_reachable_states; ++s) {
+            if (goal_states[s])
+                label_trans[rop.label].emplace_back(s, s);
+        }
     }
 
     // -----------------------------------------------------------------------

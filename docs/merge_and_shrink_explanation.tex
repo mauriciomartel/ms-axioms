@@ -3992,6 +3992,9 @@ The following needs to be implemented:
   \item \textbf{Step 2 — Extend the relevant-operator set}
     (\texttt{fts\_factory.cc}, \texttt{build\_axiom\_factor}, operator-relevance
     check).
+    \emph{Goal: make operators that require a derived variable to be true become
+    blocked (no transition) in states where that derived variable is false.}
+
     Currently an operator is relevant to $\Theta_{S_{d'},d'}$ only if it has a
     precondition or effect on a variable in $S_{d'}$.  Operators whose only
     connection to the factor is a derived precondition on $d'$ are classified as

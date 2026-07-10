@@ -3925,19 +3925,21 @@ The implementation is divided into five steps:
     \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Planned]}
 
   \item[Step 4 — Exact evaluation when $S_{d'} \subseteq S_d$.]
-    Steps~2 and~3 fix operator blocking inside the factor built specifically
-    for $d'$, where goal states correspond exactly to states where $d'$ is
-    true.  But every other derived variable~$d$ also gets its own factor
-    $\Theta_{S_d,d}$, and the same operators appear there too.  When
-    building $\Theta_{S_d,d}$, whether $d'$ holds in a given product state
-    is not directly known, because $d'$ depends on $S_{d'}$ which may
-    differ from $S_d$.  If $S_{d'} \subseteq S_d$, however, all the primary
-    variables that determine $d'$ are already encoded in the product state,
-    so the axiom evaluator can decide $d'$'s truth exactly and block the
-    operator accordingly.  If $S_{d'} \not\subseteq S_d$, the
-    over-approximation from Steps~2--3 is kept.  In short: if the factor
-    for $d$ already contains all the information needed to evaluate $d'$,
-    use it to block operators exactly rather than over-approximating.
+    Steps~2 and~3 are exact within the factor built specifically for $d'$.
+    But every other derived variable~$d$ also gets its own factor
+    $\Theta_{S_d,d}$, and operators requiring $d'$ appear there too.
+    Inside $\Theta_{S_d,d}$, whether $d'$ holds in a given product state
+    is not directly known because $d'$ depends on $S_{d'}$, which may
+    differ from $S_d$; those operators are therefore currently assumed
+    always applicable (over-approximation).  If $S_{d'} \subseteq S_d$,
+    however, all the primary variables that determine $d'$ are already
+    encoded in the product state, so the axiom evaluator can decide
+    $d'$'s truth exactly and block the operator accordingly.  If
+    $S_{d'} \not\subseteq S_d$, the over-approximation is kept and the
+    restriction will be introduced later when $\Theta_{S_{d'},d'}$ is
+    merged in.  In short: if the factor for $d$ already contains all the
+    information needed to evaluate $d'$, use it to block operators exactly
+    rather than waiting for the merge.
     \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Planned]}
 
   \item[Step 5 — Validation.]

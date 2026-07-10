@@ -3909,9 +3909,15 @@ The implementation is divided into five steps:
     \emph{No code change.}  \textit{[Complete]}
 
   \item[Step 2 — Block operators in non-goal states.]
-    Make operators that require a derived variable~$d'$ to be true become
-    blocked (no transition) in axiom-factor states where $d'$ is false,
-    and self-looping in states where $d'$ is true.
+    This step handles operators that have \emph{no} precondition or effect
+    on any primary variable in $S_{d'}$ — their only connection to the
+    factor is the derived precondition on $d'$ itself.  Before this step
+    such operators were classified as irrelevant and given a self-loop in
+    every state, making them appear always applicable.  Since the goal
+    states of $\Theta_{S_{d'},d'}$ are exactly the states where $d'$ is
+    true, the correct model is a self-loop in goal states (operator
+    applies but changes nothing in $S_{d'}$) and no transition in non-goal
+    states (operator is inapplicable because $d'$ is false).
     \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Complete]}
 
   \item[Step 3 — Restrict transitions to goal states.]

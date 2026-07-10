@@ -572,6 +572,19 @@ int build_axiom_factor(
     for (int i = 0; i < n; ++i)
         dom[i] = variables[var_ids[i]].get_domain_size();
 
+    // If there are too many primary variables the full product space is
+    // astronomically large and even the reachable subset (explored by BFS
+    // below) can be in the millions.  Skip the factor immediately rather
+    // than wasting time discovering 100k states only to discard them.
+    // The threshold is conservative: 2^25 ≈ 33M states is already far
+    // beyond what the BFS can finish in reasonable time and memory.
+    if (n > 25) {
+        if (log.is_at_least_normal())
+            log << "  Axiom factor skipped: " << n
+                << " primary vars (product space too large)." << endl;
+        return -1;
+    }
+
     vector<long long> mult(n, 1);
     for (int i = 1; i < n; ++i)
         mult[i] = mult[i - 1] * static_cast<long long>(dom[i - 1]);

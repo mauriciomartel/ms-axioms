@@ -3921,10 +3921,19 @@ The implementation is divided into five steps:
     \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Planned]}
 
   \item[Step 4 — Exact evaluation when $S_{d'} \subseteq S_d$.]
-    When building $\Theta_{S_d,d}$ for a different derived variable~$d$,
-    run the axiom evaluator to decide $d'$'s truth exactly for operators
-    whose derived precondition $d'$ has $S_{d'} \subseteq S_d$; otherwise
-    keep the current over-approximation.
+    Steps~2 and~3 fix operator blocking inside the factor built specifically
+    for $d'$, where goal states correspond exactly to states where $d'$ is
+    true.  But every other derived variable~$d$ also gets its own factor
+    $\Theta_{S_d,d}$, and the same operators appear there too.  When
+    building $\Theta_{S_d,d}$, whether $d'$ holds in a given product state
+    is not directly known, because $d'$ depends on $S_{d'}$ which may
+    differ from $S_d$.  If $S_{d'} \subseteq S_d$, however, all the primary
+    variables that determine $d'$ are already encoded in the product state,
+    so the axiom evaluator can decide $d'$'s truth exactly and block the
+    operator accordingly.  If $S_{d'} \not\subseteq S_d$, the
+    over-approximation from Steps~2--3 is kept.  In short: if the factor
+    for $d$ already contains all the information needed to evaluate $d'$,
+    use it to block operators exactly rather than over-approximating.
     \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Planned]}
 
   \item[Step 5 — Validation.]

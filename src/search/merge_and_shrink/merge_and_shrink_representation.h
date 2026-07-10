@@ -2,6 +2,7 @@
 #define MERGE_AND_SHRINK_MERGE_AND_SHRINK_REPRESENTATION_H
 
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 class State;
@@ -96,15 +97,8 @@ class MergeAndShrinkRepresentationProduct : public MergeAndShrinkRepresentation 
       unique integer in [0, domain_size). Multipliers are computed once at
       construction from the per-variable domain sizes.
     */
-    const std::vector<int> multipliers;
-    /*
-      Flat lookup table of size = product of all domain sizes of var_ids.
-      Lifecycle:
-        - After construction:                 lookup_table[i] = i  (identity)
-        - After apply_abstraction_to_lookup_table: entries are abstract state IDs
-        - After set_distances:                entries are goal distances
-    */
-    std::vector<int> lookup_table;
+    const std::vector<long long> multipliers;
+    std::unordered_map<long long, int> lookup_table;
 public:
     /*
       var_ids: variable IDs forming the product (order determines multiplier layout).
@@ -131,7 +125,7 @@ public:
     MergeAndShrinkRepresentationProduct(
         const std::vector<int> &var_ids,
         const std::vector<int> &domain_sizes,
-        std::vector<int> &&initial_lookup_table,
+        std::unordered_map<long long, int> &&initial_lookup_table,
         int num_reachable_states);
     virtual ~MergeAndShrinkRepresentationProduct() = default;
 

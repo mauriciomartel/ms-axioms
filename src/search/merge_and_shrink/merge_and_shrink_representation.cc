@@ -30,7 +30,7 @@ MergeAndShrinkRepresentationLeaf::MergeAndShrinkRepresentationLeaf(
     int var_id, int domain_size)
     : MergeAndShrinkRepresentation(domain_size),
       var_id(var_id),
-      lookup_table(domain_size) {
+      lookup_table(domain_size) {              // <-- allocate domain_size elements
     iota(lookup_table.begin(), lookup_table.end(), 0);
 }
 
@@ -181,10 +181,10 @@ static int compute_product_size(const vector<int> &var_ids,
     product_state_id = sum_i( val_i * multipliers[i] ).
   multipliers[0] = 1; multipliers[i] = multipliers[i-1] * domain_size(var_ids[i-1]).
 */
-static vector<int> compute_product_multipliers(const vector<int> &var_ids,
-                                               const vector<int> &domain_sizes) {
-    vector<int> mults(var_ids.size());
-    int acc = 1;
+static vector<long long> compute_product_multipliers(const vector<int> &var_ids,
+                                                     const vector<int> &domain_sizes) {
+    vector<long long> mults(var_ids.size());
+    long long acc = 1;
     for (size_t i = 0; i < var_ids.size(); ++i) {
         mults[i] = acc;
         acc *= domain_sizes[var_ids[i]];
@@ -219,34 +219,17 @@ MergeAndShrinkRepresentationProduct::MergeAndShrinkRepresentationProduct(
         it is safe to use it here as the vector length.
       */
       lookup_table(domain_size) {
-    /*
-      Fill the table with the identity mapping: product state i starts out
-      mapped to abstract state i. This represents the finest possible
-      abstraction (every product state is its own abstract state). Subsequent
-      calls to apply_abstraction_to_lookup_table will coarsen this mapping
-      as shrinking merges states into equivalence classes.
-    */
-    iota(lookup_table.begin(), lookup_table.end(), 0);
+    for (int i = 0; i < domain_size; ++i)
+        lookup_table[i] = i;
 }
 
 MergeAndShrinkRepresentationProduct::MergeAndShrinkRepresentationProduct(
     const vector<int> &var_ids, const vector<int> &domain_sizes,
-    vector<int> &&initial_lookup_table, int num_reachable_states)
-    : MergeAndShrinkRepresentation(compute_product_size(var_ids, domain_sizes)),
+    unordered_map<long long, int> &&initial_lookup_table, int num_reachable_states)
+    : MergeAndShrinkRepresentation(num_reachable_states),
       var_ids(var_ids),
       multipliers(compute_product_multipliers(var_ids, domain_sizes)),
       lookup_table(move(initial_lookup_table)) {
-    assert(static_cast<int>(lookup_table.size()) == domain_size);
-    /*
-      domain_size was just set by the base class to the full Cartesian
-      product size, since the lookup table must stay indexed by full product
-      state for get_value() to work (it encodes states the same way
-      regardless of reachability). But the number of *abstract* states this
-      factor actually distinguishes is only num_reachable_states, so override
-      domain_size to that, exactly as if the unreachable tuples had never
-      existed.
-    */
-    domain_size = num_reachable_states;
 }
 
 void MergeAndShrinkRepresentationProduct::set_distances(
@@ -254,10 +237,9 @@ void MergeAndShrinkRepresentationProduct::set_distances(
     // Replace each abstract state ID with its precomputed goal distance.
     // Follows the same pattern as MergeAndShrinkRepresentationLeaf::set_distances.
     assert(distances.are_goal_distances_computed());
-    for (int &entry : lookup_table) {
-        if (entry != PRUNED_STATE) {
-            entry = distances.get_goal_distance(entry);
-        }
+    for (auto &[key, val] : lookup_table) {
+        if (val != PRUNED_STATE)
+            val = distances.get_goal_distance(val);
     }
 }
 
@@ -266,10 +248,10 @@ void MergeAndShrinkRepresentationProduct::apply_abstraction_to_lookup_table(
     // Remap every live entry through the abstraction mapping and track the
     // new domain size. Follows the same pattern as the Leaf version.
     int new_domain_size = 0;
-    for (int &entry : lookup_table) {
-        if (entry != PRUNED_STATE) {
-            entry = abstraction_mapping[entry];
-            new_domain_size = max(new_domain_size, entry + 1);
+    for (auto &[key, val] : lookup_table) {
+        if (val != PRUNED_STATE) {
+            val = abstraction_mapping[val];
+            new_domain_size = max(new_domain_size, val + 1);
         }
     }
     domain_size = new_domain_size;
@@ -280,11 +262,11 @@ int MergeAndShrinkRepresentationProduct::get_value(const State &state) const {
     // and look up the corresponding abstract state (or distance after
     // set_distances is called). The mixed-radix encoding guarantees a unique
     // ID for every tuple of variable values without collisions.
-    int product_state_id = 0;
-    for (size_t i = 0; i < var_ids.size(); ++i) {
-        product_state_id += state[var_ids[i]].get_value() * multipliers[i];
-    }
-    return lookup_table[product_state_id];
+    long long product_state_id = 0;
+    for (size_t i = 0; i < var_ids.size(); ++i)
+        product_state_id += static_cast<long long>(state[var_ids[i]].get_value()) * multipliers[i];
+    auto it = lookup_table.find(product_state_id);
+    return it != lookup_table.end() ? it->second : PRUNED_STATE;
 }
 
 bool MergeAndShrinkRepresentationProduct::is_total() const {
@@ -293,8 +275,8 @@ bool MergeAndShrinkRepresentationProduct::is_total() const {
     // combination of variable values was eliminated during shrinking, making
     // the function partial — the heuristic cannot give a finite value for
     // concrete states that map to such a product state.
-    for (int entry : lookup_table) {
-        if (entry == PRUNED_STATE)
+    for (const auto &[key, val] : lookup_table) {
+        if (val == PRUNED_STATE)
             return false;
     }
     return true;
@@ -311,8 +293,8 @@ void MergeAndShrinkRepresentationProduct::dump(utils::LogProxy &log) const {
             log << var_ids[i];
         }
         log << "}): ";
-        for (int value : lookup_table) {
-            log << value << ", ";
+        for (const auto &[key, val] : lookup_table) {
+            log << key << "->" << val << ", ";
         }
         log << endl;
     }

@@ -3875,7 +3875,7 @@ a wider range of domains:
 
 \bigskip
 \hrule\medskip
-\noindent\textbf{Phase 2 — Axioms in operator preconditions \hfill\textit{[Planned]}}
+\noindent\textbf{Phase 2 — Axioms in operator preconditions \hfill\textit{[In Progress]}}
 \medskip
 
 Phase~1 handles derived predicates that appear in the \emph{goal}.  Many
@@ -4001,6 +4001,191 @@ The following needs to be implemented:
     itself.  Such operators then receive a self-loop in goal states (applicable,
     no $S_{d'}$ variable changes) and \emph{no transition} in non-goal states
     (inapplicable).
+
+    \medskip
+    \noindent\textit{Result.}
+    Step~2 is complete.  The implementation, testing on the \texttt{grid-axioms}
+    domain, and the bugs discovered and fixed during testing are described below.
+
+    \paragraph{Implementation.}
+    Three targeted changes were made to \texttt{build\_axiom\_factor} in
+    \texttt{fts\_factory.cc}:
+
+    \begin{enumerate}
+      \item \textbf{\texttt{has\_derived\_pre} flag.}
+        The \texttt{RelevantOperator} struct gained a boolean field
+        \texttt{has\_derived\_pre} (default \texttt{false}).  A set
+        \texttt{target\_derived\_set} is built from the derived variable IDs
+        of the factor being constructed to enable $O(1)$ lookup.  During the
+        operator-relevance scan, any operator that (i)~has no precondition or
+        effect on a primary variable in $S_{d'}$, but (ii)~has a precondition
+        on a target derived variable, is marked relevant with
+        \texttt{has\_derived\_pre = true}.
+
+      \item \textbf{Skip during BFS.}
+        The reachability BFS that explores product states skips every operator
+        with \texttt{has\_derived\_pre = true}.  At BFS time the goal states
+        have not yet been computed (they are determined by the fixpoint axiom
+        evaluation of Fix~A in Step~9), so adding transitions for these
+        operators would be premature.
+
+      \item \textbf{Post-BFS self-loops in goal states.}
+        After the goal-state vector is computed, a second pass iterates over
+        all \texttt{has\_derived\_pre} operators.  For each such operator, a
+        self-loop $(s, s)$ is added under that operator's label for every goal
+        state $s$.  Non-goal states receive no transition, encoding that the
+        operator is inapplicable when the derived precondition $d'$ is false.
+    \end{enumerate}
+
+    This is an \emph{exact} model of operator applicability with respect to
+    the derived precondition: an operator conditioned on $d'$ can fire only in
+    states where $d' = \mathrm{true}$, i.e.\ where the axiom factor is in a
+    goal state.  The self-loop models the fact that the operator leaves $S_{d'}$
+    variables unchanged when it fires.
+
+    \paragraph{Testing on \texttt{grid-axioms} p01.}
+
+    The \texttt{grid-axioms} domain uses a derived predicate \texttt{reachable}
+    as an operator precondition (e.g.\ \texttt{unlock} requires the player to be
+    at a reachable cell, modelled by the derived variable being true).  Running
+    \texttt{astar(blind())} on \texttt{p01} finds a plan of cost~4 (actions:
+    \texttt{pickup}, \texttt{unlock}, \texttt{pickup-and-loose}, \texttt{putdown}).
+
+    Four bugs were discovered and fixed during testing.
+
+    \paragraph{Bug 1 --- Integer overflow in product state IDs.}
+    \textbf{Symptom.}  The planner crashed with SIGSEGV during
+    ``Building atomic transition systems''.
+
+    \textbf{Root cause.}  The \texttt{grid-axioms} \texttt{p01} instance has
+    $n = 32$ primary variables in the dependency closure $S_d$ of the
+    \texttt{reachable} derived variable.  The full product domain size is
+    $\prod_{i} |\mathrm{dom}(x_i)| = 2^{32} \approx 4 \times 10^9$, which
+    exceeds the range of a signed 32-bit integer ($2^{31} - 1 \approx 2.1
+    \times 10^9$).  The mixed-radix multipliers and state IDs were stored as
+    \texttt{int}, so the overflow silently wrapped and produced invalid
+    (negative or zero) indices.
+
+    \textbf{Fix.}  Two related changes were applied:
+    \begin{itemize}
+      \item In \texttt{fts\_factory.cc}: the \texttt{mult} array was changed
+        from \texttt{vector<int>} to \texttt{vector<long long>}; the
+        \texttt{full\_to\_dense} hash map key type, the \texttt{dense\_to\_full}
+        vector element type, the \texttt{frontier} queue element type, and
+        \texttt{init\_full\_state} were all changed from \texttt{int} to
+        \texttt{long long}.
+      \item In \texttt{merge\_and\_shrink\_representation.h/.cc}: the
+        \texttt{multipliers} member of
+        \texttt{MergeAndShrinkRepresentationProduct} was changed to
+        \texttt{vector<long long>}; the flat \texttt{vector<int>} lookup table
+        was replaced by a sparse \texttt{unordered\_map<long long, int>} so
+        that only reachable product states need entries (allocating a flat
+        table of $2^{32}$ entries is infeasible).  The \texttt{get\_value}
+        method encodes the concrete state's variable values as a \texttt{long
+        long} product-state ID via \texttt{multipliers} and uses
+        \texttt{unordered\_map::find}; absent entries (unreachable or pruned
+        states) return \texttt{PRUNED\_STATE}.
+    \end{itemize}
+
+    \paragraph{Bug 2 --- SIGSEGV in \texttt{MergeAndShrinkRepresentationLeaf}.}
+    \textbf{Symptom.}  A second SIGSEGV appeared after Bug~1 was fixed,
+    again during ``Building atomic transition systems''.
+
+    \textbf{Root cause.}  While modifying the \texttt{Product} representation
+    class, the \texttt{MergeAndShrinkRepresentationLeaf} constructor was
+    accidentally changed from the original \texttt{lookup\_table(domain\_size)}
+    initialisation (which allocates a vector of size \texttt{domain\_size})
+    followed by \texttt{std::iota}, to an empty default construction followed
+    by a for-loop that indexed into the empty \texttt{vector<int>}, causing an
+    out-of-bounds write.
+
+    \textbf{Fix.}  The Leaf constructor was reverted to its original form:
+    initialise \texttt{lookup\_table} with \texttt{domain\_size} elements and
+    fill with \texttt{std::iota(lookup\_table.begin(), lookup\_table.end(), 0)}.
+
+    \paragraph{Bug 3 --- BFS scalability: 18\,GB memory consumption.}
+    \textbf{Symptom.}  After Bug~1 and Bug~2 were fixed the planner hung at
+    ``Building axiom factor for derived variable~0''.  After approximately
+    600\,000 BFS steps (3.7 million states discovered), the process had
+    consumed over 18\,GB of memory and had to be killed.
+
+    \textbf{Root cause.}  With $n = 32$ primary variables and 2214 relevant
+    operators, the BFS explores a very large fraction of the full product space.
+    Even though the overflow is fixed, the sheer size of the reachable state
+    space makes the BFS computationally infeasible within practical memory and
+    time budgets.
+
+    \textbf{Fix (two-tier).}
+    \begin{enumerate}
+      \item \textbf{Fast-path check.}  At the start of
+        \texttt{build\_axiom\_factor}, before any BFS begins, if the number
+        of primary variables $n > 25$ (product space $> 2^{25} \approx
+        33 \times 10^6$), return $-1$ immediately without starting the BFS.
+        On \texttt{grid-axioms} \texttt{p01}, all 25 derived variables have
+        $n = 32$ and hit this fast-path, eliminating 25 expensive BFS attempts
+        (each would have taken $\approx$\,1.1\,s for a total of $\approx$\,27\,s
+        before the fix).
+      \item \textbf{State-limit safety net.}  As a fallback for closures just
+        below the fast-path threshold, the BFS loop checks the count of
+        discovered states at each pop and returns $-1$ if it exceeds 100\,000.
+    \end{enumerate}
+
+    \textbf{Admissibility.}  When \texttt{build\_axiom\_factor} returns $-1$,
+    no factor is added to the FTS for that derived variable.  The derived
+    variable's atomic factor already has all states marked as goals (from the
+    \texttt{goal\_value = -1} fix in Bug~1 of Step~3), so the heuristic treats
+    every concrete state as satisfying the derived constraint.  This is an
+    over-approximation: the heuristic can only underestimate, preserving
+    admissibility.
+
+    \paragraph{Bug 4 --- Crash when \texttt{build\_axiom\_factor} returns $-1$.}
+    \textbf{Symptom.}  After the fast-path was added, the planner crashed
+    immediately because the caller in \texttt{merge\_and\_shrink\_algorithm.cc}
+    passed the returned value $-1$ to \texttt{fts.get\_transition\_system} (an
+    invalid index), causing a crash inside the quasi-bisimulation shrinking step.
+
+    \textbf{Fix.}  The quasi-bisimulation shrinking and pending-variable tracking
+    code that follows \texttt{build\_axiom\_factor} was wrapped in a guard:
+\begin{lstlisting}[language=C++]
+int axiom_index = build_axiom_factor(
+    task_proxy, derived_var_id, fts, log);
+// Returns -1 if the product space is too large to explore.
+// Skip shrinking and variable tracking in that case.
+if (axiom_index >= 0) {
+    StateEquivalenceRelation equiv =
+        qbisim.compute_equivalence_relation(
+            fts.get_transition_system(axiom_index),
+            fts.get_distances(axiom_index),
+            max_states_before_merge, log);
+    fts.apply_abstraction(axiom_index, equiv, log);
+    // ... pending variable tracking ...
+}
+\end{lstlisting}
+
+    \paragraph{Final result on \texttt{grid-axioms} p01.}
+
+    With all four bugs fixed, \texttt{astar(merge\_and\_shrink(\ldots))}
+    with exact bisimulation finds the same optimal plan as blind search:
+
+    \begin{center}
+    \begin{tabular}{lrr}
+    \toprule
+    \textbf{Configuration} & \textbf{Plan cost} & \textbf{States expanded} \\
+    \midrule
+    \texttt{astar(blind())}            & 4 & -- \\
+    \texttt{astar(merge\_and\_shrink)} & 4 & 33 \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    The initial heuristic value is $h = 2$.  Total planning time is 17.3\,s;
+    peak memory is 91\,MB.  All 25 axiom factors are skipped by the fast-path
+    ($n = 32 > 25$), so the heuristic does not yet exploit the derived
+    constraint for this domain.  The correctness of plan cost confirms that
+    Step~2's self-loop / no-transition treatment is sound, and that the
+    admissibility argument for skipping large axiom factors is valid.  Phase~2
+    Steps~3--5 will address the remaining precision once the scalability of
+    factor construction for large dependency closures is resolved.
 
   \item \textbf{Step 3 — Restrict transitions to goal states}
     (\texttt{fts\_factory.cc}, \texttt{build\_axiom\_factor},

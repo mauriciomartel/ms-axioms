@@ -740,10 +740,10 @@ int build_axiom_factor(
                 }
             }
         }
-        // Phase 2 / Step 2: also relevant when the operator's only factor
-        // connection is a precondition on a target derived variable d'.
-        // Such operators are handled separately after goal states are computed:
-        // self-loop in goal states (d' holds), no transition in non-goal states.
+        // An operator is also relevant if its only connection to this factor
+        // is a precondition on a target derived variable. It cannot be
+        // evaluated during the BFS (goal states are not yet known), so it is
+        // deferred: self-loop where d' holds, no transition where d' is false.
         bool has_derived_pre = false;
         if (!relevant) {
             for (FactProxy pre : op.get_preconditions()) {
@@ -843,7 +843,7 @@ int build_axiom_factor(
 
         for (const RelevantOperator &rop : relevant_ops) {
             if (rop.has_derived_pre)
-                continue; // handled after goal states are computed
+                continue; // applicability depends on d'; deferred to after goal states
             bool applicable = true;
             for (int i = 0; i < n; ++i) {
                 if (rop.op_pre[i] != -1 && decode_val(s_full, i) != rop.op_pre[i]) {
@@ -951,9 +951,9 @@ int build_axiom_factor(
         goal_states[d] = is_goal;
     }
 
-    // Phase 2 / Step 2: operators whose only factor connection is a derived
-    // precondition on d'. They are applicable (self-loop) in goal states
-    // where d' holds, and inapplicable (no transition) in non-goal states.
+    // Operators conditioned on a target derived variable d' are applicable
+    // exactly when d' holds, i.e. in goal states of this factor. Add
+    // self-loops there and nothing elsewhere.
     for (const RelevantOperator &rop : relevant_ops) {
         if (!rop.has_derived_pre)
             continue;

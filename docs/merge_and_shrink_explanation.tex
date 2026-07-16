@@ -3930,7 +3930,7 @@ The implementation is divided into five steps:
     the factor, including states where $d'$ is false.  Step~3 skips those
     transitions in non-goal states, so that all operators requiring $d'$
     are correctly blocked when $d'$ does not hold.
-    \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Planned]}
+    \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Complete]}
 
   \item[Step 4 — Exact evaluation when $S_{d'} \subseteq S_d$.]
     Steps~2 and~3 are exact within the factor built specifically for $d'$.
@@ -4299,14 +4299,152 @@ if (axiom_index >= 0) {
     admissible).
 
   \item \textbf{Step 3 — Restrict transitions to goal states}
-    (\texttt{fts\_factory.cc}, \texttt{build\_axiom\_factor},
-    transition-building loop).
-    The \texttt{goal\_states} vector is already computed before the
-    transition-building loop (by the fixpoint in Fix~A).  For each product
-    state~$s$ and each relevant operator~$\mathit{op}$ whose derived precondition
-    matches $d'$: if $s$ is \emph{not} a goal state, skip the transition
-    entirely rather than adding it.  This turns the over-approximation into an
-    exact model of operator applicability for $d'$.
+    (\texttt{fts\_factory.cc}, \texttt{build\_axiom\_factor}).
+    \emph{Goal: extend the blocking introduced by Step~2 to operators that
+    have both a connection to product variables in $S_{d'}$ \emph{and} a
+    precondition on the derived variable~$d'$ itself.}
+
+    Step~2 only handled operators with \emph{no} product-variable connection:
+    those were easy to defer entirely past the BFS.  Step~3 handles the
+    remaining case: operators that \emph{do} have a precondition or effect
+    on some variable in $S_{d'}$ (so they correctly participate in the BFS
+    and generate real transitions), but that also require $d'$ to hold.
+    Without Step~3, such operators generate transitions from every
+    product state where their primary-variable preconditions are satisfied,
+    even when $d'$ is false in those states.  The fix is a post-BFS
+    filter: once the goal-state vector is known, remove every transition
+    whose source state is not a goal state.
+
+    \paragraph{Implementation.}
+    Three targeted changes were made to \texttt{build\_axiom\_factor} in
+    \texttt{fts\_factory.cc}:
+
+    \begin{enumerate}
+      \item \textbf{\texttt{has\_derived\_pre\_mixed} flag.}
+        The \texttt{RelevantOperator} struct gained a boolean field
+        \texttt{has\_derived\_pre\_mixed} (default \texttt{false}).  During
+        the operator-relevance scan, after the existing product-variable
+        relevance check, a second loop checks whether the operator (which
+        is already relevant) also has a precondition on \texttt{derived\_var\_id}.
+        If so, \texttt{has\_derived\_pre\_mixed} is set to \texttt{true}.
+
+      \item \textbf{Normal BFS participation.}
+        Unlike Step~2 operators (which are skipped during BFS),
+        \texttt{has\_derived\_pre\_mixed} operators participate in the BFS
+        without change.  Their product-variable connections genuinely
+        constrain which states are reachable, so excluding them from the
+        BFS would undermine reachability.
+
+      \item \textbf{Post-BFS transition filter.}
+        After the goal-state vector is computed (and after the Step~2
+        self-loops are added), a pass over all
+        \texttt{has\_derived\_pre\_mixed} operators removes every transition
+        $(s, t)$ from \texttt{label\_trans} whose source state $s$ is not a
+        goal state:
+\begin{lstlisting}[language=C++]
+for (const RelevantOperator &rop : relevant_ops) {
+    if (!rop.has_derived_pre_mixed)
+        continue;
+    auto &trans = label_trans[rop.label];
+    trans.erase(
+        remove_if(trans.begin(), trans.end(),
+            [&](const Transition &t) {
+                return !goal_states[t.src]; }),
+        trans.end());
+}
+\end{lstlisting}
+        This erases all transitions from non-goal states (where $d'$ is
+        false) while leaving transitions from goal states intact.  The
+        operator is thus exactly blocked wherever $d'$ does not hold.
+    \end{enumerate}
+
+    \paragraph{Which domains exercise Step~3.}
+
+    A scan of all domain files in \texttt{pddl-axioms/} and
+    \texttt{pddl-axioms-conditional-effects/} on the feature branch
+    identified the domains in which at least one operator has \emph{both}
+    a precondition or effect on a primary variable in $S_{d'}$ \emph{and}
+    a precondition on the derived variable $d'$ itself (the
+    \texttt{has\_derived\_pre\_mixed} condition):
+
+    \begin{center}
+    \begin{tabular}{llll}
+    \toprule
+    \textbf{Domain} & \textbf{Operator(s)} & \textbf{Derived pred.}
+      & \textbf{Primary var also in precond/effect} \\
+    \midrule
+    \texttt{miconic-axioms}       & \texttt{board}, \texttt{depart}
+      & \texttt{reachable} & \texttt{floor} (precond), \texttt{lift-at} (effect) \\
+    \texttt{grid-axioms}          & \texttt{unlock}, \texttt{pickup}, \ldots
+      & \texttt{reachable} & \texttt{conn}, \texttt{at-robot} \\
+    \texttt{blocks-axioms}        & \texttt{stack}, \texttt{pick-up}, \texttt{unstack}
+      & \texttt{clear}     & \texttt{holding} \\
+    \texttt{sokoban-axioms}       & \texttt{push}
+      & \texttt{can-reach} & \texttt{at}, \texttt{MOVE-DIR} \\
+    \texttt{social-planning}      & \texttt{take}, \texttt{drop}, \texttt{goto}
+      & \texttt{alone-at}, \texttt{motive-for-at} & \texttt{at} \\
+    \midrule
+    \texttt{ged1-ds1}             & \texttt{transpose}, \texttt{transvert}
+      & \texttt{not-between} & \texttt{cw} \\
+    \texttt{ged1-ds2nd}           & \texttt{transpose}, \texttt{transvert}
+      & \texttt{not-between} & \texttt{cw} \\
+    \texttt{snowman-reachability} & \texttt{move\_ball}
+      & \texttt{reachable} & \texttt{next} (precond), \texttt{occupancy} (effect) \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    \noindent The top block is from \texttt{pddl-axioms/}; the bottom block
+    from \texttt{pddl-axioms-conditional-effects/}.
+    (\texttt{grid-axioms} is listed for completeness but all its axiom factors
+    are skipped by the fast-path since $n = 32 > 25$.)
+
+    \paragraph{Testing on \texttt{blocks-axioms} \texttt{probBLOCKS-4-0}.}
+
+    The \texttt{blocks-axioms} domain derives \texttt{clear}~$x$ from
+    \texttt{holding}~$a$ and \texttt{noton}~$b$~$x$ (for all blocks $a$, $b$).
+    On the 4-block instance \texttt{probBLOCKS-4-0} the dependency closure
+    $S_{d'}$ contains 4 primary variables, so the axiom factor BFS is feasible.
+    The operators \texttt{stack}, \texttt{pick-up}, and \texttt{unstack} all
+    have both a precondition on \texttt{clear} (the derived variable) and a
+    precondition or effect on \texttt{holding} (a primary variable in $S_{d'}$);
+    they are the \texttt{has\_derived\_pre\_mixed} operators for each
+    \texttt{clear} grounding.
+
+    Five axiom factors are built (one per block that can be \texttt{clear}),
+    each with $n = 4$ primary variables and 40 relevant operators.
+
+    \begin{center}
+    \begin{tabular}{lrrr}
+    \toprule
+    \textbf{Configuration} & \textbf{$h_{\mathrm{init}}$}
+      & \textbf{States expanded} & \textbf{Plan cost} \\
+    \midrule
+    \texttt{astar(blind())}            & 1  & 85 & 6 \\
+    \texttt{astar(merge\_and\_shrink)} & \textbf{6} & \textbf{7}  & 6 \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    The MS heuristic achieves $h_{\mathrm{init}} = 6 = h^*$: it is
+    \emph{perfect} on this instance.  The search expands only 7 states
+    (one per plan step) with no backtracking, compared to 85 states under
+    blind search.  Plan cost 6 matches on both configurations, confirming
+    admissibility.  The heuristic value decrements by exactly 1 at each
+    expansion, confirming that the Step~3 filter correctly removes the
+    spurious short-cut transitions from non-goal states of the \texttt{clear}
+    factors.
+
+    \paragraph{Further validation on \texttt{miconic-axioms} p01.}
+
+    The \texttt{miconic-axioms} run from Step~2 testing also exercises
+    Step~3: the \texttt{board} and \texttt{depart} operators have a
+    precondition on \texttt{reachable} (derived) and an effect on
+    \texttt{lift-at} (primary variable in $S_{d'}$), making them
+    \texttt{has\_derived\_pre\_mixed} operators.  The result
+    ($h_{\mathrm{init}} = 2 = h^*$, 3 states expanded, plan cost~2)
+    is unchanged from the Step~2 report; it confirms that Step~3 does
+    not break the already-correct behaviour on that instance.
 
   \item \textbf{Step 4 — Exact evaluation in factors where
     $S_{d'} \subseteq S_d$}

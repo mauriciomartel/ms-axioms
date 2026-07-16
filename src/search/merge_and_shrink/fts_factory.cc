@@ -686,7 +686,8 @@ int build_axiom_factor(
         int label;
         vector<int> op_pre;           // size n; -1 = unconstrained
         vector<RelevantEffect> effects;
-        bool has_derived_pre = false; // only factor connection is a derived precondition on d'
+        bool has_derived_pre = false;       // Step 2: only connection is derived pre on derived_var_id
+        bool has_derived_pre_mixed = false; // Step 3: product-var connection + derived pre on derived_var_id
     };
 
     int num_labels = labels.get_num_total_labels();
@@ -732,14 +733,38 @@ int build_axiom_factor(
                 }
             }
         }
+        // Step 2: relevant only through a precondition on derived_var_id.
+        // Deferred: self-loop in goal states, nothing elsewhere.
+        if (!relevant) {
+            for (FactProxy pre : op.get_preconditions()) {
+                if (pre.get_variable().get_id() == derived_var_id) {
+                    has_derived_pre = true;
+                    relevant = true;
+                    break;
+                }
+            }
+        }
         if (!relevant)
             continue;
+
+        // Step 3: relevant through product vars AND has precondition on derived_var_id.
+        // Participates in BFS normally; transitions filtered post-BFS to goal states only.
+        bool has_derived_pre_mixed = false;
+        if (!has_derived_pre) {
+            for (FactProxy pre : op.get_preconditions()) {
+                if (pre.get_variable().get_id() == derived_var_id) {
+                    has_derived_pre_mixed = true;
+                    break;
+                }
+            }
+        }
 
         is_relevant[label] = true;
         RelevantOperator rop;
         rop.label = label;
-        rop.has_derived_pre = has_derived_pre;
         rop.op_pre = move(op_pre);
+        rop.has_derived_pre = has_derived_pre;
+        rop.has_derived_pre_mixed = has_derived_pre_mixed;
 
         // For conditional effects: if an effect on a product variable has a
         // condition that references a variable outside S_d, we cannot
@@ -950,9 +975,8 @@ int build_axiom_factor(
                          (derived_vals[derived_var_id] == goal_derived_value);
     }
 
-    // Operators conditioned on the target derived variable d' are applicable
-    // exactly when d' holds, i.e. in goal states of this factor. Add
-    // self-loops there and nothing elsewhere.
+    // Step 2: operators with only a derived-var precondition get self-loops
+    // in goal states (where derived_var_id holds), no transition elsewhere.
     for (const RelevantOperator &rop : relevant_ops) {
         if (!rop.has_derived_pre)
             continue;
@@ -960,6 +984,18 @@ int build_axiom_factor(
             if (goal_states[s])
                 label_trans[rop.label].emplace_back(s, s);
         }
+    }
+
+    // Step 3: operators with product-var connections that also require
+    // derived_var_id must not fire in non-goal states. Remove those transitions.
+    for (const RelevantOperator &rop : relevant_ops) {
+        if (!rop.has_derived_pre_mixed)
+            continue;
+        auto &trans = label_trans[rop.label];
+        trans.erase(
+            remove_if(trans.begin(), trans.end(),
+                      [&](const Transition &t) { return !goal_states[t.src]; }),
+            trans.end());
     }
 
     // -----------------------------------------------------------------------

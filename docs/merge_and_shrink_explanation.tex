@@ -4486,6 +4486,53 @@ for (const RelevantOperator &rop : relevant_ops) {
     transitions and enabling the heuristic to detect dead ends that would
     otherwise be invisible.
 
+    \paragraph{Testing on \texttt{social-planning} p01.}
+
+    The \texttt{social-planning} domain models social manipulation: agents
+    have beliefs and motives encoded as derived predicates
+    (\texttt{alone-at}, \texttt{motive-for-at}, and related belief
+    predicates).  The operators \texttt{take}, \texttt{drop}, and
+    \texttt{goto} all have preconditions on derived predicates \emph{and}
+    effects on the primary position variable \texttt{at}, making them
+    \texttt{has\_derived\_pre\_mixed} operators.
+
+    M\&S builds \textbf{57 axiom factors} covering derived variables with
+    dependency closures ranging from $n = 1$ to $n = 10$ primary variables.
+    Four additional factors (variables 94--97, $n = 11$) are skipped by
+    the 100\,000-state BFS safety net --- these cover the most complex
+    derived predicates and are the main source of residual precision loss.
+    Axiom factor construction dominates total runtime (6.2\,s), with the
+    $n = 9$ and $n = 10$ factors ($\approx$\,0.69\,s each) being the most
+    expensive.
+
+    \texttt{astar(blind())} expands 21\,109 states in 0.36\,s and finds
+    the optimal plan (cost~8) involving Iago manipulating Othello into
+    killing Desdemona.
+
+    \begin{center}
+    \begin{tabular}{lrrr}
+    \toprule
+    \textbf{Configuration} & \textbf{$h_{\mathrm{init}}$}
+      & \textbf{States expanded} & \textbf{Plan cost} \\
+    \midrule
+    \texttt{astar(blind())}            & 1 & 21{,}109 & 8 \\
+    \texttt{astar(merge\_and\_shrink)} & \textbf{2} & \textbf{8{,}905}  & 8 \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    M\&S achieves $h_{\mathrm{init}} = 2$ and reduces states expanded by
+    $2.4\times$ (8\,905 vs.\ 21\,109).  Plan cost~8 matches on both
+    configurations, confirming admissibility.  No dead ends are detected
+    (consistent with the heuristic being far from $h^* = 8$).  The gap
+    $h_{\mathrm{init}} = 2 \ll h^* = 8$ indicates limited precision: the
+    four skipped $n = 11$ factors likely encode the critical derived
+    constraints, and without them the heuristic can only reason about the
+    simpler dependencies.  This instance highlights the precision ceiling
+    imposed by the BFS scalability limit and motivates Step~4 (exact
+    evaluation when $S_{d'} \subseteq S_d$), which could recover some
+    precision without requiring the full product BFS for large closures.
+
   \item \textbf{Step 4 — Exact evaluation in factors where
     $S_{d'} \subseteq S_d$}
     (\texttt{fts\_factory.cc}, \texttt{build\_axiom\_factor}, applicability

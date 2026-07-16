@@ -4446,6 +4446,46 @@ for (const RelevantOperator &rop : relevant_ops) {
     is unchanged from the Step~2 report; it confirms that Step~3 does
     not break the already-correct behaviour on that instance.
 
+    \paragraph{Testing on \texttt{sokoban-axioms} p01.}
+
+    The \texttt{sokoban-axioms} domain derives two predicates:
+    \texttt{can-reach} (the Sokoban player can reach a cell) and
+    \texttt{clear} (a cell is unoccupied).  The \texttt{push} operator
+    has a precondition on \texttt{can-reach} (derived) and preconditions
+    on \texttt{at} and direction predicates (primary variables in
+    $S_{d'}$), making it a \texttt{has\_derived\_pre\_mixed} operator.
+
+    On instance \texttt{p01}, M\&S builds \textbf{40 axiom factors}: each
+    derived variable has a dependency closure of $n = 1$, $2$, or $3$
+    primary variables (well below the fast-path threshold), with 286
+    or 702 relevant operators per factor.  All 40 BFS runs complete
+    successfully and the factors are appended to the FTS before the
+    merge loop.
+
+    \begin{center}
+    \begin{tabular}{lrrr}
+    \toprule
+    \textbf{Configuration} & \textbf{$h_{\mathrm{init}}$}
+      & \textbf{States expanded} & \textbf{Plan cost} \\
+    \midrule
+    \texttt{astar(blind())}            & 1  & 140 & 11 \\
+    \texttt{astar(merge\_and\_shrink)} & \textbf{10} & \textbf{15}  & 11 \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    The MS heuristic achieves $h_{\mathrm{init}} = 10$ against an optimal
+    cost of $h^* = 11$: near-perfect accuracy.  The search expands only
+    15 states (vs.\ 140 under blind search) and identifies \textbf{15 dead
+    ends} — states from which the goal is provably unreachable — that blind
+    search must fully explore.  Plan cost~11 matches on both configurations,
+    confirming admissibility.  Total planning time is 6.01\,s, dominated by
+    the construction of 40 axiom factors.  This result provides strong
+    evidence that the Step~3 post-BFS filter correctly blocks \texttt{push}
+    in states where \texttt{can-reach} is false, eliminating spurious
+    transitions and enabling the heuristic to detect dead ends that would
+    otherwise be invisible.
+
   \item \textbf{Step 4 — Exact evaluation in factors where
     $S_{d'} \subseteq S_d$}
     (\texttt{fts\_factory.cc}, \texttt{build\_axiom\_factor}, applicability

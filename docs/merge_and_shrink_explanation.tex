@@ -4631,6 +4631,44 @@ for (const RelevantOperator &rop : relevant_ops) {
         where $d'$ is provably false, never in states where it is true.
     \end{enumerate}
 
+    \paragraph{Testing on \texttt{social-planning} p01.}
+
+    The same instance used to validate Step~3 was re-run after Step~4 to
+    measure any precision gain.
+
+    \begin{center}
+    \begin{tabular}{lrrrr}
+    \toprule
+    \textbf{Configuration} & \textbf{$h_{\mathrm{init}}$}
+      & \textbf{States expanded} & \textbf{Plan cost} & \textbf{Build time} \\
+    \midrule
+    \texttt{astar(blind())}                     & 1 & 21{,}109 & 8 & -- \\
+    \texttt{MS after Step~3} & 2 & 8{,}905  & 8 & 6.2\,s \\
+    \texttt{MS after Step~4} & \textbf{2} & \textbf{8{,}905}  & 8 & 9.7\,s \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    Search results are identical to Step~3: $h_{\mathrm{init}} = 2$, 8\,905
+    states expanded, plan cost~8.  The extra 3.5\,s build time (9.7\,s
+    vs.\ 6.2\,s) confirms that Step~4's per-state axiom evaluation is
+    running and doing real work, but finds no additional transitions to
+    filter in this instance.
+
+    The absence of precision gain has a structural explanation.  The four
+    skipped factors (variables 94--97, $n = 11$, all hitting the 100\,000-state
+    BFS limit) are the ones encoding the most informative derived constraints
+    for this domain.  Step~4 only improves precision when $S_{d'} \subseteq
+    S_d$ \emph{inside a factor that was actually built}; the primary-variable
+    closures of the skipped factors' derived variables are $n = 11$, which
+    exceeds the closure size of every built factor in this instance, so the
+    subset condition never holds.  The result demonstrates that Step~4 is
+    admissible (plan cost matches blind) and adds no spurious pruning, while
+    also confirming that its precision ceiling on this instance is identical
+    to Step~3's --- improving it would require either building the large
+    factors (Step~4 is exact once factors exist) or a different approach to
+    the $n = 11$ case.
+
   \item \textbf{Step 5 — Validation}.
     Run \texttt{astar(merge\_and\_shrink(\ldots))} with exact bisimulation on
     the Phase~2 benchmark instances found in Step~1.  The plan cost must match

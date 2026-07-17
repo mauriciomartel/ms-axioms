@@ -4669,6 +4669,32 @@ for (const RelevantOperator &rop : relevant_ops) {
     factors (Step~4 is exact once factors exist) or a different approach to
     the $n = 11$ case.
 
+    \paragraph{Regression check on \texttt{blocks-axioms} \texttt{probBLOCKS-4-0}.}
+
+    The same instance used to validate Step~3 was re-run after Step~4 to
+    confirm no precision regression on a domain where the perfect heuristic
+    was already achieved.
+
+    \begin{center}
+    \begin{tabular}{lrrrr}
+    \toprule
+    \textbf{Configuration} & \textbf{$h_{\mathrm{init}}$}
+      & \textbf{States expanded} & \textbf{Plan cost} & \textbf{Build time} \\
+    \midrule
+    \texttt{astar(blind())}       & 1 & 37 & 6 & -- \\
+    \texttt{MS after Step~3}      & 6 &  7 & 6 & {\raise.17ex\hbox{$\scriptstyle\sim$}}0.03\,s \\
+    \texttt{MS after Step~4}      & \textbf{6} & \textbf{7} & 6 & {\raise.17ex\hbox{$\scriptstyle\sim$}}0.035\,s \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    Step~4 preserves the perfect heuristic ($h_{\mathrm{init}} = 6 = h^*$)
+    and the same 7-state search trace as Step~3.  The heuristic decrements by
+    exactly~1 at each expansion, matching the optimal plan length with no
+    backtracking.  Build time is essentially unchanged (0.047\,s total),
+    confirming that the Step~4 evaluation loop adds negligible overhead when no
+    qualifying $d'$ preconditions exist.
+
   \item \textbf{Step 5 — Validation}.
     Run \texttt{astar(merge\_and\_shrink(\ldots))} with exact bisimulation on
     the Phase~2 benchmark instances found in Step~1.  The plan cost must match

@@ -4669,6 +4669,37 @@ for (const RelevantOperator &rop : relevant_ops) {
     factors (Step~4 is exact once factors exist) or a different approach to
     the $n = 11$ case.
 
+    \paragraph{Testing on \texttt{sokoban-axioms} p01.}
+
+    The same instance used to validate Step~3 was re-run after Step~4 to
+    measure any precision gain.  Unlike \texttt{social-planning}, where the
+    skipped $n=11$ factors prevented any subset condition from holding,
+    \texttt{sokoban-axioms} has all 40 axiom factors fully built
+    (1--3 primary variables each), so the $S_{d'} \subseteq S_d$ check can
+    actually trigger.
+
+    \begin{center}
+    \begin{tabular}{lrrrr}
+    \toprule
+    \textbf{Configuration} & \textbf{$h_{\mathrm{init}}$}
+      & \textbf{States expanded} & \textbf{Dead ends} & \textbf{Plan cost} \\
+    \midrule
+    \texttt{MS after Step~3} & 10 & 15 & 15 & 11 \\
+    \texttt{MS after Step~4} & \textbf{10} & \textbf{14} & \textbf{20} & 11 \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    Step~4 detects 5 additional dead ends (20 vs.\ 15) and eliminates one
+    state expansion (14 vs.\ 15) while preserving the plan cost of~11.
+    This is a small but genuine precision improvement: some push operators
+    carry preconditions on a derived variable $d'$ (encoding a stone's
+    location) different from the factor's own $d$; the closure of $d'$'s
+    primary variables is a subset of the built factor's primary-variable
+    set, so Step~4 can evaluate $d'$ per abstract state and remove
+    transitions from states where that precondition is provably unsatisfied.
+    Admissibility is preserved (plan cost 11 matches Step~3).
+
     \paragraph{Regression check on \texttt{blocks-axioms} \texttt{probBLOCKS-4-0}.}
 
     The same instance used to validate Step~3 was re-run after Step~4 to

@@ -667,6 +667,73 @@ int build_axiom_factor(
              return a.layer < b.layer;
          });
 
+    // Step 4: evaluation context for a derived variable d' whose closure S_{d'} ⊆ S_d.
+    struct DerivedPreInfo {
+        vector<AxiomRule> axioms;          // axiom rules for d's closure, sorted by layer
+        unordered_map<int, int> defaults;  // default values for closure derived vars
+    };
+
+    // Step 4 setup: for each derived variable d' ≠ derived_var_id whose closure
+    // S_{d'} ⊆ S_d, build an axiom-evaluation context so we can later determine
+    // d's truth exactly per product state.
+    unordered_map<int, DerivedPreInfo> evaluable_derived_info;
+
+    auto try_build_derived_info = [&](int d_prime) -> bool {
+        if (evaluable_derived_info.count(d_prime))
+            return true;
+        // Compute transitive primary-variable closure for d_prime.
+        unordered_set<int> vis;
+        queue<int> bq;
+        bq.push(d_prime);
+        vis.insert(d_prime);
+        unordered_set<int> pv;
+        while (!bq.empty()) {
+            int cur = bq.front(); bq.pop();
+            for (OperatorProxy axiom : task_proxy.get_axioms()) {
+                EffectProxy eff = axiom.get_effects()[0];
+                if (eff.get_fact().get_variable().get_id() != cur) continue;
+                for (FactProxy cond : eff.get_conditions()) {
+                    VariableProxy pvar = cond.get_variable();
+                    if (pvar.is_derived()) {
+                        if (!vis.count(pvar.get_id())) {
+                            vis.insert(pvar.get_id());
+                            bq.push(pvar.get_id());
+                        }
+                    } else {
+                        pv.insert(pvar.get_id());
+                    }
+                }
+            }
+        }
+        // Only proceed if S_{d'} ⊆ S_d.
+        for (int v : pv)
+            if (!var_id_to_idx.count(v))
+                return false;
+        // Build evaluation context.
+        DerivedPreInfo info;
+        for (int dv : vis)
+            info.defaults[dv] = variables[dv].get_default_axiom_value();
+        for (OperatorProxy axiom : task_proxy.get_axioms()) {
+            EffectProxy eff = axiom.get_effects()[0];
+            int ev = eff.get_fact().get_variable().get_id();
+            if (!vis.count(ev)) continue;
+            AxiomRule rule;
+            rule.layer   = variables[ev].get_axiom_layer();
+            rule.eff_var = ev;
+            rule.eff_val = eff.get_fact().get_value();
+            for (FactProxy cond : eff.get_conditions())
+                rule.conditions.emplace_back(
+                    cond.get_variable().get_id(), cond.get_value());
+            info.axioms.push_back(move(rule));
+        }
+        sort(info.axioms.begin(), info.axioms.end(),
+             [](const AxiomRule &a, const AxiomRule &b) {
+                 return a.layer < b.layer;
+             });
+        evaluable_derived_info[d_prime] = move(info);
+        return true;
+    };
+
     // -----------------------------------------------------------------------
     // Step 5 setup: precompute, once per relevant operator, the parts of its
     // preconditions/effects that touch product variables. The actual
@@ -682,12 +749,16 @@ int build_axiom_factor(
         vector<int> self_cond_vals;   // conditions on the effect's own variable
         bool has_outside_cond;        // condition references a variable outside S_d
     };
+
     struct RelevantOperator {
         int label;
         vector<int> op_pre;           // size n; -1 = unconstrained
         vector<RelevantEffect> effects;
         bool has_derived_pre = false;       // Step 2: only connection is derived pre on derived_var_id
         bool has_derived_pre_mixed = false; // Step 3: product-var connection + derived pre on derived_var_id
+        // Step 4: derived preconditions on d' ≠ derived_var_id where S_{d'} ⊆ S_d.
+        // Each entry is (d', required_val).
+        vector<pair<int, int>> evaluable_other_pres;
     };
 
     int num_labels = labels.get_num_total_labels();
@@ -789,6 +860,19 @@ int build_axiom_factor(
             }
             rop.effects.push_back(move(re));
         }
+
+        // Step 4: scan for derived preconditions on d' ≠ derived_var_id.
+        if (!rop.has_derived_pre) { // skip Step-2 operators (they do no BFS anyway)
+            for (FactProxy pre : op.get_preconditions()) {
+                VariableProxy pvar = pre.get_variable();
+                if (!pvar.is_derived()) continue;
+                int d_prime = pvar.get_id();
+                if (d_prime == derived_var_id) continue; // already handled by Steps 2/3
+                if (try_build_derived_info(d_prime))
+                    rop.evaluable_other_pres.emplace_back(d_prime, pre.get_value());
+            }
+        }
+
         relevant_ops.push_back(move(rop));
     }
 
@@ -975,6 +1059,44 @@ int build_axiom_factor(
                          (derived_vals[derived_var_id] == goal_derived_value);
     }
 
+    // Step 4: precompute the value of each evaluable d' at every reachable state.
+    unordered_map<int, vector<int>> derived_state_vals; // d' -> [dense_id] -> value
+    for (auto &[d_prime, info] : evaluable_derived_info) {
+        vector<int> state_vals(num_reachable_states);
+        unordered_map<int, int> dvals;
+        for (int d = 0; d < num_reachable_states; ++d) {
+            int s_full = dense_to_full[d];
+            dvals = info.defaults;
+            bool changed = true;
+            while (changed) {
+                changed = false;
+                for (const AxiomRule &rule : info.axioms) {
+                    if (dvals[rule.eff_var] != info.defaults.at(rule.eff_var))
+                        continue;
+                    bool satisfied = true;
+                    for (auto [cvar, cval] : rule.conditions) {
+                        int cur_val;
+                        if (variables[cvar].is_derived()) {
+                            cur_val = dvals.count(cvar)
+                                      ? dvals.at(cvar)
+                                      : variables[cvar].get_default_axiom_value();
+                        } else {
+                            // Guaranteed in S_d by the S_{d'} ⊆ S_d check.
+                            cur_val = decode_val(s_full, var_id_to_idx.at(cvar));
+                        }
+                        if (cur_val != cval) { satisfied = false; break; }
+                    }
+                    if (satisfied) {
+                        dvals[rule.eff_var] = rule.eff_val;
+                        changed = true;
+                    }
+                }
+            }
+            state_vals[d] = dvals[d_prime];
+        }
+        derived_state_vals[d_prime] = move(state_vals);
+    }
+
     // Step 2: operators with only a derived-var precondition get self-loops
     // in goal states (where derived_var_id holds), no transition elsewhere.
     for (const RelevantOperator &rop : relevant_ops) {
@@ -995,6 +1117,23 @@ int build_axiom_factor(
         trans.erase(
             remove_if(trans.begin(), trans.end(),
                       [&](const Transition &t) { return !goal_states[t.src]; }),
+            trans.end());
+    }
+
+    // Step 4: filter transitions for operators with evaluable derived preconditions.
+    for (const RelevantOperator &rop : relevant_ops) {
+        if (rop.evaluable_other_pres.empty())
+            continue;
+        auto &trans = label_trans[rop.label];
+        trans.erase(
+            remove_if(trans.begin(), trans.end(),
+                [&](const Transition &t) {
+                    for (auto [d_prime, req_val] : rop.evaluable_other_pres) {
+                        if (derived_state_vals.at(d_prime)[t.src] != req_val)
+                            return true;
+                    }
+                    return false;
+                }),
             trans.end());
     }
 

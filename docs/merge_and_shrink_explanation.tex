@@ -4726,13 +4726,26 @@ for (const RelevantOperator &rop : relevant_ops) {
     confirming that the Step~4 evaluation loop adds negligible overhead when no
     qualifying $d'$ preconditions exist.
 
-  \item \textbf{Step 5 — Validation}.
+  \item \textbf{Step 5 — Validation (comprehensive)}.
     Run \texttt{astar(merge\_and\_shrink(\ldots))} with exact bisimulation on
-    the Phase~2 benchmark instances found in Step~1.  The plan cost must match
-    \texttt{astar(blind())} on every instance; any discrepancy indicates a
-    remaining soundness issue.  Also run the Phase~1 benchmark set as a
-    regression check to confirm that the changes do not affect performance on
-    domains whose operators have no derived preconditions.
+    at least one instance of every Phase~2 domain from the Step~1 survey,
+    covering both \texttt{pddl-axioms} and \texttt{pddl-axioms-conditional-effects}.
+    The full implementation is exercised end-to-end: axioms in operator
+    preconditions (Phase~2, Steps 2--4) and axioms in goal conditions (Phase~1)
+    can both appear in the same instance.
+
+    \textbf{Pass criterion:} plan cost matches \texttt{astar(blind())} on
+    every tested instance.  Any discrepancy is treated as a soundness bug and
+    fixed before moving to the next domain.
+
+    \textbf{Regression criterion:} also run one instance per Phase~1-only domain
+    (derived predicates in goals only, no derived operator preconditions) and
+    confirm that heuristic quality and plan cost are unchanged by the Phase~2
+    additions.
+
+    \textbf{Testing order:} simplest domains first (single derived predicate,
+    small instance) to catch structural bugs early; then complex domains (many
+    derived variables, conditional effects) to stress the full pipeline.
 \end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────

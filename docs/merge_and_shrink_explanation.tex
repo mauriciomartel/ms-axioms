@@ -3948,7 +3948,7 @@ The implementation is divided into five steps:
     merged in.  In short: if the factor for $d$ already contains all the
     information needed to evaluate $d'$, use it to block operators exactly
     rather than waiting for the merge.
-    \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Planned]}
+    \emph{Key file:} \texttt{fts\_factory.cc}.  \textit{[Complete]}
 
   \item[Step 5 — Validation.]
     Run \texttt{astar(merge\_and\_shrink(\ldots))} with exact bisimulation
@@ -4535,15 +4535,101 @@ for (const RelevantOperator &rop : relevant_ops) {
 
   \item \textbf{Step 4 — Exact evaluation in factors where
     $S_{d'} \subseteq S_d$}
-    (\texttt{fts\_factory.cc}, \texttt{build\_axiom\_factor}, applicability
-    check).
-    When building $\Theta_{S_d,d}$ for a \emph{different} derived variable $d$
-    and operator $\mathit{op}$ has derived precondition $d'$: if $S_{d'}
-    \subseteq S_d$, the product state already encodes all primary variables that
-    determine $d'$, so run the axiom evaluator to decide $d'$'s truth and
-    restrict $\mathit{op}$ accordingly (exact model).  If $S_{d'} \not\subseteq
-    S_d$, keep the current over-approximation; the M\&S merging with
-    $\Theta_{S_{d'},d'}$ will add the restriction later.
+    (\texttt{fts\_factory.cc}, \texttt{build\_axiom\_factor}).
+    \emph{Goal: within the factor $\Theta_{S_d,d}$, block operators whose
+    derived precondition is on a variable $d' \neq d$ whenever $d'$'s truth
+    can be determined exactly from the product state.}
+
+    Steps~2 and~3 are exact within the factor built specifically for
+    $d' = \mathtt{derived\_var\_id}$.  Every other factor $\Theta_{S_d,d}$
+    may also contain operators with derived preconditions on some
+    $d' \neq d$; those operators are currently assumed always applicable
+    (over-approximation).  If the primary-variable closure $S_{d'}$ is a
+    subset of the current factor's product space $S_d$, all variables needed
+    to evaluate $d'$ are already encoded in the product state, so the axiom
+    fixpoint can decide $d'$'s truth per state and transitions where $d'$
+    fails can be removed exactly.  If $S_{d'} \not\subseteq S_d$, the
+    over-approximation is kept; the restriction is introduced later when
+    $\Theta_{S_{d'},d'}$ is merged into the factor.
+
+    \paragraph{Implementation.}
+    Six targeted changes were made to \texttt{build\_axiom\_factor} in
+    \texttt{fts\_factory.cc}:
+
+    \begin{enumerate}
+      \item \textbf{\texttt{DerivedPreInfo} struct.}
+        A new struct holds the axiom rules (sorted by layer) and default
+        derived values for the transitive closure of a given $d'$.  It is
+        defined alongside the existing \texttt{AxiomRule} struct and reused
+        across all operators that share the same $d'$ precondition.
+
+      \item \textbf{\texttt{evaluable\_other\_pres} field.}
+        The \texttt{RelevantOperator} struct gained a
+        \texttt{vector<pair<int,int>>} field \texttt{evaluable\_other\_pres}
+        storing \texttt{(d', required\_val)} pairs for each derived
+        precondition on a variable other than \texttt{derived\_var\_id} that
+        passes the $S_{d'} \subseteq S_d$ check.
+
+      \item \textbf{\texttt{evaluable\_derived\_info} map and
+        \texttt{try\_build\_derived\_info} lambda.}
+        Before the operator scan a map
+        \texttt{evaluable\_derived\_info : int $\to$ DerivedPreInfo} is
+        declared.  The lambda \texttt{try\_build\_derived\_info(d')} populates
+        it on first call: it computes the primary-variable closure of $d'$
+        via a BFS over axiom rules, checks that every primary variable in
+        that closure belongs to \texttt{var\_id\_to\_idx} (the $S_{d'}
+        \subseteq S_d$ test), and if so assembles the \texttt{DerivedPreInfo}.
+        If the subset test fails the lambda returns \texttt{false} and the
+        entry is not created.  Subsequent calls for the same $d'$ return
+        immediately from the cached map entry.
+
+      \item \textbf{Operator scan extension.}
+        After the existing Step~3 detection block, the operator scan
+        iterates over all derived preconditions whose variable is not
+        \texttt{derived\_var\_id}.  For each such $d'$,
+        \texttt{try\_build\_derived\_info(d')} is called; if it succeeds the
+        pair \texttt{(d', required\_val)} is appended to
+        \texttt{rop.evaluable\_other\_pres}.  Step~2 operators
+        (\texttt{has\_derived\_pre = true}) are skipped because they do not
+        participate in the BFS and already receive self-loops in goal states.
+
+      \item \textbf{Per-state derived-value precomputation.}
+        After the goal-state computation loop, a second loop iterates over
+        every entry in \texttt{evaluable\_derived\_info}.  For each $d'$ and
+        each reachable state, it seeds the closure defaults, runs the same
+        fixpoint used in the goal-state evaluation, and stores the resulting
+        value in \texttt{derived\_state\_vals[d'][dense\_id]}.  This
+        separates evaluation cost from filtering cost and lets the filter
+        (below) use a simple array lookup.
+
+      \item \textbf{Post-BFS transition filter.}
+        After the Step~3 filter, a pass over all relevant operators removes
+        transitions whose source state fails any evaluable derived
+        precondition:
+\begin{lstlisting}[language=C++]
+for (const RelevantOperator &rop : relevant_ops) {
+    if (rop.evaluable_other_pres.empty())
+        continue;
+    auto &trans = label_trans[rop.label];
+    trans.erase(
+        remove_if(trans.begin(), trans.end(),
+            [&](const Transition &t) {
+                for (auto [d_prime, req_val] :
+                         rop.evaluable_other_pres) {
+                    if (derived_state_vals.at(d_prime)[t.src]
+                            != req_val)
+                        return true;
+                }
+                return false;
+            }),
+        trans.end());
+}
+\end{lstlisting}
+        This is the exact analogue of the Step~3 filter but for derived
+        preconditions on variables other than \texttt{derived\_var\_id}.
+        Admissibility is preserved: transitions are only removed in states
+        where $d'$ is provably false, never in states where it is true.
+    \end{enumerate}
 
   \item \textbf{Step 5 — Validation}.
     Run \texttt{astar(merge\_and\_shrink(\ldots))} with exact bisimulation on

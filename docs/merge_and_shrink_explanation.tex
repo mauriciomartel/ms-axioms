@@ -4746,6 +4746,41 @@ for (const RelevantOperator &rop : relevant_ops) {
     \textbf{Testing order:} simplest domains first (single derived predicate,
     small instance) to catch structural bugs early; then complex domains (many
     derived variables, conditional effects) to stress the full pipeline.
+
+    \paragraph{Results: \texttt{grid-axioms} p01.}
+
+    The \texttt{grid-axioms} domain derives \texttt{reachable(node\_i, node\_j)}
+    from the full grid structure.  Every derived variable's primary-variable
+    closure contains all 32 grid nodes ($n = 32 > 25$), so all 25 axiom factors
+    are skipped by the fast-path threshold.  This validates the skip logic but
+    does not exercise the Steps~2--4 axiom-factor code.
+
+    \begin{center}
+    \begin{tabular}{lrrrrrr}
+    \toprule
+    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
+      & \textbf{Plan cost} & \textbf{Axiom factors} & \textbf{Max abs.} & \textbf{Build time} \\
+    \midrule
+    \texttt{blind}            & -- & 302 & 4   & --                     & --     & 0.017\,s \\
+    \texttt{SCCS}             & 2  & 33  & \textbf{4\,\checkmark} & 0 built, 25 skipped & 49\,616 & 15.8\,s \\
+    \texttt{stateless DFP}    & 2  & 33  & \textbf{4\,\checkmark} & 0 built, 25 skipped & 49\,616 & 15.8\,s \\
+    \texttt{stateless MIASM}  & 2  & 33  & \textbf{4\,\checkmark} & 0 built, 25 skipped & 12\,168 & 25.0\,s \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    All three merge strategies return plan cost~4, matching blind.
+    SCCS and stateless DFP produce identical results and the same final
+    abstraction (same 42 primary variables, no axiom factors). Stateless MIASM
+    reaches the same heuristic quality with a substantially smaller maximum
+    intermediate abstraction (12\,168 vs.\ 49\,616) and 4$\times$ less peak
+    memory (23.7\,MB vs.\ 90.8\,MB), at the cost of a slower selector
+    computation (25\,s vs.\ 15.8\,s).
+
+    \textit{Coverage note:} because $n = 32$ for every derived variable in
+    this instance, no axiom factors are built under any strategy.
+    The Steps~2--4 code paths are not exercised here; full coverage requires
+    a domain with smaller primary-variable closures.
 \end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────

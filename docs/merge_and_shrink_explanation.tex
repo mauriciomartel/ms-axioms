@@ -4781,6 +4781,38 @@ for (const RelevantOperator &rop : relevant_ops) {
     this instance, no axiom factors are built under any strategy.
     The Steps~2--4 code paths are not exercised here; full coverage requires
     a domain with smaller primary-variable closures.
+
+    \paragraph{Results: \texttt{miconic-axioms} p01.}
+
+    This is a minimal elevator instance (1 passenger, 2 floors) with 5 total
+    variables, 2 of which are derived.  Each derived variable's primary-variable
+    closure contains exactly $n = 1$ primary variable, making the BFS product
+    space trivial.  Both axiom factors are built under all three strategies,
+    confirming that the Steps~2--4 code path executes and produces correct
+    results on a real domain (the first such confirmation).
+
+    \begin{center}
+    \begin{tabular}{lrrrr}
+    \toprule
+    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
+      & \textbf{Plan cost} & \textbf{Axiom factors} \\
+    \midrule
+    \texttt{blind}           & -- & 3 & 2   & -- \\
+    \texttt{SCCS}            & $2 = h^*$ & 3 & \textbf{2\,\checkmark} & 2 built ($n=1$ each) \\
+    \texttt{stateless DFP}   & $2 = h^*$ & 3 & \textbf{2\,\checkmark} & 2 built ($n=1$ each) \\
+    \texttt{stateless MIASM} & $2 = h^*$ & 3 & \textbf{2\,\checkmark} & 2 built ($n=1$ each) \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    All three strategies reach the perfect heuristic ($h_{\mathrm{init}} =
+    2 = h^*$) and expand exactly 3 states (same as blind), since the
+    abstraction is exact on this tiny instance.  Build times are under
+    1.5\,ms in all cases.  The merge sequences differ between strategies
+    but the final abstraction is identical.  The instance is too small to
+    differentiate strategy quality; the key result is that the Phase~2
+    pipeline runs without errors and the plan cost matches the blind
+    reference.
 \end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────

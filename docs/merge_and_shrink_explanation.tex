@@ -4747,6 +4747,58 @@ for (const RelevantOperator &rop : relevant_ops) {
     small instance) to catch structural bugs early; then complex domains (many
     derived variables, conditional effects) to stress the full pipeline.
 
+    \paragraph{Domain testing checklist.}
+
+    The 25 Phase~2 domains from the Step~1 survey are listed below together
+    with 2 Phase~1-only regression candidates (philosophers, optical-telegraphs).
+    Status: \textbf{\checkmark} = tested in Step~5 (all 3 strategies, cost
+    matches blind); \textbf{(S4)} = partially tested in Step~4 (SCCS only,
+    needs full Step~5 run); \textbf{--} = pending.
+
+    \smallskip
+    \begin{center}
+    \small
+    \begin{tabular}{llcc}
+    \toprule
+    \textbf{Domain} & \textbf{Folder} & \textbf{Status} & \textbf{Result} \\
+    \midrule
+    \multicolumn{4}{l}{\textit{Phase~2 — axioms in operator preconditions}} \\
+    \midrule
+    \texttt{grid-axioms}              & \texttt{pddl-axioms}    & \checkmark & all factors skipped ($n=32$) \\
+    \texttt{miconic-axioms}           & \texttt{pddl-axioms}    & \checkmark & $h_{\mathrm{init}}=h^*=2$, 2 factors built \\
+    \texttt{blocker}                  & \texttt{pddl-axioms}    & \checkmark & 0 factors kept (trivial factor) \\
+    \texttt{blocks-axioms}            & \texttt{pddl-axioms}    & (S4)       & SCCS only \\
+    \texttt{sokoban-axioms}           & \texttt{pddl-axioms}    & (S4)       & SCCS only \\
+    \texttt{ghosh-etal-JAR-acc-cc2}   & \texttt{pddl-axioms}    & --         & \\
+    \texttt{ghosh-etal-JAR-grid-cc2}  & \texttt{pddl-axioms}    & --         & \\
+    \texttt{queens-horndl}            & \texttt{pddl-axioms}    & --         & \\
+    \texttt{social-planning}          & \texttt{pddl-axioms}    & --         & \\
+    \texttt{tpsa-horndl}              & \texttt{pddl-axioms}    & --         & \\
+    \texttt{vta-horndl}               & \texttt{pddl-axioms}    & --         & \\
+    \texttt{vta-roles-horndl}         & \texttt{pddl-axioms}    & --         & \\
+    \midrule
+    \texttt{cats-horndl}              & \texttt{pddl-axioms-ce} & --         & \\
+    \texttt{collab-and-comm}          & \texttt{pddl-axioms-ce} & --         & \\
+    \texttt{drones-horndl}            & \texttt{pddl-axioms-ce} & --         & \\
+    \texttt{elevator-horndl}          & \texttt{pddl-axioms-ce} & --         & \\
+    \texttt{ged1-ds1}                 & \texttt{pddl-axioms-ce} & --         & \\
+    \texttt{ged1-ds2nd}               & \texttt{pddl-axioms-ce} & --         & \\
+    \texttt{psr-large}                & \texttt{pddl-axioms-ce} & --         & \\
+    \texttt{psr-middle}               & \texttt{pddl-axioms-ce} & --         & \\
+    \texttt{robot-horndl}             & \texttt{pddl-axioms-ce} & --         & \\
+    \texttt{robotConj-horndl}         & \texttt{pddl-axioms-ce} & --         & \\
+    \texttt{snowman-reachability}     & \texttt{pddl-axioms-ce} & --         & \\
+    \texttt{taskassign-horndl}        & \texttt{pddl-axioms-ce} & --         & \\
+    \texttt{word-rooms}               & \texttt{pddl-axioms-ce} & --         & \\
+    \midrule
+    \multicolumn{4}{l}{\textit{Phase~1 regression — axioms in goal conditions only}} \\
+    \midrule
+    \texttt{philosophers}             & \texttt{pddl-axioms}    & \checkmark & validated in Phase~1 (p01--p03) \\
+    \texttt{optical-telegraphs}       & \texttt{pddl-axioms}    & --         & \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
     \paragraph{Results: \texttt{grid-axioms} p01.}
 
     The \texttt{grid-axioms} domain derives \texttt{reachable(node\_i, node\_j)}

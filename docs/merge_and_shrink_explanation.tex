@@ -4776,7 +4776,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{tpsa-horndl}              & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=1$ ($h^*=7$), 30 factors, all M\&S slower than blind \\
     \texttt{vta-horndl}               & \texttt{pddl-axioms} & (skip)     & 372 vars, giant SCC ($\sim$203 vars) — label reduction intractable \\
     \texttt{vta-roles-horndl}         & \texttt{pddl-axioms} & (skip)     & 373 vars, same VTA family as \texttt{vta-horndl} — skip \\
-    \texttt{cats-horndl}              & \texttt{ce}          & --         & \\
+    \texttt{cats-horndl}              & \texttt{ce}          & \checkmark & $h_{\mathrm{init}}=h^*=4$, 7 factors, all 3 strategies perfect \\
     \texttt{collab-and-comm}          & \texttt{ce}          & --         & \\
     \texttt{drones-horndl}            & \texttt{ce}          & --         & \\
     \texttt{elevator-horndl}          & \texttt{ce}          & --         & \\
@@ -5436,6 +5436,47 @@ for (const RelevantOperator &rop : relevant_ops) {
 
     This domain is \textbf{skipped} for M\&S validation (same reason
     as \texttt{vta-horndl}).
+
+    \paragraph{Results: \texttt{cats-horndl} p01.}
+
+    The \texttt{cats-horndl} domain is a small puzzle with 25 variables,
+    of which 7 are derived (variables 9, 11, 13, 16, 19, 21, 24).
+    Blind A* finds the optimal plan of cost~4 ($h^* = 4$) by expanding
+    19 states in 0.002\,s.
+
+    \textbf{Axiom factor construction} builds all 7 factors successfully
+    (none skipped).  Six factors have $n = 1$ primary variable each;
+    variable~24 has $n = 5$.  Construction takes $<1$\,ms.  SCC
+    decomposition yields only small SCCs: \{8,\,11,\,10,\,9\},
+    \{18,\,19\}, \{15,\,16\}, \{12,\,13\}, and singletons — no giant
+    component.
+
+    \begin{center}
+    \begin{tabular}{lrrrrrr}
+    \toprule
+    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
+      & \textbf{Plan cost} & \textbf{Factors} & \textbf{Max abs.} & \textbf{Time} \\
+    \midrule
+    \texttt{blind}           & -- & 19 & 4   & --       & --  & 0.002\,s \\
+    \texttt{SCCS}            & \textbf{4} & 5 & \textbf{4\,\checkmark} & 7 built & 18 & 0.009\,s \\
+    \texttt{stateless DFP}   & \textbf{4} & 5 & \textbf{4\,\checkmark} & 7 built & 18 & 0.008\,s \\
+    \texttt{stateless MIASM} & \textbf{4} & 5 & \textbf{4\,\checkmark} & 7 built & 18 & 0.014\,s \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    All three strategies achieve $h_{\mathrm{init}} = h^* = 4$ — a
+    \emph{perfect} heuristic.  Only 5 states are expanded (vs.\ 19
+    blind); 4 dead ends are detected immediately.  The maximum
+    intermediate abstraction is just 18 states across all strategies.
+    MIASM is marginally slower (0.014\,s vs.\ 0.008\,s) due to
+    scoring overhead, but all three are essentially instantaneous.
+
+    This domain is an ideal validation case for the axiom-factor
+    implementation: the derived-variable structure is moderate, all
+    factors build cleanly, the SCC decomposition produces no large
+    components, and bisimulation retains full goal-distance information,
+    yielding an exact heuristic.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

@@ -786,6 +786,46 @@ int build_axiom_factor(
         relevant_ops.push_back(move(rop));
     }
 
+    if (log.is_at_least_normal())
+        log << "  Axiom factor BFS: " << n << " primary vars, "
+            << relevant_ops.size() << " relevant ops" << endl;
+
+    // BFS limits shared by the pre-check below and the exploration loop.
+    const int max_axiom_states = 100000;
+
+    // Pre-BFS feasibility check.
+    //
+    // The exploration loop is O(R * K) where R is the number of reachable
+    // product states (capped at max_axiom_states) and K = |relevant_ops|.
+    // The existing n > 25 fast-path threshold catches large state spaces
+    // driven by many primary variables, but not cases where n is small
+    // while K is very large (e.g. ged1-ds1: n=9, K=7,434 ops, estimated
+    // work 744M). Bail out early in those cases: returning -1 is always
+    // safe because the caller omits the factor and the heuristic remains
+    // admissible (it just loses some tightness for this derived variable).
+    if (n > 0 && !relevant_ops.empty()) {
+        long long product_domain = 1;
+        for (int i = 0; i < n; ++i) {
+            if (product_domain > max_axiom_states)
+                break; // already above the cap; no need to multiply further
+            product_domain *= dom[i];
+        }
+        // Use min(product_domain, max_axiom_states) as the state-count proxy
+        // so the estimate does not blow up for huge but capped product spaces.
+        const long long max_bfs_work = 500000000LL; // 500 M
+        long long estimated_work =
+            min(product_domain, (long long)max_axiom_states)
+            * (long long)relevant_ops.size();
+        if (estimated_work > max_bfs_work) {
+            if (log.is_at_least_normal())
+                log << "  Axiom factor BFS: estimated work ~"
+                    << estimated_work
+                    << " exceeds limit; skipping factor"
+                       " (heuristic remains admissible)." << endl;
+            return -1;
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Step 5: Reachability exploration.
     //
@@ -831,12 +871,7 @@ int build_axiom_factor(
 
     get_dense(init_full_state);
 
-    // Cap the BFS to avoid unbounded memory/time when many primary variables
-    // make the reachable product space too large to enumerate explicitly.
-    // If exceeded, return -1 to signal the caller to skip this axiom factor;
-    // the M&S heuristic remains admissible (just less tight).
-    const int max_axiom_states = 100000;
-
+    // (max_axiom_states is defined above near the pre-BFS feasibility check.)
     vector<vector<Transition>> label_trans(num_labels);
 
     while (!frontier.empty()) {

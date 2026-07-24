@@ -5606,18 +5606,39 @@ for (const RelevantOperator &rop : relevant_ops) {
     state, is computationally intractable.  The process was killed after
     several minutes with no progress.
 
-    \textbf{A new failure mode: axiom factor BFS intractability.}
+    \textbf{A fourth failure mode: axiom factor BFS intractability.}
     This is distinct from the three previously documented failure modes:
+    the fast-path skip threshold ($n > 25$ primary vars) does not fire
+    because $n = 9 < 25$.  That threshold guards against large BFS
+    \emph{state spaces} driven by many primary variables, but not against
+    \emph{operator density}: 7\,434 operators per BFS state can make the
+    exploration infeasible even when $n$ is small.
+
+    \textbf{Fix: pre-BFS work-estimate guard} (implemented in
+    \texttt{fts\_factory.cc}).  Before starting the BFS, compute the
+    estimated work as
+    \[
+      W = \min(\text{product\_domain},\; \text{max\_states}) \times
+          |\text{relevant\_ops}|,
+    \]
+    where $\text{max\_states} = 100{,}000$ is the existing state-count cap.
+    If $W > 5 \times 10^8$ (500\,M), return $-1$ immediately without
+    running the BFS.  Returning $-1$ is always safe: the caller omits the
+    axiom factor and the heuristic remains admissible (just less tight for
+    that derived variable).
+
+    Calibration:
     \begin{itemize}
-      \item The fast-path skip threshold ($n > 25$ primary vars) does not
-            fire here because $n = 9 < 25$.  The threshold was designed to
-            avoid large BFS \emph{state spaces} but does not account for
-            \emph{operator density}: 7\,434 operators per BFS state can
-            make the construction infeasible even when $n$ is small.
-      \item A complementary threshold on operator count (e.g.\ skip if
-            relevant ops $> k$) would be a natural extension, but requires
-            tuning and is left as future work.
+      \item \texttt{sokoban-axioms}: $n=3$, binary vars, $K=702$ ops
+            $\Rightarrow W = 8 \times 702 = 5{,}616 \ll 5 \times 10^8$ —
+            factor is kept (correct).
+      \item \texttt{ged1-ds1}: $n=9$, multi-valued vars, $K=7{,}434$ ops
+            $\Rightarrow W \geq 100{,}000 \times 7{,}434 = 744\,\text{M}
+            > 5 \times 10^8$ — factor is skipped immediately (correct).
     \end{itemize}
+    The guard also absorbs the $n = 0$ case trivially: with no primary
+    variables the product domain is 1, so $W = 1 \times K$ is never large.
+
     Additionally, even if the axiom factor phase completed, the main merge
     loop over 215 variables with many appended factors would itself be slow
     (same $O(n^2)$ label-reduction cost as other large-variable domains).

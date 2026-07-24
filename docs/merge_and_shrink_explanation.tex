@@ -4780,8 +4780,8 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{collab-and-comm}          & \texttt{ce}          & \checkmark & SCCS/DFP: $h_{\mathrm{init}}=4$, 18 states; MIASM: $h_{\mathrm{init}}=3$, 527\,s \\
     \texttt{drones-horndl}            & \texttt{ce}          & (skip)     & 1{,}128 vars — M\&S intractable ($O(n^2)$ scaling) \\
     \texttt{elevator-horndl}          & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=15$, 1\,893 states, max abs 576 \\
-    \texttt{ged1-ds1}                 & \texttt{ce}          & --         & \\
-    \texttt{ged1-ds2nd}               & \texttt{ce}          & --         & \\
+    \texttt{ged1-ds1}                 & \texttt{ce}          & (skip)     & axiom factor BFS intractable: var~65 has $n=9$, 7\,434 ops \\
+    \texttt{ged1-ds2nd}               & \texttt{ce}          & (skip)     & same domain structure as \texttt{ged1-ds1} — skip \\
     \texttt{psr-large}                & \texttt{ce}          & --         & \\
     \texttt{psr-middle}               & \texttt{ce}          & --         & \\
     \texttt{robot-horndl}             & \texttt{ce}          & --         & \\
@@ -5588,6 +5588,42 @@ for (const RelevantOperator &rop : relevant_ops) {
     limit by nearly an order of magnitude (cf.\ \texttt{vta-horndl}
     at 372 vars, which was already intractable due to a 203-variable
     SCC).
+
+    \paragraph{Results: \texttt{ged1-ds1} and \texttt{ged1-ds2nd}.}
+
+    The \texttt{ged1-ds1} domain (215 variables, 430 fact pairs) models genome
+    edit distance; derived variables encode reachability predicates over gene
+    segments.  Blind A* finds the optimal plan of cost~3 ($h^* = 3$, plan
+    length~2) by expanding 22 states in 0.007\,s.
+
+    \textbf{All three M\&S strategies are skipped.}  During SCCS
+    initialization, the axiom factor phase completes 65 trivial factors
+    (vars 0--19 with $n = 0$, 93~relevant ops each; vars 20--64 with
+    $n = 0$, 0~relevant ops each) but hangs indefinitely on derived
+    variable~65, which has $n = 9$ primary vars and \textbf{7\,434 relevant
+    ops}.  The BFS product-space construction over 9 possibly multi-valued
+    primary variables, combined with enumerating 7\,434 operators at each
+    state, is computationally intractable.  The process was killed after
+    several minutes with no progress.
+
+    \textbf{A new failure mode: axiom factor BFS intractability.}
+    This is distinct from the three previously documented failure modes:
+    \begin{itemize}
+      \item The fast-path skip threshold ($n > 25$ primary vars) does not
+            fire here because $n = 9 < 25$.  The threshold was designed to
+            avoid large BFS \emph{state spaces} but does not account for
+            \emph{operator density}: 7\,434 operators per BFS state can
+            make the construction infeasible even when $n$ is small.
+      \item A complementary threshold on operator count (e.g.\ skip if
+            relevant ops $> k$) would be a natural extension, but requires
+            tuning and is left as future work.
+    \end{itemize}
+    Additionally, even if the axiom factor phase completed, the main merge
+    loop over 215 variables with many appended factors would itself be slow
+    (same $O(n^2)$ label-reduction cost as other large-variable domains).
+
+    \texttt{ged1-ds2nd} belongs to the same domain family and is skipped
+    without further testing.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

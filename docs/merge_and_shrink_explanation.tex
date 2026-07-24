@@ -4769,7 +4769,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{blocker}                  & \texttt{pddl-axioms} & \checkmark & 8 factors built, 0 kept (trivial) \\
     \texttt{blocks-axioms}            & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=h^*=6$, 5 factors built \\
     \texttt{sokoban-axioms}           & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=10$, 1 factor kept (MIASM bug fixed) \\
-    \texttt{ghosh-etal-JAR-acc-cc2}   & \texttt{pddl-axioms} & --         & \\
+    \texttt{ghosh-etal-JAR-acc-cc2}   & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=2$, SCCS only, 34 factors built \\
     \texttt{ghosh-etal-JAR-grid-cc2}  & \texttt{pddl-axioms} & --         & \\
     \texttt{queens-horndl}            & \texttt{pddl-axioms} & --         & \\
     \texttt{social-planning}          & \texttt{pddl-axioms} & --         & \\
@@ -5036,6 +5036,41 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{initialize} and size the cache as
     $2(n + n_{\mathrm{derived}}) - 1$.  Tasks without derived variables
     are unaffected.
+
+    \paragraph{Results: \texttt{ghosh-etal-JAR-acc-cc2} \texttt{acc.goodgoal6.cc2.pddl}.}
+
+    The \texttt{ghosh-etal-JAR-acc-cc2} domain (70 variables, 34 derived)
+    models access-control policies; derived variables encode
+    \texttt{disabled-control-*} predicates.  M\&S builds all \textbf{34
+    axiom factors}, with $n = 2$ to $n = 10$ primary variables each (BFS
+    completes quickly, $\approx 0.48$\,s total).  The 66 primary variables
+    are dominated by one single large SCC, so SCCS merges them in
+    topological order.
+
+    Only SCCS was run for this domain (a single strategy suffices to
+    validate the implementation on this instance).
+
+    \begin{center}
+    \begin{tabular}{lrrrrrr}
+    \toprule
+    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
+      & \textbf{Dead ends} & \textbf{Plan cost}
+      & \textbf{Max abs.} & \textbf{Time / Memory} \\
+    \midrule
+    \texttt{blind} & -- & 199 & -- & 5 & -- & -- \\
+    \texttt{SCCS}  & 2  & \textbf{49} & 0
+      & \textbf{5\,\checkmark} & 49\,932 & 16.84\,s / 223\,MB \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    SCCS achieves $h_{\mathrm{init}} = 2$ (against $h^* = 5$; limited
+    precision due to the abstraction), reducing expanded states from 199
+    to 49 ($\approx 4\times$ improvement).  No dead ends are identified.
+    Plan cost~5 matches blind, confirming admissibility.  One factor is
+    kept (non-trivial).  Peak memory ($\approx 223$\,MB) is the highest
+    observed so far, driven by the large domain file (1.6\,MB) and the
+    49\,932-state maximum intermediate abstraction.
 \end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────

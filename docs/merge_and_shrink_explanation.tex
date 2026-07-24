@@ -4772,7 +4772,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{ghosh-etal-JAR-acc-cc2}   & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=2$, 34 factors, MIASM 35$\times$ slower \\
     \texttt{ghosh-etal-JAR-grid-cc2}  & \texttt{pddl-axioms} & (skip)     & 94\,772 vars — M\&S intractable, aborted \\
     \texttt{queens-horndl}            & \texttt{pddl-axioms} & (skip)     & 3\,358 vars — bisimulation $\sim$100\,s/merge, est.\ 110\,h; $h^*=0$ \\
-    \texttt{social-planning}          & \texttt{pddl-axioms} & --         & \\
+    \texttt{social-planning}          & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=2$, 49 factors built, 4 skipped ($n=11$) \\
     \texttt{tpsa-horndl}              & \texttt{pddl-axioms} & --         & \\
     \texttt{vta-horndl}               & \texttt{pddl-axioms} & --         & \\
     \texttt{vta-roles-horndl}         & \texttt{pddl-axioms} & --         & \\
@@ -5204,6 +5204,49 @@ for (const RelevantOperator &rop : relevant_ops) {
     result would provide no meaningful validation of heuristic quality.
 
     This domain is \textbf{skipped} for M\&S validation.
+
+    \paragraph{Results: \texttt{social-planning} p01.}
+
+    The \texttt{social-planning} domain models social manipulation (agents
+    taking, dropping, and moving objects to induce beliefs).  The instance
+    has 105 variables, of which 53 are derived (motive/reason predicates).
+    Blind A* finds the optimal plan of cost~8 by expanding 21\,109 states.
+
+    \textbf{Axiom factor construction} builds 49 factors successfully and
+    skips 4 (variables 94--97, $n = 11$ each — BFS safety net triggers at
+    100\,k states).  The most expensive factors have $n = 9$ primary
+    variables (variables 88--91 and 99--102, $\sim$1.2\,s each); total
+    construction time is $\sim$9.8\,s at $\sim$198\,MB peak.
+
+    \begin{center}
+    \begin{tabular}{lrrrrrr}
+    \toprule
+    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
+      & \textbf{Plan cost} & \textbf{Factors} & \textbf{Max abs.} & \textbf{Time} \\
+    \midrule
+    \texttt{blind}           & -- & 21\,109 & 8   & --                  & --     & 0.39\,s \\
+    \texttt{SCCS}            & 2  & 8\,905  & \textbf{8\,\checkmark} & 49 built, 4 skipped & 20\,664 & 12.5\,s \\
+    \texttt{stateless DFP}   & 2  & 8\,905  & \textbf{8\,\checkmark} & 49 built, 4 skipped & 20\,664 & 12.4\,s \\
+    \texttt{stateless MIASM} & 2  & 8\,905  & \textbf{8\,\checkmark} & 49 built, 4 skipped & 25\,572 & 51.1\,s \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    All three strategies confirm plan cost~8 $= h^*$.  SCCS and stateless
+    DFP are nearly identical in merge order and produce the same maximum
+    intermediate abstraction (20\,664 states).  Stateless MIASM takes
+    $\sim$4$\times$ longer (51\,s vs.\ 12.5\,s) and reaches a slightly
+    larger maximum intermediate abstraction (25\,572), but yields the same
+    $h_{\mathrm{init}} = 2$ and identical search effort (8\,905 states
+    expanded).  All three use 198\,MB peak memory.
+
+    The low $h_{\mathrm{init}} = 2$ (vs.\ $h^* = 8$) reflects the 4
+    skipped factors (variables 94--97, $n = 11$): those factors encode
+    the goal-relevant derived predicates that M\&S cannot build within the
+    BFS safety-net limit.  Despite the underestimate, M\&S still reduces
+    search effort by $2.4\times$ compared to blind (8\,905 vs.\ 21\,109
+    states), confirming that even partial axiom-factor coverage provides
+    useful guidance.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

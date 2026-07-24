@@ -5083,6 +5083,18 @@ for (const RelevantOperator &rop : relevant_ops) {
     runtime grows to $\approx 593$\,s (35$\times$ slower than SCCS/DFP),
     reflecting the cost of evaluating all $O(n^2)$ candidate pairs in a
     70-variable task with 34 axiom factors.
+
+    \paragraph{Results: \texttt{ghosh-etal-JAR-grid-cc2}.}
+
+    The \texttt{ghosh-etal-JAR-grid-cc2} domain is significantly larger:
+    \textbf{94\,772 variables} (vs.\ 70 for acc-cc2), with 29 derived
+    variables encoding \texttt{disabled-control-*} predicates.  Blind
+    A* finds the optimal plan of cost~35 by expanding 850 states (peak
+    memory 138\,MB, total time 2.73\,s).  The enormous number of primary
+    variables makes it likely that the $n > 25$ fast-path skip threshold
+    applies to most or all axiom factors, and that building the
+    94\,772 atomic transition systems alone will dominate M\&S runtime.
+    M\&S strategy results pending.
 \end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────

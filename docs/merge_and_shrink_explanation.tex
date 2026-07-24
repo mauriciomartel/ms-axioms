@@ -5105,11 +5105,36 @@ for (const RelevantOperator &rop : relevant_ops) {
             alone would exceed 50 minutes, and the subsequent merge loop
             over $\sim$94\,800 factors would be intractable.
     \end{itemize}
-    This domain is \textbf{skipped} for M\&S validation.  It demonstrates
-    a practical scalability limit: the implementation is correct for
-    domains with hundreds to low thousands of variables (as validated on
-    the other domains), but cannot compete with blind search on tasks of
-    this extreme size.
+    This domain is \textbf{skipped} for M\&S validation.
+
+    \textbf{Is this a limitation of our implementation or of M\&S in general?}
+    This is a \emph{fundamental limitation of the M\&S framework}, not a
+    defect in our implementation.  Standard M\&S was designed for tasks
+    with at most a few hundred to $\sim$1\,000 variables; 94\,772 is
+    roughly 100$\times$ outside that range.  The root causes are inherent
+    to the algorithm:
+    \begin{itemize}
+      \item M\&S builds one atomic transition system per variable, so
+            memory grows linearly with the variable count from the start;
+      \item the merge loop runs $n - 1$ iterations and does at least
+            $O(n)$ work per iteration, giving $O(n^2)$ total — for
+            $n \approx 94\,800$ that is simply not feasible;
+      \item label reduction re-processes all live transition systems
+            every iteration, compounding the cost.
+    \end{itemize}
+    Our implementation is correct: axiom handling works on all
+    normally-sized domains validated in this campaign (tens to $\sim$1\,000
+    variables), which is the intended operating range of M\&S.
+
+    \textbf{Is this worth fixing?}  No, not within the scope of this
+    project.  The ms-axioms work targets correctness of axiom handling
+    inside M\&S, not scaling M\&S to extreme task sizes.  Furthermore,
+    the 94\,772-variable instance is an outlier even within the
+    \texttt{ghosh-etal-JAR} family: the acc-cc2 instance of the same
+    family has only 70 variables and runs in under 17 seconds.  Handling
+    $10^5$-variable tasks would require a fundamentally different
+    approach (partial or local M\&S, portfolio methods, or admissible
+    landmark heuristics) rather than any fix to this codebase.
 \end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────

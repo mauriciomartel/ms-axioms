@@ -4779,7 +4779,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{cats-horndl}              & \texttt{ce}          & \checkmark & $h_{\mathrm{init}}=h^*=4$, 7 factors, all 3 strategies perfect \\
     \texttt{collab-and-comm}          & \texttt{ce}          & \checkmark & SCCS/DFP: $h_{\mathrm{init}}=4$, 18 states; MIASM: $h_{\mathrm{init}}=3$, 527\,s \\
     \texttt{drones-horndl}            & \texttt{ce}          & (skip)     & 1{,}128 vars — M\&S intractable ($O(n^2)$ scaling) \\
-    \texttt{elevator-horndl}          & \texttt{ce}          & --         & \\
+    \texttt{elevator-horndl}          & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=15$, 1\,893 states, max abs 576 \\
     \texttt{ged1-ds1}                 & \texttt{ce}          & --         & \\
     \texttt{ged1-ds2nd}               & \texttt{ce}          & --         & \\
     \texttt{psr-large}                & \texttt{ce}          & --         & \\
@@ -5533,6 +5533,46 @@ for (const RelevantOperator &rop : relevant_ops) {
 
     All three strategies find a plan of cost~6~\checkmark{} and use
     approximately 340\,MB of peak memory.
+
+    \paragraph{Results: \texttt{elevator-horndl} p01.}
+
+    The \texttt{elevator-horndl} domain (42 variables, 13 derived) models an
+    elevator scheduling problem where reachability and floor-service predicates
+    are expressed as derived variables.  Blind A* finds the optimal plan of
+    cost~25 ($h^* = 25$) by expanding 6{,}356 states in 0.028\,s.
+
+    M\&S builds \textbf{13 axiom factors} for derived variables 0--5 (each
+    with $n = 0$ primary vars, 2 relevant ops), variables 8, 11, 14, 17, 20,
+    and 23 (each with $n = 1$ primary var, 2 relevant ops), and variable 41
+    (with $n = 6$ primary vars, 6 relevant ops).  The SCC structure consists
+    of 6 triplets (\texttt{[24,25,23]}, \texttt{[21,22,20]}, \texttt{[18,19,17]},
+    \texttt{[15,16,14]}, \texttt{[12,13,11]}, \texttt{[9,10,8]}) and all
+    remaining singletons; there is no large SCC.
+
+    \begin{center}
+    \begin{tabular}{lrrrrrr}
+    \toprule
+    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
+      & \textbf{Plan cost} & \textbf{Max abs.} & \textbf{Build time} & \textbf{Peak mem.} \\
+    \midrule
+    \texttt{blind}            & -- & 6{,}356 & 25   & --  & 0.028\,s & -- \\
+    \texttt{SCCS}             & 15 & 1{,}893 & \textbf{25\,\checkmark} & 576 & 0.096\,s & 13\,MB \\
+    \texttt{stateless DFP}    & 15 & 1{,}893 & \textbf{25\,\checkmark} & 576 & 0.101\,s & 13\,MB \\
+    \texttt{stateless MIASM}  & 15 & 1{,}893 & \textbf{25\,\checkmark} & 576 & 0.190\,s & 13\,MB \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    All three strategies agree on every metric: $h_{\mathrm{init}} = 15$,
+    1\,893 states expanded (a $3.4\times$ improvement over blind's 6\,356),
+    maximum intermediate abstraction of 576 states, and peak memory of
+    $\approx 13$\,MB.  Plan cost~25 matches $h^*$~\checkmark{} on all
+    strategies.  MIASM is approximately $2\times$ slower at build time
+    (0.190\,s vs.\ 0.10\,s for SCCS/DFP) due to per-pair scoring over the
+    full set of live transition systems, but the extra cost yields no quality
+    difference on this instance.  The absence of a large SCC means that all
+    three strategies produce merge orders of comparable quality, and
+    bisimulation shrinking erases any remaining differences between them.
 
     \paragraph{Results: \texttt{drones-horndl} p01.}
 

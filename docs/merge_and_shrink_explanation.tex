@@ -4769,7 +4769,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{blocker}                  & \texttt{pddl-axioms} & \checkmark & 8 factors built, 0 kept (trivial) \\
     \texttt{blocks-axioms}            & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=h^*=6$, 5 factors built \\
     \texttt{sokoban-axioms}           & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=10$, 1 factor kept (MIASM bug fixed) \\
-    \texttt{ghosh-etal-JAR-acc-cc2}   & \texttt{pddl-axioms} & (2/3)      & $h_{\mathrm{init}}=2$, SCCS+DFP done, MIASM pending \\
+    \texttt{ghosh-etal-JAR-acc-cc2}   & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=2$, 34 factors, MIASM 35$\times$ slower \\
     \texttt{ghosh-etal-JAR-grid-cc2}  & \texttt{pddl-axioms} & --         & \\
     \texttt{queens-horndl}            & \texttt{pddl-axioms} & --         & \\
     \texttt{social-planning}          & \texttt{pddl-axioms} & --         & \\
@@ -5055,26 +5055,34 @@ for (const RelevantOperator &rop : relevant_ops) {
       & \textbf{Max abs.} & \textbf{Time / Memory} \\
     \midrule
     \texttt{blind}           & -- & 199 & -- & 5   & -- & -- \\
-    \texttt{SCCS}            & 2  & \textbf{49} & 0
+    \texttt{SCCS}            & 2  & 49 & 0
       & \textbf{5\,\checkmark} & 49\,932 & 16.84\,s / 223\,MB \\
-    \texttt{stateless DFP}   & 2  & \textbf{49} & 0
+    \texttt{stateless DFP}   & 2  & 49 & 0
       & \textbf{5\,\checkmark} & 49\,932 & 16.91\,s / 221\,MB \\
-    \texttt{stateless MIASM} & \multicolumn{6}{c}{\emph{pending}} \\
+    \texttt{stateless MIASM} & 2  & \textbf{46} & 0
+      & \textbf{5\,\checkmark} & 49\,928 & 593\,s / \textbf{173\,MB} \\
     \bottomrule
     \end{tabular}
     \end{center}
 
-    Both SCCS and DFP achieve $h_{\mathrm{init}} = 2$ (against $h^* = 5$;
-    limited precision due to the abstraction), reducing expanded states
-    from 199 to 49 ($\approx 4\times$ improvement).  No dead ends are
-    identified.  Plan cost~5 matches blind on both strategies, confirming
-    admissibility.  One factor is kept (non-trivial).  Remarkably, both
-    strategies produce the \emph{identical} maximum intermediate
+    All three strategies achieve $h_{\mathrm{init}} = 2$ (against $h^* =
+    5$; limited precision) and expand far fewer states than blind (46--49
+    vs.\ 199, $\approx 4\times$ improvement).  No dead ends are
+    identified.  Plan cost~5 matches blind on all strategies, confirming
+    admissibility.  One factor is kept (non-trivial) in all cases.
+
+    SCCS and DFP produce the \emph{identical} maximum intermediate
     abstraction (49\,932 states) and near-identical runtimes ($\approx
-    16.9$\,s), suggesting the merge order has minimal impact on this
-    instance.  Peak memory ($\approx 222$\,MB) is the highest observed so
-    far, driven by the large domain file (1.6\,MB) and the 49\,932-state
-    maximum intermediate abstraction.
+    17$\,s), suggesting the merge order has minimal impact on those two
+    strategies for this instance.  MIASM chooses a slightly different
+    merge sequence (max abs.\ 49\,928) that expands 3 fewer states, and
+    its merge order leads to $\approx 48$\,MB lower peak memory (173\,MB
+    vs.\ $\approx 222$\,MB), likely because MIASM prioritises pairs with
+    many dead states, causing heavier pruning of intermediate abstractions.
+    However, MIASM's per-pair score computation is very expensive here:
+    runtime grows to $\approx 593$\,s (35$\times$ slower than SCCS/DFP),
+    reflecting the cost of evaluating all $O(n^2)$ candidate pairs in a
+    70-variable task with 34 axiom factors.
 \end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────

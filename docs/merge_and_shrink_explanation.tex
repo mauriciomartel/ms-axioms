@@ -4780,7 +4780,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{collab-and-comm}          & \texttt{ce}          & \checkmark & SCCS/DFP: $h_{\mathrm{init}}=4$, 18 states; MIASM: $h_{\mathrm{init}}=3$, 527\,s \\
     \texttt{drones-horndl}            & \texttt{ce}          & (skip)     & 1{,}128 vars — M\&S intractable ($O(n^2)$ scaling) \\
     \texttt{elevator-horndl}          & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=15$, 1\,893 states, max abs 576 \\
-    \texttt{ged1-ds1}                 & \texttt{ce}          & (skip)     & axiom factor BFS intractable: var~65 has $n=9$, 7\,434 ops \\
+    \texttt{ged1-ds1}                 & \texttt{ce}          & (skip)     & axiom BFS fixed; main loop intractable: giant SCC $\sim$150 vars \\
     \texttt{ged1-ds2nd}               & \texttt{ce}          & (skip)     & same domain structure as \texttt{ged1-ds1} — skip \\
     \texttt{psr-large}                & \texttt{ce}          & --         & \\
     \texttt{psr-middle}               & \texttt{ce}          & --         & \\
@@ -5639,9 +5639,20 @@ for (const RelevantOperator &rop : relevant_ops) {
     The guard also absorbs the $n = 0$ case trivially: with no primary
     variables the product domain is 1, so $W = 1 \times K$ is never large.
 
-    Additionally, even if the axiom factor phase completed, the main merge
-    loop over 215 variables with many appended factors would itself be slow
-    (same $O(n^2)$ label-reduction cost as other large-variable domains).
+    \textbf{SCCS run confirms both failure modes.}  With the fix applied,
+    the axiom factor phase finishes at $t \approx 22.7$\,s: all 120 derived
+    variables (vars 65--184) are skipped via the pre-BFS guard, printing
+    \emph{``estimated work $\sim$744M exceeds limit''} for each.  The main
+    merge loop then begins and immediately reveals a second intractability:
+    the SCC decomposition yields 65 singleton SCCs (vars 0--64, the primary
+    variables) and one \textbf{giant SCC of $\sim$150 variables} (vars
+    65--214, the derived variables plus their dependency closure).  After
+    the first merge step \texttt{(185, 200)} at $t \approx 22.99$\,s the
+    run stalls indefinitely, killed by the user.  This is the same
+    $O(n^2)$ label-reduction intractability as \texttt{vta-horndl}
+    (failure mode~1).  Both failure modes are therefore active in
+    \texttt{ged1-ds1}: failure mode~4 (axiom BFS, now mitigated) and
+    failure mode~1 (giant SCC in main loop, fundamental).
 
     \texttt{ged1-ds2nd} belongs to the same domain family and is skipped
     without further testing.

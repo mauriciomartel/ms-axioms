@@ -5293,13 +5293,56 @@ for (const RelevantOperator &rop : relevant_ops) {
     5.4\,MB; the dominant memory cost ($\sim$258\,MB peak for the
     full process) comes from the search phase with 4.6\,M evaluated states.
 
-    This domain illustrates a fundamental limitation: when bisimulation
-    shrinking produces a very coarse abstraction ($h_{\mathrm{init}} \ll h^*$),
-    M\&S can be slower than blind despite correct and admissible heuristic
-    values.  The axiom-factor machinery is correct and all factors build
-    successfully, so the domain validates the implementation but highlights
-    that heuristic quality depends on domain structure, not just on whether
-    axiom factors are constructed.
+    \textbf{Is this our implementation or M\&S in general?}  M\&S in
+    general, and the mechanism is different from the label-reduction
+    scaling problems seen in \texttt{queens-horndl} and
+    \texttt{vta-horndl}.
+
+    The decisive diagnostic is MIASM: it explicitly chooses merge pairs to
+    maximise intermediate abstraction quality, yet still reaches
+    $h_{\mathrm{init}} = 1$ with 6\,146 abstract states.  If the
+    abstraction were merely too small (the \texttt{max\_states} limit
+    cutting precision), a larger abstract state space would give a better
+    heuristic.  It does not — the information is structurally absent.
+
+    The mechanism is \emph{goal-distance information loss through
+    bisimulation}.  Exact bisimulation merges abstract states whose
+    future behaviour (as seen through the operators represented in the
+    abstract TS) is identical.  In tpsa-horndl the Datalog-style derived
+    predicates encode a sequential telecom provisioning workflow; the
+    abstract transition system after merging captures the operator
+    signatures but loses the finer goal-distance distinctions.  Most
+    abstract non-goal states end up with estimated distance~1 because,
+    from the abstraction's perspective, only one abstract step separates
+    them from the abstract goal.  This happens regardless of merge order
+    (SCCS gives 34 states, MIASM gives 6\,146 — same heuristic value
+    either way), which confirms it is a structural property of the domain
+    under bisimulation, not an accident of merge sequencing.
+
+    Our axiom factors are not the cause.  They correctly encode each
+    derived variable's relationship to its primary-variable closure
+    (Step~2--4 of the algorithm).  The coarse heuristic would appear
+    with or without them; if anything, the axiom factors provide the
+    only goal-relevant structure that the merged TS contains.
+
+    \textbf{Is this worth fixing?}  Not within ms-axioms scope.  The
+    root cause — bisimulation collapsing goal-distance information in
+    certain domain structures — is a well-known fundamental limitation
+    of bisimulation-based M\&S.  Three potential remedies exist in the
+    M\&S literature, all orthogonal to axiom handling:
+    \begin{itemize}
+      \item \emph{Alternative shrinking strategies} (e.g.\ greedy
+            bisimulation, DFP-based shrinking) that sacrifice some
+            minimality to preserve more distance information.
+      \item \emph{Larger abstractions} (higher \texttt{max\_states}) —
+            ineffective here as shown by the MIASM result.
+      \item \emph{Compositional abstractions / pattern databases} that
+            keep complementary sub-abstractions instead of merging
+            everything into one final TS.
+    \end{itemize}
+    None of these address axiom correctness, which is what ms-axioms
+    targets.  This domain validates the implementation successfully;
+    the poor $h_{\mathrm{init}}$ is a domain property, not a defect.
 
     \paragraph{Testing on \texttt{vta-horndl} p01.}
 

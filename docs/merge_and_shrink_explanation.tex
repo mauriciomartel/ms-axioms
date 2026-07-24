@@ -4771,7 +4771,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{sokoban-axioms}           & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=10$, 1 factor kept (MIASM bug fixed) \\
     \texttt{ghosh-etal-JAR-acc-cc2}   & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=2$, 34 factors, MIASM 35$\times$ slower \\
     \texttt{ghosh-etal-JAR-grid-cc2}  & \texttt{pddl-axioms} & (skip)     & 94\,772 vars — M\&S intractable, aborted \\
-    \texttt{queens-horndl}            & \texttt{pddl-axioms} & --         & \\
+    \texttt{queens-horndl}            & \texttt{pddl-axioms} & (skip)     & 3\,358 vars — bisimulation $\sim$100\,s/merge, est.\ 110\,h; $h^*=0$ \\
     \texttt{social-planning}          & \texttt{pddl-axioms} & --         & \\
     \texttt{tpsa-horndl}              & \texttt{pddl-axioms} & --         & \\
     \texttt{vta-horndl}               & \texttt{pddl-axioms} & --         & \\
@@ -5136,6 +5136,49 @@ for (const RelevantOperator &rop : relevant_ops) {
     approach (partial or local M\&S, portfolio methods, or admissible
     landmark heuristics) rather than any fix to this codebase.
 \end{itemize}
+
+    \paragraph{Results: \texttt{queens-horndl}.}
+
+    The \texttt{queens-horndl} domain has 3\,358 variables (716 derived,
+    each representing a \texttt{datalog} query predicate).  Blind A*
+    solves the instance trivially: the initial state is already a goal
+    state ($h^* = 0$, plan cost = 0, 0 states expanded).
+
+    \textbf{Axiom factor construction} completes successfully ($\sim$70\,s,
+    $\sim$140\,MB).  Each derived variable's primary-variable closure
+    has $n = 1$, so 715 axiom factors are built without triggering the
+    fast-path skip threshold.  One variable (the 716th derived variable,
+    index~3357, with $n = 25$ primary variables) is skipped by the
+    BFS safety net ($>100\,k$ states), confirming that boundary works
+    correctly.
+
+    \textbf{The merge loop is intractable.}  SCC decomposition
+    produces a single massive SCC that contains hundreds of axiom
+    factors together with many primary variables.  Once the merge loop
+    enters this SCC each bisimulation shrinking step was measured at
+    approximately 100\,s.  The full merge loop requires $n - 1 = 3\,357$
+    iterations, giving an estimated run time of roughly \textbf{110\,hours}
+    for a single strategy.
+
+    This bottleneck is qualitatively different from \texttt{ghosh-etal-JAR-grid-cc2}:
+    \begin{itemize}
+      \item \texttt{ghosh-etal-JAR-grid-cc2} fails at \emph{atomic factor
+            construction} due to 94\,772 variables — the task is simply
+            too large for M\&S at any step.
+      \item \texttt{queens-horndl} (3\,358 variables) builds all axiom
+            factors fine, but \emph{bisimulation shrinking inside the
+            merge loop} becomes the bottleneck.  At $\sim$100\,s per
+            merge step the $O(n^2)$ cost of the merge loop dominates:
+            3\,358 variables still produces more than 3\,000 merge
+            iterations, each invoking an expensive shrinking pass.
+    \end{itemize}
+
+    Additionally, since $h^* = 0$ for this instance, any admissible
+    heuristic (including $h = 0$) trivially matches optimal.  Even if
+    M\&S completed, the result would provide no meaningful validation
+    of heuristic quality.
+
+    This domain is \textbf{skipped} for M\&S validation.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

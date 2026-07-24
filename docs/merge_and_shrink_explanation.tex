@@ -4751,9 +4751,8 @@ for (const RelevantOperator &rop : relevant_ops) {
 
     All 45 benchmark domains in the feature branch are listed below.
     Status: \textbf{\checkmark} = tested in Step~5 (all 3 strategies, cost
-    matches blind); \textbf{(S5)$^*$} = SCCS and DFP tested, MIASM pending
-    re-run after bug fix; \textbf{(S4)} = partially tested in Step~4 (SCCS
-    only, needs full Step~5 run); \textbf{--} = pending.
+    matches blind); \textbf{(S4)} = partially tested in Step~4 (SCCS only,
+    needs full Step~5 run); \textbf{--} = pending.
     Folder abbreviation: \texttt{ce} $=$ \texttt{pddl-axioms-conditional-effects}.
 
     \smallskip
@@ -4769,7 +4768,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{miconic-axioms}           & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=h^*=2$, 2 factors built \\
     \texttt{blocker}                  & \texttt{pddl-axioms} & \checkmark & 8 factors built, 0 kept (trivial) \\
     \texttt{blocks-axioms}            & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=h^*=6$, 5 factors built \\
-    \texttt{sokoban-axioms}           & \texttt{pddl-axioms} & (S5)$^*$   & SCCS/DFP: $h=10$, 1 kept; MIASM: crash fixed \\
+    \texttt{sokoban-axioms}           & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=10$, 1 factor kept (MIASM bug fixed) \\
     \texttt{ghosh-etal-JAR-acc-cc2}   & \texttt{pddl-axioms} & --         & \\
     \texttt{ghosh-etal-JAR-grid-cc2}  & \texttt{pddl-axioms} & --         & \\
     \texttt{queens-horndl}            & \texttt{pddl-axioms} & --         & \\
@@ -5000,47 +4999,43 @@ for (const RelevantOperator &rop : relevant_ops) {
       & \textbf{Dead ends} & \textbf{Plan cost}
       & \textbf{Max abs.} & \textbf{Build time} \\
     \midrule
-    \texttt{blind}          & -- & 140 & -- & 11   & -- & 0.005\,s \\
-    \texttt{SCCS}           & $\mathbf{10}$ & \textbf{14} & 20
+    \texttt{blind}           & -- & 140 & -- & 11   & -- & 0.005\,s \\
+    \texttt{SCCS}            & $\mathbf{10}$ & \textbf{14} & 20
       & \textbf{11\,\checkmark} & 2\,160 & 39.4\,s \\
-    \texttt{stateless DFP}  & $\mathbf{10}$ & \textbf{14} & 20
+    \texttt{stateless DFP}   & $\mathbf{10}$ & \textbf{14} & 20
       & \textbf{11\,\checkmark} & 5\,064 & 35.0\,s \\
-    \texttt{stateless MIASM} & \multicolumn{5}{l}{\textit{SIGSEGV (cache OOB — see below; re-run pending)}} \\
+    \texttt{stateless MIASM} & $\mathbf{10}$ & \textbf{14} & 20
+      & \textbf{11\,\checkmark} & 2\,223 & 43.1\,s \\
     \bottomrule
     \end{tabular}
     \end{center}
 
-    SCCS and stateless DFP both achieve $h_{\mathrm{init}} = 10$ (against
+    All three strategies achieve $h_{\mathrm{init}} = 10$ (against
     $h^* = 11$, near-perfect) and expand only 14 states vs.\ 140 for
     blind ($10\times$ improvement), identifying 20 dead ends.  Plan cost~11
-    matches blind on both strategies, confirming admissibility.  One factor
+    matches blind on all strategies, confirming admissibility.  One factor
     is kept (non-trivial), confirming that bisimulation preserves
     goal-distance information on this domain.
 
-    DFP is $1.1\times$ faster than SCCS (35\,s vs.\ 39\,s) despite
-    producing a larger maximum intermediate abstraction (5\,064 vs.\ 2\,160
-    states), because the DFP merge-order computation itself is cheaper than
-    the SCCS strongly-connected-component analysis over 160 initial factors.
+    Merge-order comparison: DFP is the fastest ($35.0$\,s) but produces
+    the largest maximum intermediate abstraction ($5\,064$ states).
+    SCCS and MIASM both keep the intermediate below $2\,250$ states.
+    MIASM is the slowest ($43.1$\,s) due to the per-pair score computation,
+    but matches SCCS in abstraction quality.  All three peak at $\approx
+    26.4$\,MB, confirming negligible memory overhead from the axiom factors.
 
-    \textbf{MIASM cache bug (SIGSEGV).}
-    The stateless MIASM run crashed with a segmentation fault after
-    approximately 71 merges into the main loop (last completed merge:
-    indices $(106, 240)$).  Root cause:
-    \texttt{MergeScoringFunctionMIASM::initialize} sizes its
-    score-cache 2D vector as $2 n - 1$ where $n$ is the number of task
-    variables.  For sokoban-axioms ($n = 120$) this yields a
-    $239 \times 239$ cache.  However, with 40 axiom factors appended
-    the initial FTS contains $n + k = 160$ factors, and the merge loop
-    produces factor indices up to $2 \times 160 - 2 = 318$, which
-    exceeds 238 and causes an out-of-bounds write.
-
-    Fix (committed to \texttt{claude/merge-shrink-algorithm-Lrx2x},
-    \texttt{f26719a}): count derived variables in \texttt{initialize}
-    and size the cache as $2(n + n_{\mathrm{derived}}) - 1$, which is
-    an upper bound on all factor indices that can arise.  Tasks without
-    derived variables are unaffected (the formula reduces to the original
-    when $n_{\mathrm{derived}} = 0$).  The MIASM re-run is pending after
-    the fix is applied in the local build.
+    \textbf{MIASM cache bug (discovered and fixed).}
+    The initial MIASM run crashed with a segmentation fault after
+    71 merges (last completed: indices $(106, 240)$).  Root cause:
+    \texttt{MergeScoringFunctionMIASM::initialize} sized its
+    score-cache 2D vector as $2 n - 1$ where $n = 120$ (task variables),
+    yielding a $239 \times 239$ cache.  With 40 axiom factors appended,
+    the initial FTS holds $n + k = 160$ factors and the merge loop
+    produces indices up to $2 \times 160 - 2 = 318$, causing an
+    out-of-bounds write.  Fix: count derived variables in
+    \texttt{initialize} and size the cache as
+    $2(n + n_{\mathrm{derived}}) - 1$.  Tasks without derived variables
+    are unaffected.
 \end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────

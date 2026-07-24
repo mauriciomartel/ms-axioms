@@ -910,33 +910,17 @@ int build_axiom_factor(
     log << "  Axiom factor BFS: " << n << " primary vars, "
     << relevant_ops.size() << " relevant ops" << endl;
 
-    // Pre-BFS feasibility check.
-    //
-    // The existing n > 25 fast-path threshold guards against large state
-    // spaces driven by many primary variables, but not against operator
-    // density: a small n with thousands of relevant operators can make the
-    // BFS hang for minutes (e.g. ged1-ds1: n=9, 7434 ops -> ~744M steps).
-    // Estimate the work as min(product_domain, 100000) * |ops| and bail
-    // out early if it exceeds 500M. Returning -1 is always safe: the caller
-    // omits the factor and the heuristic remains admissible.
-    if (n > 0 && !relevant_ops.empty()) {
-        long long product_domain = 1;
-        for (int i = 0; i < n; ++i) {
-            if (product_domain > 100000)
-                break;
-            product_domain *= dom[i];
-        }
-        const long long max_bfs_work = 500000000LL;
-        long long estimated_work =
-            min(product_domain, 100000LL) * (long long)relevant_ops.size();
-        if (estimated_work > max_bfs_work) {
-            if (log.is_at_least_normal())
-                log << "  Axiom factor BFS: estimated work ~"
-                    << estimated_work
-                    << " exceeds limit; skipping factor"
-                       " (heuristic remains admissible)." << endl;
-            return -1;
-        }
+    // Pre-BFS feasibility check: skip if operator count alone makes
+    // the BFS infeasible. Even a bounded state space of 100k states
+    // times thousands of operators per state can take minutes.
+    // Returning -1 is always safe: admissibility is preserved.
+    if (n > 0 && (long long)relevant_ops.size() > 5000) {
+        if (log.is_at_least_normal())
+            log << "  Axiom factor BFS: operator count "
+                << relevant_ops.size()
+                << " exceeds limit; skipping factor"
+                   " (heuristic remains admissible)." << endl;
+        return -1;
     }
 
     int _bfs_steps = 0;

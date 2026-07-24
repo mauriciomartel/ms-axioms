@@ -86,7 +86,20 @@ vector<double> MergeScoringFunctionMIASM::compute_scores(
 void MergeScoringFunctionMIASM::initialize(const TaskProxy &task_proxy) {
     initialized = true;
     int num_variables = task_proxy.get_variables().size();
-    int max_factor_index = 2 * num_variables - 1;
+    /*
+      Axiom factors are appended after the atomic factors, one per derived
+      variable (or fewer when the BFS safety net skips large ones). Use the
+      number of derived variables as an upper bound so the cache covers all
+      factor indices that can arise during the merge loop.
+    */
+    int num_derived = 0;
+    for (VariableProxy var : task_proxy.get_variables()) {
+        if (var.is_derived()) {
+            ++num_derived;
+        }
+    }
+    int max_initial_factors = num_variables + num_derived;
+    int max_factor_index = 2 * max_initial_factors - 1;
     cached_scores_by_merge_candidate_indices.resize(
         max_factor_index, vector<optional<double>>(max_factor_index));
 }

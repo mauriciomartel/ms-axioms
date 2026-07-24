@@ -4781,7 +4781,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{drones-horndl}            & \texttt{ce}          & (skip)     & 1{,}128 vars — M\&S intractable ($O(n^2)$ scaling) \\
     \texttt{elevator-horndl}          & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=15$, 1\,893 states, max abs 576 \\
     \texttt{ged1-ds1}                 & \texttt{ce}          & (skip)     & axiom BFS fixed; main loop intractable: giant SCC $\sim$150 vars \\
-    \texttt{ged1-ds2nd}               & \texttt{ce}          & (skip)     & same domain structure as \texttt{ged1-ds1} — skip \\
+    \texttt{ged1-ds2nd}               & \texttt{ce}          & --         & 45 vars, $h^*=1$ — much smaller than ds1; test all 3 strategies \\
     \texttt{psr-large}                & \texttt{ce}          & --         & \\
     \texttt{psr-middle}               & \texttt{ce}          & --         & \\
     \texttt{robot-horndl}             & \texttt{ce}          & --         & \\
@@ -5654,8 +5654,11 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{ged1-ds1}: failure mode~4 (axiom BFS, now mitigated) and
     failure mode~1 (giant SCC in main loop, fundamental).
 
-    \texttt{ged1-ds2nd} belongs to the same domain family and is skipped
-    without further testing.
+    \textbf{\texttt{ged1-ds2nd} is a different (much smaller) instance.}
+    Blind A* solves it with $h^* = 1$ (plan length~1) in 0.002\,s using
+    only 45 variables and 90 fact pairs.  This is roughly one fifth the
+    size of \texttt{ged1-ds1} and well within M\&S tractability bounds.
+    All three merge strategies should be tested.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

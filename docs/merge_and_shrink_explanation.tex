@@ -4767,7 +4767,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{grid-axioms}              & \texttt{pddl-axioms} & \checkmark & all 25 factors skipped ($n=32$) \\
     \texttt{miconic-axioms}           & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=h^*=2$, 2 factors built \\
     \texttt{blocker}                  & \texttt{pddl-axioms} & \checkmark & 8 factors built, 0 kept (trivial) \\
-    \texttt{blocks-axioms}            & \texttt{pddl-axioms} & (S4)       & SCCS only \\
+    \texttt{blocks-axioms}            & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=h^*=6$, 5 factors built \\
     \texttt{sokoban-axioms}           & \texttt{pddl-axioms} & (S4)       & SCCS only \\
     \texttt{ghosh-etal-JAR-acc-cc2}   & \texttt{pddl-axioms} & --         & \\
     \texttt{ghosh-etal-JAR-grid-cc2}  & \texttt{pddl-axioms} & --         & \\
@@ -4946,6 +4946,43 @@ for (const RelevantOperator &rop : relevant_ops) {
     SCCS), confirming that the merge-order strategies differ in their
     intermediate sizes while producing the same degenerate final factor on
     this instance.
+
+    \paragraph{Results: \texttt{blocks-axioms} probBLOCKS-4-0 (Step~5).}
+
+    The \texttt{blocks-axioms} domain expresses \texttt{clear} and
+    \texttt{handempty} as derived predicates that are used in operator
+    preconditions.  The instance has 34 variables (5 derived) and a plan
+    cost of 6 (stack $b$--$a$--$c$--$d$).
+
+    All three strategies build 5 axiom factors for derived variables 0, 26,
+    28, 29, and 30.  Each factor's BFS closure contains $n = 4$ primary
+    variables and 40 relevant operators.  Unlike \texttt{blocker}, the final
+    merged factor is \emph{non-trivial}: bisimulation preserves the
+    goal-distance structure, yielding a perfect heuristic.
+
+    \begin{center}
+    \begin{tabular}{lrrrr}
+    \toprule
+    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
+      & \textbf{Plan cost} & \textbf{Max intermediate} \\
+    \midrule
+    \texttt{blind}           & -- & 85  & 6   & -- \\
+    \texttt{SCCS}            & $6 = h^*$ & 7  & \textbf{6\,\checkmark} & 192 \\
+    \texttt{stateless DFP}   & $6 = h^*$ & 7  & \textbf{6\,\checkmark} & 192 \\
+    \texttt{stateless MIASM} & $6 = h^*$ & 7  & \textbf{6\,\checkmark} & 48  \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    All three strategies achieve the perfect heuristic ($h_{\mathrm{init}} =
+    6 = h^*$) and expand only 7 states vs.\ 85 for blind ($12\times$
+    improvement).  SCCS and DFP produce identical merge sequences and the
+    same maximum intermediate abstraction of 192 states.  MIASM reaches the
+    same quality with a 4$\times$ smaller intermediate abstraction (48 states)
+    at identical peak memory ($\approx$14.2\,MB).  This is the strongest
+    heuristic result so far in the Step~5 campaign: the axiom factors for
+    \texttt{clear}/\texttt{handempty} carry tight goal-distance information
+    that survives bisimulation and makes the heuristic exact on this instance.
 \end{itemize}
 
 % ─────────────────────────────────────────────────────────────────────────────

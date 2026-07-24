@@ -4781,7 +4781,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{drones-horndl}            & \texttt{ce}          & (skip)     & 1{,}128 vars — M\&S intractable ($O(n^2)$ scaling) \\
     \texttt{elevator-horndl}          & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=15$, 1\,893 states, max abs 576 \\
     \texttt{ged1-ds1}                 & \texttt{ce}          & (skip)     & axiom BFS fixed; main loop intractable: giant SCC $\sim$150 vars \\
-    \texttt{ged1-ds2nd}               & \texttt{ce}          & --         & 45 vars, $h^*=1$ — much smaller than ds1; test all 3 strategies \\
+    \texttt{ged1-ds2nd}               & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=1=h^*$, 2 states, max abs 206; MIASM 75$\times$ slower build \\
     \texttt{psr-large}                & \texttt{ce}          & --         & \\
     \texttt{psr-middle}               & \texttt{ce}          & --         & \\
     \texttt{robot-horndl}             & \texttt{ce}          & --         & \\
@@ -5658,7 +5658,22 @@ for (const RelevantOperator &rop : relevant_ops) {
     Blind A* solves it with $h^* = 1$ (plan length~1) in 0.002\,s using
     only 45 variables and 90 fact pairs.  This is roughly one fifth the
     size of \texttt{ged1-ds1} and well within M\&S tractability bounds.
-    All three merge strategies should be tested.
+
+    All three strategies complete successfully:
+    \begin{itemize}
+      \item \textbf{SCCS}: $h_{\mathrm{init}} = 1 = h^*$, 2 expanded states,
+            max abs 204, 15.7\,MB, build time 0.16\,s.
+      \item \textbf{stateless DFP}: $h_{\mathrm{init}} = 1 = h^*$, 2 states,
+            max abs 204, 15.3\,MB, build time 0.14\,s.
+      \item \textbf{stateless MIASM}: $h_{\mathrm{init}} = 1 = h^*$, 2 states,
+            max abs 206, 17.7\,MB, build time 11.3\,s.
+    \end{itemize}
+    All three strategies produce a perfect heuristic ($h_{\mathrm{init}} = h^*$),
+    expanding only 2 states.  MIASM is $\sim$75$\times$ slower to build
+    than SCCS or DFP but delivers no additional quality, consistent with
+    the pattern observed in \texttt{elevator-horndl}: when the problem is
+    small and the heuristic already tight, MIASM's overhead is not
+    justified.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

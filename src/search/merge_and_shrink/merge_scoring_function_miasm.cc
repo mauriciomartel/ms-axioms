@@ -86,7 +86,14 @@ vector<double> MergeScoringFunctionMIASM::compute_scores(
 void MergeScoringFunctionMIASM::initialize(const TaskProxy &task_proxy) {
     initialized = true;
     int num_variables = task_proxy.get_variables().size();
-    int max_factor_index = 2 * num_variables - 1;
+    int num_derived = 0;
+    for (VariableProxy var : task_proxy.get_variables()) {
+        if (var.is_derived()) {
+            ++num_derived;
+        }
+    }
+    int max_initial_factors = num_variables + num_derived;
+    int max_factor_index = 2 * max_initial_factors - 1;
     cached_scores_by_merge_candidate_indices.resize(
         max_factor_index, vector<optional<double>>(max_factor_index));
 }

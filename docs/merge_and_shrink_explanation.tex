@@ -4778,7 +4778,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{vta-roles-horndl}         & \texttt{pddl-axioms} & (skip)     & 373 vars, same VTA family as \texttt{vta-horndl} — skip \\
     \texttt{cats-horndl}              & \texttt{ce}          & \checkmark & $h_{\mathrm{init}}=h^*=4$, 7 factors, all 3 strategies perfect \\
     \texttt{collab-and-comm}          & \texttt{ce}          & \checkmark & SCCS/DFP: $h_{\mathrm{init}}=4$, 18 states; MIASM: $h_{\mathrm{init}}=3$, 527\,s \\
-    \texttt{drones-horndl}            & \texttt{ce}          & --         & \\
+    \texttt{drones-horndl}            & \texttt{ce}          & (skip)     & 1{,}128 vars — M\&S intractable ($O(n^2)$ scaling) \\
     \texttt{elevator-horndl}          & \texttt{ce}          & --         & \\
     \texttt{ged1-ds1}                 & \texttt{ce}          & --         & \\
     \texttt{ged1-ds2nd}               & \texttt{ce}          & --         & \\
@@ -5533,6 +5533,21 @@ for (const RelevantOperator &rop : relevant_ops) {
 
     All three strategies find a plan of cost~6~\checkmark{} and use
     approximately 340\,MB of peak memory.
+
+    \paragraph{Results: \texttt{drones-horndl} p01.}
+
+    The \texttt{drones-horndl} domain contains 1{,}128 variables and
+    2{,}279 fact pairs.  Blind A* finds the optimal plan of cost~6
+    ($h^* = 6$) by expanding 467 states in 0.075\,s.
+
+    \textbf{All three M\&S strategies are skipped.}  With 1{,}128
+    variables, the main merge loop requires $\sim$1{,}127 iterations,
+    each performing label reduction over all live transition systems.
+    The $O(n^2)$ scaling makes this intractable regardless of SCC
+    structure — the variable count alone exceeds the practical M\&S
+    limit by nearly an order of magnitude (cf.\ \texttt{vta-horndl}
+    at 372 vars, which was already intractable due to a 203-variable
+    SCC).
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

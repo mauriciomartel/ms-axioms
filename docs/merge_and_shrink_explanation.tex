@@ -5326,10 +5326,54 @@ for (const RelevantOperator &rop : relevant_ops) {
     \end{itemize}
 
     At $\sim$30--60\,s per step and growing cost, completing the SCC merge
-    would require several hours.  The root cause is identical to
-    \texttt{queens-horndl}: label reduction rescans an ever-growing pool of
-    live TSes at every step inside a giant SCC, and the $O(n^2)$ total work
-    is dominated by the size of that SCC, not by the axiom factors.
+    would require several hours.
+
+    \textbf{Root cause: label reduction inside a giant SCC.}  The 30--60\,s
+    per merge step is dominated by \texttt{exact} label reduction, which
+    re-processes \emph{every live transition system} at every iteration.
+    At the point where the SCC merge begins, there are $\sim$372
+    live TSes (all atomic factors plus 36 axiom factors, minus the 2
+    skipped).  As the SCC merge proceeds, the merged TS grows larger with
+    each step — more states, more transitions — making each label reduction
+    pass progressively more expensive.  This is the same $O(n^2)$
+    scaling diagnosed in \texttt{queens-horndl}, not a property of our
+    axiom-factor code.
+
+    \textbf{A new failure mode compared to \texttt{queens-horndl}.}
+    \texttt{queens-horndl} was intractable due to its total variable count
+    (3\,358 variables $\Rightarrow$ 4\,073 initial factors $\Rightarrow$
+    $\sim$16\,M label-reduction work units).  \texttt{vta-horndl} is
+    different: at 372 variables it is not unusually large, and M\&S has
+    handled comparable counts successfully (e.g.\ \texttt{tpsa-horndl},
+    103 variables, 17\,s build).  The trigger here is the \emph{causal
+    graph structure}: one SCC of $\sim$203 variables forces all those
+    variables to be merged sequentially in a single group, with the full
+    $\sim$372 live TSes in scope for label reduction throughout.  The
+    per-step cost is therefore proportional to the total factor count, not
+    just the SCC size, and the $O(n^2)$ wall is hit even though the
+    absolute variable count would otherwise be manageable.
+
+    In short: a domain with a few hundred variables can be intractable
+    for M\&S if its causal graph contains a large strongly-connected
+    component.  Total variable count is not the only predictor.
+
+    \textbf{Is this our implementation or M\&S in general?}  M\&S in
+    general.  The \texttt{exact} label-reduction method in vanilla Fast
+    Downward rescans all live TSes at every iteration; this is the
+    standard implementation, not a flaw introduced by our axiom work.
+    Removing all axiom factors from the pool would reduce the initial
+    count by 36 ($\sim$10\%), but the 203-variable SCC would still
+    require $\sim$200 sequential merge steps each scanning $\sim$330
+    live TSes — still several hours.  Our axiom factors are not the
+    root cause.
+
+    \textbf{Is this worth fixing?}  No, for the same reasons as
+    \texttt{queens-horndl}.  Reducing label-reduction cost would require
+    a partial or lazy reduction scheme (an active M\&S research topic
+    unrelated to axiom handling), or accepting a weaker label equivalence.
+    The ms-axioms project targets \emph{correctness} of axiom handling on
+    domains where M\&S is already tractable; scalability beyond the
+    tractability frontier is out of scope.
 
     This domain is \textbf{skipped} for M\&S validation.
 

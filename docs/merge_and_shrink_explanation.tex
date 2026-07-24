@@ -4774,7 +4774,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{queens-horndl}            & \texttt{pddl-axioms} & (skip)     & 3\,358 vars — bisimulation $\sim$100\,s/merge, est.\ 110\,h; $h^*=0$ \\
     \texttt{social-planning}          & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=2$, 49 factors built, 4 skipped ($n=11$) \\
     \texttt{tpsa-horndl}              & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=1$ ($h^*=7$), 30 factors, all M\&S slower than blind \\
-    \texttt{vta-horndl}               & \texttt{pddl-axioms} & --         & \\
+    \texttt{vta-horndl}               & \texttt{pddl-axioms} & (skip)     & 372 vars, giant SCC ($\sim$203 vars) — label reduction intractable \\
     \texttt{vta-roles-horndl}         & \texttt{pddl-axioms} & --         & \\
     \texttt{cats-horndl}              & \texttt{ce}          & --         & \\
     \texttt{collab-and-comm}          & \texttt{ce}          & --         & \\
@@ -5300,6 +5300,38 @@ for (const RelevantOperator &rop : relevant_ops) {
     successfully, so the domain validates the implementation but highlights
     that heuristic quality depends on domain structure, not just on whether
     axiom factors are constructed.
+
+    \paragraph{Testing on \texttt{vta-horndl} p01.}
+
+    The \texttt{vta-horndl} domain has 372 total variables, of which 38 are
+    derived (variables 0--35 built as axiom factors with $n=1$, 15 relevant
+    operators each; variable~175 skipped at $n=34$; variable~371 skipped at
+    $n=26$).  Blind A* finds the optimal plan of cost~7 ($h^*=7$) by
+    expanding only 684 states in 0.034\,s — a structurally large but
+    trivially easy instance.
+
+    SCC decomposition reveals one massive SCC of $\sim$203 variables
+    (variables 0--189 and several higher-indexed ones), with the remaining
+    $\sim$169 variables in singleton SCCs.  M\&S must merge all
+    $\sim$203 variables inside that SCC sequentially; label reduction
+    rescans all live transition systems at every step.
+
+    Observed timing (DFP-within-SCCS variant, aborted after $\sim$550\,s):
+    \begin{itemize}
+      \item Step~1 (merge pair 36, 69): label reduction 35\,s.
+      \item Steps~2--14: $\sim$30--32\,s each per merge step.
+      \item Step~15 (pair 94, 421): label reduction 62\,s (cost growing).
+      \item Step~16 in progress at abort — only $\sim$15 of $\sim$200
+            required steps completed.
+    \end{itemize}
+
+    At $\sim$30--60\,s per step and growing cost, completing the SCC merge
+    would require several hours.  The root cause is identical to
+    \texttt{queens-horndl}: label reduction rescans an ever-growing pool of
+    live TSes at every step inside a giant SCC, and the $O(n^2)$ total work
+    is dominated by the size of that SCC, not by the axiom factors.
+
+    This domain is \textbf{skipped} for M\&S validation.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

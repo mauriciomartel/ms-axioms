@@ -4773,7 +4773,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{ghosh-etal-JAR-grid-cc2}  & \texttt{pddl-axioms} & (skip)     & 94\,772 vars — M\&S intractable, aborted \\
     \texttt{queens-horndl}            & \texttt{pddl-axioms} & (skip)     & 3\,358 vars — bisimulation $\sim$100\,s/merge, est.\ 110\,h; $h^*=0$ \\
     \texttt{social-planning}          & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=2$, 49 factors built, 4 skipped ($n=11$) \\
-    \texttt{tpsa-horndl}              & \texttt{pddl-axioms} & --         & \\
+    \texttt{tpsa-horndl}              & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=1$ ($h^*=7$), 30 factors, all M\&S slower than blind \\
     \texttt{vta-horndl}               & \texttt{pddl-axioms} & --         & \\
     \texttt{vta-roles-horndl}         & \texttt{pddl-axioms} & --         & \\
     \texttt{cats-horndl}              & \texttt{ce}          & --         & \\
@@ -5247,6 +5247,59 @@ for (const RelevantOperator &rop : relevant_ops) {
     search effort by $2.4\times$ compared to blind (8\,905 vs.\ 21\,109
     states), confirming that even partial axiom-factor coverage provides
     useful guidance.
+
+    \paragraph{Results: \texttt{tpsa-horndl} p01.}
+
+    The \texttt{tpsa-horndl} domain encodes a telecom provisioning workflow
+    with Datalog-style derived predicates (\texttt{datalog\_*}).  The instance
+    has 103 variables, of which 30 are derived.  Blind A* finds the optimal
+    plan of cost~7 ($h^* = 7$) by expanding 456\,077 states in 17.15\,s.
+
+    \textbf{Axiom factor construction} builds all 30 factors successfully
+    (none skipped).  A notable structural case is variable~0, which has
+    $n = 0$ primary variables — a derived predicate with no primary-variable
+    dependency — making it the first such case encountered in testing.
+    Variable~22 carries the largest factor load (1\,791 relevant operators).
+    SCC decomposition finds one large SCC of 22 variables
+    $\{1, 22, 3, 12, 21, 2, 4, 13, 5, 14, 6, 15, 7, 16, 8, 17, 9, 18, 10, 19, 11, 20\}$,
+    triggering $\sim$21 sequential bisimulation steps inside that component.
+
+    \begin{center}
+    \begin{tabular}{lrrrrrr}
+    \toprule
+    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
+      & \textbf{Plan cost} & \textbf{Factors} & \textbf{Max abs.} & \textbf{Time} \\
+    \midrule
+    \texttt{blind}           & -- & 456\,077 & 7   & --          & --     & 17.15\,s \\
+    \texttt{SCCS}            & 1  & 417\,929 & \textbf{7\,\checkmark} & 30 built & 34      & 46.2\,s \\
+    \texttt{stateless DFP}   & 1  & 417\,929 & \textbf{7\,\checkmark} & 30 built & 1\,028  & 48.8\,s \\
+    \texttt{stateless MIASM} & 1  & 417\,929 & \textbf{7\,\checkmark} & 30 built & 6\,146  & 70.1\,s \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    All three strategies confirm plan cost~$7 = h^*$.  Bisimulation shrinks
+    aggressively: SCCS collapses the final abstraction to just 34 states,
+    DFP to 1\,028, and MIASM (which chooses merge pairs to maximise
+    intermediate precision) to 6\,146.  In every case the resulting
+    $h_{\mathrm{init}} = 1$ is far below $h^* = 7$, providing only marginal
+    guidance: M\&S prunes dead ends and expands 417\,929 states vs.\
+    blind's 456\,077 ($\sim$8\% fewer), but the heuristic evaluation
+    overhead means all three configurations run slower than blind overall.
+
+    MIASM's build time of 38\,s (vs.\ $\sim$17\,s for SCCS and DFP)
+    reflects expensive merge-pair scoring: the very first scoring pass
+    alone takes 13.5\,s.  MIASM peak memory increase from M\&S is only
+    5.4\,MB; the dominant memory cost ($\sim$258\,MB peak for the
+    full process) comes from the search phase with 4.6\,M evaluated states.
+
+    This domain illustrates a fundamental limitation: when bisimulation
+    shrinking produces a very coarse abstraction ($h_{\mathrm{init}} \ll h^*$),
+    M\&S can be slower than blind despite correct and admissible heuristic
+    values.  The axiom-factor machinery is correct and all factors build
+    successfully, so the domain validates the implementation but highlights
+    that heuristic quality depends on domain structure, not just on whether
+    axiom factors are constructed.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

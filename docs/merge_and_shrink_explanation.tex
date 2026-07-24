@@ -4775,7 +4775,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{social-planning}          & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=2$, 49 factors built, 4 skipped ($n=11$) \\
     \texttt{tpsa-horndl}              & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=1$ ($h^*=7$), 30 factors, all M\&S slower than blind \\
     \texttt{vta-horndl}               & \texttt{pddl-axioms} & (skip)     & 372 vars, giant SCC ($\sim$203 vars) — label reduction intractable \\
-    \texttt{vta-roles-horndl}         & \texttt{pddl-axioms} & (skip)     & 372 vars, identical structure to \texttt{vta-horndl} — skip \\
+    \texttt{vta-roles-horndl}         & \texttt{pddl-axioms} & (skip)     & 373 vars, same VTA family as \texttt{vta-horndl} — skip \\
     \texttt{cats-horndl}              & \texttt{ce}          & --         & \\
     \texttt{collab-and-comm}          & \texttt{ce}          & --         & \\
     \texttt{drones-horndl}            & \texttt{ce}          & --         & \\
@@ -5422,13 +5422,12 @@ for (const RelevantOperator &rop : relevant_ops) {
 
     \paragraph{Testing on \texttt{vta-roles-horndl} p01.}
 
-    Blind A* on \texttt{vta-roles-horndl} produces an output that is
-    structurally identical to \texttt{vta-horndl}: 372 variables, 757
-    fact pairs, 684 states expanded, plan cost~7 ($h^*=7$), and the
-    same 7-action plan.  The ``roles'' variant uses a slightly different
-    encoding of derived predicates (\texttt{datalog\_*}, 5 predicates
-    vs.\ 4 in \texttt{vta-horndl}), but the grounded task is the same
-    size and search space.
+    Blind A* on \texttt{vta-roles-horndl} gives 373 variables (one more
+    than \texttt{vta-horndl}'s 372), 759 fact pairs, 1\,133 states
+    expanded, plan cost~7 ($h^*=7$), and the same 7-action VTA service
+    composition plan.  The ``roles'' variant adds one extra derived
+    predicate (5 vs.\ 4 in \texttt{vta-horndl}), slightly enlarging
+    the state space but leaving the domain structure essentially the same.
 
     Given this structural identity, M\&S will encounter the same giant
     SCC of $\sim$203 variables and the same label-reduction bottleneck

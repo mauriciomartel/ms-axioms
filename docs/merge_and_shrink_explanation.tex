@@ -5153,30 +5153,55 @@ for (const RelevantOperator &rop : relevant_ops) {
     correctly.
 
     \textbf{The merge loop is intractable.}  SCC decomposition
-    produces a single massive SCC that contains hundreds of axiom
-    factors together with many primary variables.  Once the merge loop
-    enters this SCC each bisimulation shrinking step was measured at
-    approximately 100\,s.  The full merge loop requires $n - 1 = 3\,357$
-    iterations, giving an estimated run time of roughly \textbf{110\,hours}
-    for a single strategy.
+    produces a single massive SCC containing hundreds of axiom factors
+    together with many primary variables.  Each merge step was measured
+    at approximately 100\,s, and the full loop requires $n - 1 = 3\,357$
+    iterations — an estimated \textbf{110\,hours} for a single strategy.
 
-    This bottleneck is qualitatively different from \texttt{ghosh-etal-JAR-grid-cc2}:
+    \textbf{Root cause: label reduction, not bisimulation.}  The 100\,s
+    per step is dominated by \texttt{exact} label reduction, which
+    re-processes \emph{every live transition system} at every iteration.
+    After axiom factor construction, there are approximately $3\,358 +
+    715 = 4\,073$ initial factors.  With thousands of live TSes and
+    thousands of iterations remaining, the cumulative label-reduction
+    cost is $O(n^2)$ in the factor count — the same fundamental scaling
+    problem that makes \texttt{ghosh-etal-JAR-grid-cc2} impossible, just
+    at a scale where construction succeeds but the merge loop does not.
+
+    \textbf{Does our implementation make it worse?}  Slightly.  Adding
+    715 axiom factors on top of the 3\,358 atomic factors increases the
+    initial pool by $\sim$21\%, which compounds the per-step label
+    reduction cost.  But even without axiom factors, queens-horndl at
+    3\,358 primary variables alone would be very slow for M\&S.  The
+    axiom factors are not the root cause.
+
+    \textbf{Comparison with \texttt{ghosh-etal-JAR-grid-cc2}.}  Both
+    domains hit the same fundamental $O(n^2)$ scaling wall, but at
+    different stages:
     \begin{itemize}
-      \item \texttt{ghosh-etal-JAR-grid-cc2} fails at \emph{atomic factor
-            construction} due to 94\,772 variables — the task is simply
-            too large for M\&S at any step.
-      \item \texttt{queens-horndl} (3\,358 variables) builds all axiom
-            factors fine, but \emph{bisimulation shrinking inside the
-            merge loop} becomes the bottleneck.  At $\sim$100\,s per
-            merge step the $O(n^2)$ cost of the merge loop dominates:
-            3\,358 variables still produces more than 3\,000 merge
-            iterations, each invoking an expensive shrinking pass.
+      \item \texttt{ghosh-etal-JAR-grid-cc2} (94\,772 vars) fails at
+            \emph{atomic construction}: iterating over operators in a
+            94\,772-variable task is already slow, and 94\,000 merge
+            iterations would be obviously impossible.
+      \item \texttt{queens-horndl} (3\,358 vars) passes construction
+            but fails in the \emph{merge loop}: the task size is
+            borderline, construction works, but $\sim$4\,000 merge
+            steps with thousands of live TSes for label reduction is
+            prohibitive.
     \end{itemize}
+    Both cases are fundamental M\&S limits, not implementation defects.
+
+    \textbf{Is this worth fixing?}  No, for the same reasons as
+    \texttt{ghosh-etal-JAR-grid-cc2}.  Fixing the quadratic scaling of
+    label reduction would be a core M\&S research problem entirely
+    separate from axiom handling.  The ms-axioms project targets
+    \emph{correctness} of axiom handling inside M\&S on the domains for
+    which M\&S is tractable (tens to $\sim$1\,000 variables); scalability
+    beyond that range is out of scope.
 
     Additionally, since $h^* = 0$ for this instance, any admissible
-    heuristic (including $h = 0$) trivially matches optimal.  Even if
-    M\&S completed, the result would provide no meaningful validation
-    of heuristic quality.
+    heuristic trivially matches optimal.  Even if M\&S completed, the
+    result would provide no meaningful validation of heuristic quality.
 
     This domain is \textbf{skipped} for M\&S validation.
 

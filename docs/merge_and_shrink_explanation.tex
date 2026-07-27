@@ -4788,7 +4788,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{robotConj-horndl}         & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=2$, 4 exp, max abs 12; MIASM $\approx$ DFP speed \\
     \texttt{snowman-reachability}     & \texttt{ce}          & (skip)     & 1{,}288 vars — M\&S intractable ($O(n^2)$ scaling); most axiom factors skip ($n>25$) \\
     \texttt{taskassign-horndl}        & \texttt{ce}          & \checkmark & all 3: $h_{\mathrm{init}}=2=h^*$, 3 exp; DFP 2.6$\times$ faster than SCCS; MIASM 11$\times$ slower \\
-    \texttt{word-rooms}               & \texttt{ce}          & \checkmark & SCCS: $h_{\mathrm{init}}=2$, 2{,}035 exp, 114.5\,s (joint-factor fix; was 371\,s/4{,}102 exp pre-fix); DFP: pending; MIASM: impractical (${\approx}25$\,s/merge, proj.\ $>$3\,h) \\
+    \texttt{word-rooms}               & \texttt{ce}          & \checkmark & SCCS: $h_{\mathrm{init}}=2$, 2{,}035 exp, 114.5\,s; DFP: 88.9\,s, max abs 16, 23\,MB (26\,s faster than SCCS; pre-fix DFP was 44\,s \emph{slower}); MIASM: impractical (${\approx}25$\,s/merge, proj.\ $>$3\,h) \\
     \midrule
     \multicolumn{4}{l}{\textit{Phase~1 only — axioms in goal conditions (5)}} \\
     \midrule
@@ -5869,8 +5869,9 @@ for (const RelevantOperator &rop : relevant_ops) {
       \item \textbf{SCCS (topological)}: $h_{\mathrm{init}} = 2$,
             2{,}035 expanded (vs.\ blind's 7{,}782; 74\% reduction),
             build 114.5\,s (total, including axiom phase), search 0.18\,s.
-      \item \textbf{Stateless DFP}: results pending re-run with the
-            joint-factor binary.
+      \item \textbf{Stateless DFP}: $h_{\mathrm{init}} = 2$,
+            2{,}035 expanded, max abs 16, peak memory 23.2\,MB,
+            build 88.9\,s (26\,s \emph{faster} than SCCS; 0.2\,s search).
       \item \textbf{Stateless MIASM}: impractical.  Each call to
             compute the next merge pair takes 24--25\,s due to MIASM's
             internal simulate-and-score loop over all candidate pairs.
@@ -5887,14 +5888,21 @@ for (const RelevantOperator &rop : relevant_ops) {
     The three large SCCs force bisimulation to approximate aggressively,
     yet still fail to capture the domain's epistemic structure.  Second,
     the joint-factor fix reduces total build time from $\approx 371$\,s to
-    $\approx 115$\,s for SCCS, a $3.2\times$ speedup, mainly because grouping
-    80+ individual per-variable BFS runs into two joint BFS runs eliminates
-    redundant reachability work over shared primary variables.  Third,
-    MIASM's per-step scoring cost makes it completely cost-ineffective for
-    any domain with hundreds of variables.
+    $\approx 115$\,s for SCCS ($3.2\times$ speedup) and $\approx 89$\,s for
+    DFP ($4.7\times$ speedup), mainly because grouping 80$+$ individual
+    per-variable BFS runs into two joint BFS runs eliminates redundant
+    reachability work over shared primary variables.  Third, the joint-factor
+    fix \emph{reverses} the DFP vs.\ SCCS ordering: pre-fix, DFP was 44\,s
+    \emph{slower} than SCCS (due to stateless-ordering overhead on large SCCs);
+    post-fix, DFP is 26\,s \emph{faster} (max abs 16 vs.\ SCCS's larger
+    intermediate abstractions), showing that DFP's transition-reducing merge
+    selection is more sensitive to the structure of the resulting factor graph.
+    Fourth, MIASM's per-step scoring cost makes it completely
+    cost-ineffective for any domain with hundreds of variables.
     Overall, M\&S is cost-ineffective for \texttt{word-rooms}: neither
-    heuristic quality nor search reduction justifies the multi-minute build
-    time and gigabyte memory footprint.
+    heuristic quality nor search reduction justifies the build time
+    (89--115\,s), even though the gigabyte memory cost is eliminated by the
+    joint-factor fix.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

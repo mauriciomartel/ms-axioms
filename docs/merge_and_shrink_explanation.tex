@@ -4784,7 +4784,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{ged1-ds2nd}               & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=1=h^*$, 2 states, max abs 206; MIASM 75$\times$ slower build \\
     \texttt{psr-large}                & \texttt{ce}          & \checkmark & all 3: $h_{\mathrm{init}}=1$, 50k ceiling; SCCS 26 exp/0.7\,s, DFP 25/1.2\,s, MIASM 24/17\,s \\
     \texttt{psr-middle}               & \texttt{ce}          & \checkmark & SCCS: $h_{\mathrm{init}}=2$, 13 exp; DFP: 9 exp (best); MIASM: 13 exp, 143$\times$ slower build \\
-    \texttt{robot-horndl}             & \texttt{ce}          & --         & \\
+    \texttt{robot-horndl}             & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=2$, 4 exp, max abs 6; MIASM only 2$\times$ slower \\
     \texttt{robotConj-horndl}         & \texttt{ce}          & --         & \\
     \texttt{snowman-reachability}     & \texttt{ce}          & --         & \\
     \texttt{taskassign-horndl}        & \texttt{ce}          & --         & \\
@@ -5740,6 +5740,40 @@ for (const RelevantOperator &rop : relevant_ops) {
     for this domain.  Compared with \texttt{psr-large}, the more distributed
     SCC structure of \texttt{psr-middle} allows SCCS to avoid the ceiling,
     yielding a better $h_{\mathrm{init}}$ despite a larger variable count.
+
+% ─────────────────────────────────────────────────────────────────────────────
+    \paragraph{Results: \texttt{robot-horndl}.}
+
+    The \texttt{robot-horndl} domain (38 variables, 76 fact pairs) models a
+    robot navigating a grid; derived variables encode reachability and
+    adjacency relations via Datalog-style axioms.
+    Blind A* finds the optimal plan of cost~3 by expanding 7 states in
+    0.002\,s.
+
+    The SCC decomposition yields one large SCC of 37 variables
+    (\texttt{vars 0--36}) and one singleton (\texttt{var 37}).
+    Despite the 37-variable SCC, exact bisimulation collapses the product
+    space to at most \textbf{6 abstract states} — the tightest abstraction
+    seen in any Phase~2 domain.  All three merge strategies produce
+    identical abstractions and identical search behaviour.
+
+    \begin{itemize}
+      \item \textbf{SCCS}: $h_{\mathrm{init}} = 2$, 4 expanded states,
+            max abs 6, 13.1\,MB, build 0.019\,s.
+      \item \textbf{Stateless DFP}: $h_{\mathrm{init}} = 2$, 4 expanded,
+            max abs 6, 13.1\,MB, build 0.012\,s (1.6$\times$ faster
+            than SCCS).
+      \item \textbf{Stateless MIASM}: $h_{\mathrm{init}} = 2$, 4 expanded,
+            max abs 6, 13.3\,MB, build 0.027\,s (2.3$\times$ slower
+            than DFP).
+    \end{itemize}
+
+    All strategies achieve $h_{\mathrm{init}} = 2$ (blind: 1) and reduce
+    expanded states from 7 to~4.  Because the abstraction collapses to
+    only 6 states regardless of merge order, MIASM's overhead is negligible
+    (2$\times$ vs DFP, compared with 143$\times$ on \texttt{psr-middle}).
+    The 17 axiom factors are all small (1--7 primary vars, 2--4 ops) and
+    are processed quickly without triggering the work-estimate guard.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

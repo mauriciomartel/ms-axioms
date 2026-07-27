@@ -4783,7 +4783,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{ged1-ds1}                 & \texttt{ce}          & (skip)     & axiom BFS fixed; main loop intractable: giant SCC $\sim$150 vars \\
     \texttt{ged1-ds2nd}               & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=1=h^*$, 2 states, max abs 206; MIASM 75$\times$ slower build \\
     \texttt{psr-large}                & \texttt{ce}          & \checkmark & all 3: $h_{\mathrm{init}}=1$, 50k ceiling; SCCS 26 exp/0.7\,s, DFP 25/1.2\,s, MIASM 24/17\,s \\
-    \texttt{psr-middle}               & \texttt{ce}          & --         & \\
+    \texttt{psr-middle}               & \texttt{ce}          & \checkmark & SCCS: $h_{\mathrm{init}}=2$, 13 exp; DFP: 9 exp (best); MIASM: 13 exp, 143$\times$ slower build \\
     \texttt{robot-horndl}             & \texttt{ce}          & --         & \\
     \texttt{robotConj-horndl}         & \texttt{ce}          & --         & \\
     \texttt{snowman-reachability}     & \texttt{ce}          & --         & \\
@@ -5707,6 +5707,39 @@ for (const RelevantOperator &rop : relevant_ops) {
     for a tight initial-state estimate.  MIASM's $26\times$ build overhead
     yields only 2 fewer expanded states compared to SCCS — not cost-effective
     for this domain.
+
+% ─────────────────────────────────────────────────────────────────────────────
+    \paragraph{Results: \texttt{psr-middle}.}
+
+    The \texttt{psr-middle} domain (65 variables, 130 fact pairs) is a smaller
+    variant of the same power system routing family as \texttt{psr-large}.
+    Blind A* finds the optimal plan of cost~4 (plan length~4) by expanding
+    18 states in 0.003\,s.
+
+    The SCC decomposition yields a 19-variable SCC (\texttt{vars 0--18})
+    and four 5-variable SCCs plus singletons.  Unlike \texttt{psr-large},
+    SCCS stays below the 50\,000-state ceiling (max abs 27\,318), allowing
+    it to record tighter distance information and raise $h_{\mathrm{init}}$
+    from 1 to~2.
+
+    \begin{itemize}
+      \item \textbf{SCCS}: $h_{\mathrm{init}} = 2$, 13 expanded states,
+            max abs 27\,318, 28.9\,MB, build 0.50\,s.
+      \item \textbf{Stateless DFP}: $h_{\mathrm{init}} = 2$, 9 expanded
+            (best), max abs 48\,294, 32.5\,MB, build 0.91\,s
+            (1.8$\times$ slower than SCCS).
+      \item \textbf{Stateless MIASM}: $h_{\mathrm{init}} = 2$, 13 expanded,
+            max abs 49\,886, 40.0\,MB, build 71.3\,s (143$\times$ slower
+            than SCCS).
+    \end{itemize}
+
+    DFP is the standout performer: its merge order preserves tighter
+    $h$-values and reduces expanded states from 13 (SCCS/MIASM) to~9,
+    while staying below the 50k ceiling.  MIASM matches SCCS in search
+    quality but takes 143$\times$ longer to build — not cost-effective
+    for this domain.  Compared with \texttt{psr-large}, the more distributed
+    SCC structure of \texttt{psr-middle} allows SCCS to avoid the ceiling,
+    yielding a better $h_{\mathrm{init}}$ despite a larger variable count.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

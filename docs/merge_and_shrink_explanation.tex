@@ -4782,7 +4782,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{elevator-horndl}          & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=15$, 1\,893 states, max abs 576 \\
     \texttt{ged1-ds1}                 & \texttt{ce}          & (skip)     & axiom BFS fixed; main loop intractable: giant SCC $\sim$150 vars \\
     \texttt{ged1-ds2nd}               & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=1=h^*$, 2 states, max abs 206; MIASM 75$\times$ slower build \\
-    \texttt{psr-large}                & \texttt{ce}          & --         & \\
+    \texttt{psr-large}                & \texttt{ce}          & \checkmark & all 3: $h_{\mathrm{init}}=1$, 50k ceiling; SCCS 26 exp/0.7\,s, DFP 25/1.2\,s, MIASM 24/17\,s \\
     \texttt{psr-middle}               & \texttt{ce}          & --         & \\
     \texttt{robot-horndl}             & \texttt{ce}          & --         & \\
     \texttt{robotConj-horndl}         & \texttt{ce}          & --         & \\
@@ -5674,6 +5674,39 @@ for (const RelevantOperator &rop : relevant_ops) {
     the pattern observed in \texttt{elevator-horndl}: when the problem is
     small and the heuristic already tight, MIASM's overhead is not
     justified.
+
+% ─────────────────────────────────────────────────────────────────────────────
+    \paragraph{Results: \texttt{psr-large}.}
+
+    The \texttt{psr-large} domain (30 variables, 60 fact pairs) models power
+    system routing; derived variables encode circuit-level reachability.
+    Blind A* finds the optimal plan of cost~6 (plan length~6) by expanding
+    90 states in 0.004\,s.
+
+    The SCC decomposition yields one large SCC of 19 variables
+    (\texttt{vars 0--18}) and 11 singleton SCCs (\texttt{vars 19--29}).
+    The 19-variable SCC forces the bisimulation to work on a large product
+    space; all three strategies hit the \texttt{max\_states} ceiling of
+    50\,000 and must return a lossy approximation.
+
+    \begin{itemize}
+      \item \textbf{SCCS}: $h_{\mathrm{init}} = 1$, 26 expanded states,
+            max abs 48\,992, 22.3\,MB, build 0.66\,s.
+      \item \textbf{Stateless DFP}: $h_{\mathrm{init}} = 1$, 25 expanded,
+            max abs 48\,992, 27.7\,MB, build 1.22\,s (2$\times$ slower
+            than SCCS).
+      \item \textbf{Stateless MIASM}: $h_{\mathrm{init}} = 1$, 24 expanded,
+            max abs 49\,958, 24.7\,MB, build 16.9\,s (26$\times$ slower
+            than SCCS).
+    \end{itemize}
+
+    Despite $h_{\mathrm{init}} = 1$ for all strategies (same as blind),
+    the M\&S heuristic guides intermediate states better: expanded states
+    drop from 90 (blind) to 24--26 (M\&S).  However, the 50k ceiling
+    prevents the abstraction from capturing enough distance information
+    for a tight initial-state estimate.  MIASM's $26\times$ build overhead
+    yields only 2 fewer expanded states compared to SCCS — not cost-effective
+    for this domain.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

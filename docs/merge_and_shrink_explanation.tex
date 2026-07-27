@@ -5848,6 +5848,18 @@ for (const RelevantOperator &rop : relevant_ops) {
     consistent with the pattern observed on \texttt{psr-middle}.
 
 % ─────────────────────────────────────────────────────────────────────────────
+    \paragraph{Results: \texttt{word-rooms}.}
+
+    The \texttt{word-rooms} domain (431 variables, epistemic planning;
+    derived variables encode \texttt{letter-state} predicates with 23
+    possible values) is the largest domain in the Phase~2 test suite.
+    Blind A* expands 7{,}782 states in 0.507\,s with $h_{\mathrm{init}} = 1$.
+    The optimal cost is $h^* = 9$.  The domain has over 80 goal-derived
+    variables whose $S_d$ closures mutually overlap, exposing a soundness
+    problem in the per-variable factor construction that required the fix
+    described in the next section.
+
+% ─────────────────────────────────────────────────────────────────────────────
     \paragraph{Joint axiom factor construction: soundness fix for overlapping
       $S_d$ sets.}
     \label{sec:joint-factor}
@@ -5871,11 +5883,10 @@ for (const RelevantOperator &rop : relevant_ops) {
     the abstract goal distance relative to the concrete optimum.  The
     heuristic is therefore no longer guaranteed to be admissible.
 
-    \textbf{Detection.}  This bug was exposed by the \texttt{word-rooms}
-    domain (431 variables, $h^* = 9$), which has over 80 goal-derived
-    variables whose $S_d$ closures mutually overlap.  The per-variable
-    implementation produced incorrect heuristic values for this domain;
-    the joint-factor fix below restored correctness.
+    \textbf{Detection.}  This bug was exposed by \texttt{word-rooms}:
+    with 80$+$ goal-derived variables whose $S_d$ closures mutually
+    overlap, the per-variable implementation produced incorrect heuristic
+    values; the joint-factor fix below restored correctness.
 
     \textbf{Fix: union-find grouping.}
     Before building any axiom factors, all goal-derived variables are
@@ -5968,20 +5979,9 @@ int build_axiom_factor(
     the seed constraint, so the overhead is incurred only during the
     transitional period.
 
-    The fix is validated on the \texttt{word-rooms} domain, which both
-    \emph{exposed} the soundness problem and serves as the primary stress
-    test for joint factor construction; see results in
-    Section~\ref{par:word-rooms}.
-
 % ─────────────────────────────────────────────────────────────────────────────
-    \paragraph{Results: \texttt{word-rooms}.}
+    \paragraph{New results: \texttt{word-rooms} (joint-factor fix).}
     \label{par:word-rooms}
-
-    The \texttt{word-rooms} domain (431 variables, epistemic planning;
-    derived variables encode \texttt{letter-state} predicates with 23
-    possible values) is the largest domain in the Phase~2 test suite.
-    Blind A* expands 7{,}782 states in 0.507\,s with $h_{\mathrm{init}} = 1$.
-    The optimal cost is $h^* = 9$.
 
     The SCC decomposition yields three large SCCs (136, 72, and 72
     variables respectively) plus many singletons.  The domain has over

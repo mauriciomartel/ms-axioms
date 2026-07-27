@@ -5848,6 +5848,127 @@ for (const RelevantOperator &rop : relevant_ops) {
     consistent with the pattern observed on \texttt{psr-middle}.
 
 % ─────────────────────────────────────────────────────────────────────────────
+    \paragraph{Joint axiom factor construction: soundness fix for overlapping
+      $S_d$ sets.}
+    \label{sec:joint-factor}
+
+    \textbf{The soundness problem.}
+    The per-variable design builds one factor $\Theta_{S_d,d}$ per
+    goal-derived variable $d$.  This is sound when every pair of
+    goal-derived variables has \emph{disjoint} primary-variable closures:
+    each factor encodes a distinct subset of primary variables, so the
+    merged FTS has no duplicate encodings.
+
+    When two goal-derived variables $d_1$ and $d_2$ share at least one
+    primary variable (i.e.\ $S_{d_1} \cap S_{d_2} \neq \emptyset$), the
+    two separate factors both contain that primary variable.  In the merged
+    FTS a product state $(s_1, s_2)$ with $s_1 \in \Theta_{S_{d_1},d_1}$
+    and $s_2 \in \Theta_{S_{d_2},d_2}$ can assign \emph{conflicting} values
+    to the shared variable: value $a$ in $s_1$ and value $b \neq a$ in
+    $s_2$.  Such states are unreachable in the concrete planning problem
+    (a variable holds one value at a time), but the abstract FTS treats them
+    as real, introducing spurious transitions that can shorten or lengthen
+    the abstract goal distance relative to the concrete optimum.  The
+    heuristic is therefore no longer guaranteed to be admissible.
+
+    \textbf{Detection.}  This bug was exposed by the \texttt{word-rooms}
+    domain (431 variables, $h^* = 9$), which has over 80 goal-derived
+    variables whose $S_d$ closures mutually overlap.  The per-variable
+    implementation produced incorrect heuristic values for this domain;
+    the joint-factor fix below restored correctness.
+
+    \textbf{Fix: union-find grouping.}
+    Before building any axiom factors, all goal-derived variables are
+    partitioned into \emph{overlap-connected groups} using a two-phase
+    procedure implemented in \texttt{merge\_and\_shrink\_algorithm.cc}:
+
+    \begin{enumerate}
+      \item \textbf{Compute primary-variable closures (new free function).}
+        A new function
+\begin{lstlisting}[language=C++]
+unordered_set<int> compute_axiom_factor_primary_vars(
+    const TaskProxy &task_proxy, int derived_var_id);
+\end{lstlisting}
+        is declared in \texttt{fts\_factory.h} and defined in
+        \texttt{fts\_factory.cc}.  It performs a BFS over the axiom rules
+        to find the full primary-variable closure $S_d$ of a single derived
+        variable: the queue is seeded with \texttt{derived\_var\_id}; for
+        each axiom that \emph{produces} a variable already in the visited
+        set, all of that axiom's primary-variable preconditions are added
+        to the result set and all derived-variable preconditions are added
+        to the BFS queue.  The result is the exact set $S_d$.
+
+      \item \textbf{Union-find grouping.}
+        A union-find structure is initialised with one component per
+        goal-derived variable.  For every ordered pair $(d_1, d_2)$ of
+        goal-derived variables, if $S_{d_1} \cap S_{d_2} \neq \emptyset$
+        (checked by iterating over $S_{d_1}$ and testing membership in
+        $S_{d_2}$) the two components are merged.  After all merges,
+        each resulting component is a joint group whose members are built
+        into a single factor.
+    \end{enumerate}
+
+    \textbf{Updated \texttt{build\_axiom\_factor} signature.}
+    The function signature in \texttt{fts\_factory.h/.cc} was changed from a
+    single derived variable to a group vector:
+\begin{lstlisting}[language=C++]
+// Old (per variable, single derived var):
+int build_axiom_factor(
+    const TaskProxy &task_proxy,
+    int derived_var_id,
+    FactoredTransitionSystem &fts,
+    utils::LogProxy &log);
+
+// New (per group, with optional pending-variable output):
+int build_axiom_factor(
+    const TaskProxy &task_proxy,
+    const vector<int> &derived_var_ids,
+    FactoredTransitionSystem &fts,
+    utils::LogProxy &log,
+    vector<int> *out_pending_var_order = nullptr,
+    vector<vector<int>> *out_state_pending_values = nullptr);
+\end{lstlisting}
+
+    The BFS is seeded with \emph{all} members of \texttt{derived\_var\_ids}
+    simultaneously (one queue entry per group member).  The product state
+    space is $\prod_{p \in S} D_p$ where $S = \bigcup_{d \in \text{group}}
+    S_d$.  Goal states are those in which \emph{every} member $d$ of the
+    group reaches its required goal value given the primary-variable
+    assignment of the current product state.
+
+    \textbf{Pending variable tracking.}
+    When a joint axiom factor is built, its primary variables are already
+    encoded in the factor but the corresponding \emph{atomic} factors for
+    those same variables have not yet been merged in.  Until that merge
+    happens the two copies of each shared primary variable must not be
+    lossily collapsed by shrinking, otherwise the axiom factor loses
+    information needed to distinguish states after the merge.  Three member
+    variables of \texttt{MergeAndShrinkAlgorithm} (declared in
+    \texttt{merge\_and\_shrink\_algorithm.h}) track this constraint:
+
+    \begin{itemize}
+      \item \texttt{axiom\_factor\_pending\_vars[i]}: the set of primary
+        variable indices that factor $i$ shares with atomic factors not yet
+        merged into it.
+      \item \texttt{axiom\_factor\_pending\_var\_order[i]}: the same
+        variables as an ordered list; determines the column order of the
+        value table below.
+      \item \texttt{axiom\_factor\_pending\_values[i]}: for each abstract
+        state of factor $i$, the tuple of concrete values of the pending
+        primary variables.  When shrinking is requested for factor $i$
+        before all pending merges are done, the equivalence-relation
+        computation is replaced by
+        \texttt{compute\_equivalence\_relation\_with\_seed}, which only
+        collapses states that agree on every pending variable value.
+    \end{itemize}
+
+    Once the atomic factor for a pending variable is merged into the axiom
+    factor, that variable is removed from the pending set.  Subsequent
+    shrinking of the (now-merged) factor uses normal bisimulation without
+    the seed constraint, so the overhead is incurred only during the
+    transitional period.
+
+% ─────────────────────────────────────────────────────────────────────────────
     \paragraph{Results: \texttt{word-rooms}.}
 
     The \texttt{word-rooms} domain (431 variables, epistemic planning;

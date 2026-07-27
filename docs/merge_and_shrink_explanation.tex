@@ -6,6 +6,7 @@
 \usepackage{listings}
 \usepackage{xcolor}
 \usepackage{booktabs}
+\usepackage{tabularx}
 \usepackage{parskip}
 
 \lstset{
@@ -4758,7 +4759,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \smallskip
     \begin{center}
     \small
-    \begin{tabular}{llcc}
+    \begin{tabularx}{\linewidth}{llcX}
     \toprule
     \textbf{Domain} & \textbf{Folder} & \textbf{Status} & \textbf{Result summary} \\
     \midrule
@@ -4788,7 +4789,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{robotConj-horndl}         & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=2$, 4 exp, max abs 12; MIASM $\approx$ DFP speed \\
     \texttt{snowman-reachability}     & \texttt{ce}          & (skip)     & 1{,}288 vars — M\&S intractable ($O(n^2)$ scaling); most axiom factors skip ($n>25$) \\
     \texttt{taskassign-horndl}        & \texttt{ce}          & \checkmark & all 3: $h_{\mathrm{init}}=2=h^*$, 3 exp; DFP 2.6$\times$ faster than SCCS; MIASM 11$\times$ slower \\
-    \texttt{word-rooms}               & \texttt{ce}          & \checkmark & SCCS: $h_{\mathrm{init}}=2$, 2{,}035 exp, 114.5\,s; DFP: 88.9\,s, max abs 16, 23\,MB (26\,s faster than SCCS; pre-fix DFP was 44\,s \emph{slower}); MIASM: impractical (${\approx}25$\,s/merge, proj.\ $>$3\,h) \\
+    \texttt{word-rooms}               & \texttt{ce}          & \checkmark & SCCS: $h_{\mathrm{init}}=2$, 2{,}035 exp, 114.5\,s; DFP: 88.9\,s, max abs 16, 23.2\,MB (26\,s faster than SCCS; pre-fix DFP was 44\,s \emph{slower}); MIASM: impractical (${\approx}25$\,s/merge, proj.\ $>$3\,h) \\
     \midrule
     \multicolumn{4}{l}{\textit{Phase~1 only — axioms in goal conditions (5)}} \\
     \midrule
@@ -4819,7 +4820,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{miconic-simpleadl}        & (top-level)          & --         & \\
     \texttt{satellite}                & (top-level)          & --         & \\
     \bottomrule
-    \end{tabular}
+    \end{tabularx}
     \end{center}
 
     \paragraph{Results: \texttt{grid-axioms} p01.}

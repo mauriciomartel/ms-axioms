@@ -4786,7 +4786,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{psr-middle}               & \texttt{ce}          & \checkmark & SCCS: $h_{\mathrm{init}}=2$, 13 exp; DFP: 9 exp (best); MIASM: 13 exp, 143$\times$ slower build \\
     \texttt{robot-horndl}             & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=2$, 4 exp, max abs 6; MIASM only 2$\times$ slower \\
     \texttt{robotConj-horndl}         & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=2$, 4 exp, max abs 12; MIASM $\approx$ DFP speed \\
-    \texttt{snowman-reachability}     & \texttt{ce}          & --         & \\
+    \texttt{snowman-reachability}     & \texttt{ce}          & (skip)     & 1{,}288 vars — M\&S intractable ($O(n^2)$ scaling); most axiom factors skip ($n>25$) \\
     \texttt{taskassign-horndl}        & \texttt{ce}          & --         & \\
     \texttt{word-rooms}               & \texttt{ce}          & --         & \\
     \midrule

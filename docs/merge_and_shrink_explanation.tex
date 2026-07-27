@@ -5968,8 +5968,14 @@ int build_axiom_factor(
     the seed constraint, so the overhead is incurred only during the
     transitional period.
 
+    The fix is validated on the \texttt{word-rooms} domain, which both
+    \emph{exposed} the soundness problem and serves as the primary stress
+    test for joint factor construction; see results in
+    Section~\ref{par:word-rooms}.
+
 % ─────────────────────────────────────────────────────────────────────────────
     \paragraph{Results: \texttt{word-rooms}.}
+    \label{par:word-rooms}
 
     The \texttt{word-rooms} domain (431 variables, epistemic planning;
     derived variables encode \texttt{letter-state} predicates with 23

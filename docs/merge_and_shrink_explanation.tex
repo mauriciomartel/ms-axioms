@@ -7,6 +7,7 @@
 \usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{tabularx}
+\usepackage{longtable}
 \usepackage{parskip}
 
 \lstset{
@@ -4757,12 +4758,19 @@ for (const RelevantOperator &rop : relevant_ops) {
     Folder abbreviation: \texttt{ce} $=$ \texttt{pddl-axioms-conditional-effects}.
 
     \smallskip
-    \begin{center}
-    \small
-    \begin{tabularx}{\linewidth}{llcX}
+    {\small
+    \begin{longtable}{@{}llc>{\raggedright\arraybackslash}p{7cm}@{}}
     \toprule
     \textbf{Domain} & \textbf{Folder} & \textbf{Status} & \textbf{Result summary} \\
     \midrule
+    \endfirsthead
+    \multicolumn{4}{l}{\textit{(continued)}} \\[2pt]
+    \toprule
+    \textbf{Domain} & \textbf{Folder} & \textbf{Status} & \textbf{Result summary} \\
+    \midrule
+    \endhead
+    \bottomrule
+    \endfoot
     \multicolumn{4}{l}{\textit{Phase~2 — axioms in operator preconditions (25)}} \\
     \midrule
     \texttt{grid-axioms}              & \texttt{pddl-axioms} & \checkmark & all 25 factors skipped ($n=32$) \\
@@ -4819,9 +4827,8 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{miconic}                  & (top-level)          & --         & \\
     \texttt{miconic-simpleadl}        & (top-level)          & --         & \\
     \texttt{satellite}                & (top-level)          & --         & \\
-    \bottomrule
-    \end{tabularx}
-    \end{center}
+    \end{longtable}
+    }
 
     \paragraph{Results: \texttt{grid-axioms} p01.}
 

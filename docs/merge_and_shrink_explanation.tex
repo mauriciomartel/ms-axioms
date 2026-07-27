@@ -4785,7 +4785,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{psr-large}                & \texttt{ce}          & \checkmark & all 3: $h_{\mathrm{init}}=1$, 50k ceiling; SCCS 26 exp/0.7\,s, DFP 25/1.2\,s, MIASM 24/17\,s \\
     \texttt{psr-middle}               & \texttt{ce}          & \checkmark & SCCS: $h_{\mathrm{init}}=2$, 13 exp; DFP: 9 exp (best); MIASM: 13 exp, 143$\times$ slower build \\
     \texttt{robot-horndl}             & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=2$, 4 exp, max abs 6; MIASM only 2$\times$ slower \\
-    \texttt{robotConj-horndl}         & \texttt{ce}          & --         & \\
+    \texttt{robotConj-horndl}         & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=2$, 4 exp, max abs 12; MIASM $\approx$ DFP speed \\
     \texttt{snowman-reachability}     & \texttt{ce}          & --         & \\
     \texttt{taskassign-horndl}        & \texttt{ce}          & --         & \\
     \texttt{word-rooms}               & \texttt{ce}          & --         & \\
@@ -5774,6 +5774,40 @@ for (const RelevantOperator &rop : relevant_ops) {
     (2$\times$ vs DFP, compared with 143$\times$ on \texttt{psr-middle}).
     The 17 axiom factors are all small (1--7 primary vars, 2--4 ops) and
     are processed quickly without triggering the work-estimate guard.
+
+% ─────────────────────────────────────────────────────────────────────────────
+    \paragraph{Results: \texttt{robotConj-horndl}.}
+
+    The \texttt{robotConj-horndl} domain (29 variables, 58 fact pairs) is
+    a conjunctive variant of \texttt{robot-horndl}, with fewer variables
+    (29 vs.\ 38) but the same axiom structure and optimal plan cost~3.
+    Blind A* expands 7 states in 0.003\,s.
+
+    The SCC decomposition yields one 25-variable SCC
+    (\texttt{vars 0--24} by causal-graph numbering) and four singletons
+    (\texttt{vars 25--28}).  Twelve axiom factors are built (vs.\ 17 for
+    \texttt{robot-horndl}), all small (1--7 primary vars, 2--4 ops).
+    Bisimulation collapses the product space to at most 12 abstract states
+    — slightly larger than \texttt{robot-horndl}'s~6, but still tiny.
+    All three merge strategies produce identical abstractions.
+
+    \begin{itemize}
+      \item \textbf{SCCS}: $h_{\mathrm{init}} = 2$, 4 expanded states,
+            max abs 12, 13.0\,MB, build 0.015\,s.
+      \item \textbf{Stateless DFP}: $h_{\mathrm{init}} = 2$, 4 expanded,
+            max abs 12, 13.0\,MB, build 0.011\,s (1.4$\times$ faster
+            than SCCS).
+      \item \textbf{Stateless MIASM}: $h_{\mathrm{init}} = 2$, 4 expanded,
+            max abs 12, 13.1\,MB, build 0.011\,s (same as DFP).
+    \end{itemize}
+
+    As with \texttt{robot-horndl}, all strategies achieve
+    $h_{\mathrm{init}} = 2$ and 4 expanded states (vs.\ blind's 7).
+    Notably, MIASM is no slower than DFP here — its overhead is
+    negligible when the abstraction collapses to only 12 states.
+    This confirms that MIASM's large overhead seen on \texttt{psr-middle}
+    (143$\times$) is driven by the abstraction size, not by the domain
+    size alone.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

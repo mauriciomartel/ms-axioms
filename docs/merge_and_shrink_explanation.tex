@@ -4787,7 +4787,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{robot-horndl}             & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=2$, 4 exp, max abs 6; MIASM only 2$\times$ slower \\
     \texttt{robotConj-horndl}         & \texttt{ce}          & \checkmark & all 3 strategies: $h_{\mathrm{init}}=2$, 4 exp, max abs 12; MIASM $\approx$ DFP speed \\
     \texttt{snowman-reachability}     & \texttt{ce}          & (skip)     & 1{,}288 vars — M\&S intractable ($O(n^2)$ scaling); most axiom factors skip ($n>25$) \\
-    \texttt{taskassign-horndl}        & \texttt{ce}          & --         & \\
+    \texttt{taskassign-horndl}        & \texttt{ce}          & \checkmark & all 3: $h_{\mathrm{init}}=2=h^*$, 3 exp; DFP 2.6$\times$ faster than SCCS; MIASM 11$\times$ slower \\
     \texttt{word-rooms}               & \texttt{ce}          & --         & \\
     \midrule
     \multicolumn{4}{l}{\textit{Phase~1 only — axioms in goal conditions (5)}} \\
@@ -5808,6 +5808,44 @@ for (const RelevantOperator &rop : relevant_ops) {
     This confirms that MIASM's large overhead seen on \texttt{psr-middle}
     (143$\times$) is driven by the abstraction size, not by the domain
     size alone.
+
+% ─────────────────────────────────────────────────────────────────────────────
+    \paragraph{Results: \texttt{taskassign-horndl}.}
+
+    The \texttt{taskassign-horndl} domain (116 variables, 233 fact pairs)
+    models a task-assignment scheduling problem whose derived variables
+    encode datalog-style reachability predicates.  Blind A* expands 6
+    states in 0.003\,s with $h_{\mathrm{init}} = 1$.
+
+    The SCC decomposition yields one dominant 60-variable SCC and a small
+    number of singletons.  Seven axiom factors are built: the first
+    operates on 0 primary variables (all derived, immediately collapsed),
+    and the most expensive one (\texttt{var 102}) involves 13 primary
+    variables and 25 relevant operators, accounting for about 22\,ms of
+    BFS time.  Label reduction on the 60-variable SCC dominates total
+    build time for all strategies.
+
+    \begin{itemize}
+      \item \textbf{SCCS (topological)}: $h_{\mathrm{init}} = 2 = h^*$,
+            3 expanded states, max abs 245, 15.7\,MB, build 0.679\,s.
+      \item \textbf{Stateless DFP}: $h_{\mathrm{init}} = 2 = h^*$,
+            3 expanded, max abs 335, 15.4\,MB, build 0.262\,s
+            (2.6$\times$ faster than SCCS).
+      \item \textbf{Stateless MIASM}: $h_{\mathrm{init}} = 2 = h^*$,
+            3 expanded, max abs 245, 17.2\,MB, build 2.919\,s
+            (11$\times$ slower than DFP, 4.3$\times$ slower than SCCS).
+    \end{itemize}
+
+    All three strategies achieve the optimal heuristic value
+    ($h_{\mathrm{init}} = 2 = h^*$) and expand only 3 states (vs.\
+    blind's 6), confirming that the axiom factor construction is
+    effective for this domain.  DFP is notably faster than SCCS
+    (2.6$\times$) because its stateless merge ordering happens to reduce
+    the label-reduction work on the large SCC.  MIASM incurs 11$\times$
+    overhead relative to DFP with no gain in heuristic quality, making it
+    cost-ineffective here.  The MIASM overhead scales with abstraction
+    size (max abs 245--335 here vs.\ only 6--12 for the robot domains),
+    consistent with the pattern observed on \texttt{psr-middle}.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

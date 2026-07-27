@@ -506,19 +506,15 @@ FactoredTransitionSystem create_factored_transition_system(
         .create(compute_init_distances, compute_goal_distances, log);
 }
 
-int build_axiom_factor(
-    const TaskProxy &task_proxy,
-    int derived_var_id,
-    FactoredTransitionSystem &fts,
-    utils::LogProxy &log) {
-
-    const Labels &labels = fts.get_labels();
+/*
+  Compute S_d: the set of all primary (non-derived) variables that the
+  derived variable derived_var_id transitively depends on via axiom bodies.
+  Follows the chain through other derived variables (e.g. blocked ->
+  blocked-trans -> primary var), so the result is the full closure.
+*/
+unordered_set<int> compute_axiom_factor_primary_vars(
+    const TaskProxy &task_proxy, int derived_var_id) {
     VariablesProxy variables = task_proxy.get_variables();
-    int num_total_vars = variables.size();
-
-    // Step 1: Identify primary variables in S_d via transitive dependency BFS.
-    // Derived variables can depend on other derived variables ("blocked" ->
-    // "blocked-trans" -> primary var), so we must follow the chain.
     unordered_set<int> visited_derived;
     queue<int> derived_queue;
     derived_queue.push(derived_var_id);
@@ -544,46 +540,92 @@ int build_axiom_factor(
             }
         }
     }
+    return primary_var_set;
+}
 
+int build_axiom_factor(
+    const TaskProxy &task_proxy,
+    const vector<int> &derived_var_ids,
+    FactoredTransitionSystem &fts,
+    utils::LogProxy &log,
+    vector<int> *out_pending_var_order,
+    vector<vector<int>> *out_state_pending_values) {
+
+    const Labels &labels = fts.get_labels();
+    VariablesProxy variables = task_proxy.get_variables();
+    int num_total_vars = variables.size();
+
+    // -----------------------------------------------------------------------
+    // Step 1: Find S_d — the primary-variable dependency closure.
+    //
+    // Seed the BFS from ALL derived_var_ids at once. Derived variables can
+    // depend on other derived variables transitively, so we follow those
+    // chains too. The result is the union of all primary variables that any
+    // of the derived_var_ids ultimately depend on.
+    //
+    // Seeding from all derived_var_ids together (rather than building one
+    // factor per derived var) is required for correctness: M&S assumes each
+    // variable is represented by exactly one live factor at a time. If two
+    // derived goal variables share a primary variable in their S_d sets and
+    // we built separate factors for each, both factors would embed that
+    // primary variable. Independently bisimulation-shrinking them before
+    // they are eventually merged destroys the correlation between the shared
+    // variable's values inside each factor, producing unsound abstract states.
+    // -----------------------------------------------------------------------
+    unordered_set<int> visited_derived;
+    queue<int> derived_queue;
+    for (int derived_var_id : derived_var_ids) {
+        derived_queue.push(derived_var_id);
+        visited_derived.insert(derived_var_id);
+    }
+    unordered_set<int> primary_var_set;
+    while (!derived_queue.empty()) {
+        int cur_derived = derived_queue.front();
+        derived_queue.pop();
+        for (OperatorProxy axiom : task_proxy.get_axioms()) {
+            EffectProxy eff = axiom.get_effects()[0];
+            if (eff.get_fact().get_variable().get_id() != cur_derived)
+                continue;
+            for (FactProxy pre : axiom.get_effects()[0].get_conditions()) {
+                VariableProxy pvar = pre.get_variable();
+                if (pvar.is_derived()) {
+                    if (!visited_derived.count(pvar.get_id())) {
+                        visited_derived.insert(pvar.get_id());
+                        derived_queue.push(pvar.get_id());
+                    }
+                } else {
+                    primary_var_set.insert(pvar.get_id());
+                }
+            }
+        }
+    }
+
+    // Sort var_ids for a deterministic mixed-radix encoding.
     vector<int> var_ids(primary_var_set.begin(), primary_var_set.end());
     sort(var_ids.begin(), var_ids.end());
     int n = var_ids.size();
 
-    // Fast reverse lookup: variable ID -> position in var_ids.
+    // Fast reverse lookup: global variable ID -> position in var_ids.
     unordered_map<int, int> var_id_to_idx;
     for (int i = 0; i < n; ++i)
         var_id_to_idx[var_ids[i]] = i;
 
     // -----------------------------------------------------------------------
-    // Step 2: Domain sizes and mixed-radix multipliers
+    // Step 2: Mixed-radix encoding for the product state space.
     //
     // Product state ID = sum_i( val_i * mult[i] ), where
     //   mult[0] = 1,  mult[i] = mult[i-1] * dom[i-1].
     // Decoding: val_i = (state_id / mult[i]) % dom[i].
     //
-    // These multipliers are over the FULL product space (all combinations of
-    // var_ids' domains), independent of how many of those combinations are
-    // actually reachable. They are needed because MergeAndShrinkRepresentation-
-    // Product encodes concrete states using this same full mixed-radix scheme
-    // at query time (see get_value()), so the lookup table must stay indexed
-    // by full product state id even though only a subset of entries are live.
+    // This encoding spans the FULL product space (all combinations of
+    // var_ids' domains). MergeAndShrinkRepresentationProduct encodes
+    // concrete states with this same scheme at query time, so the lookup
+    // table must stay indexed by full product state id even though only a
+    // subset of entries are live (the reachable ones discovered in Step 5).
     // -----------------------------------------------------------------------
     vector<int> dom(n);
     for (int i = 0; i < n; ++i)
         dom[i] = variables[var_ids[i]].get_domain_size();
-
-    // If there are too many primary variables the full product space is
-    // astronomically large and even the reachable subset (explored by BFS
-    // below) can be in the millions.  Skip the factor immediately rather
-    // than wasting time discovering 100k states only to discard them.
-    // The threshold is conservative: 2^25 ≈ 33M states is already far
-    // beyond what the BFS can finish in reasonable time and memory.
-    if (n > 25) {
-        if (log.is_at_least_normal())
-            log << "  Axiom factor skipped: " << n
-                << " primary vars (product space too large)." << endl;
-        return -1;
-    }
 
     vector<long long> mult(n, 1);
     for (int i = 1; i < n; ++i)
@@ -601,49 +643,43 @@ int build_axiom_factor(
     };
 
     // -----------------------------------------------------------------------
-    // Step 3: Initial state
-    //
-    // Encode the initial values of the product variables using the same
-    // mixed-radix scheme as the lookup table in MergeAndShrinkRepresentationProduct.
+    // Step 3: Encode the initial state as a product state id.
     // -----------------------------------------------------------------------
     State init = task_proxy.get_initial_state();
     long long init_full_state = 0;
     for (int i = 0; i < n; ++i)
         init_full_state += static_cast<long long>(init[var_ids[i]].get_value()) * mult[i];
 
-    // Step 4 setup: goal value and axiom rules relevant to the closure.
+    // -----------------------------------------------------------------------
+    // Step 4 setup: goal values and axiom evaluation context.
     //
-    // For each product state s, the closure is evaluated by seeding all
-    // closure-derived variables at their default values, then running
-    // forward chaining in axiom-layer order. Primary conditions are checked
-    // against s; derived conditions are checked against the evolving
-    // derived_vals. This correctly handles negation-by-failure (a derived var
-    // stays at its default unless a rule fires) without over-approximation.
-    // This is now evaluated lazily, once per *reachable* state discovered
-    // below, instead of once per full product state.
-
-    // derived_var_id need not be a goal variable: build_axiom_factor is also
-    // called for derived variables that are only read by operators (as a
-    // precondition or as a condition of a conditional effect). In that case
-    // there is no goal value to match, so this factor places no restriction
-    // of its own on which states are goal states -- every state is locally
-    // a "goal state" for this factor; the actual task goal is enforced by
-    // whichever other factor encodes the real goal fact(s).
-    int goal_derived_value = -1;
+    // goal_value_for_derived_var maps each derived goal variable to the
+    // value it must take in a goal state of this factor. Every derived_var_id
+    // must appear as a task goal (caller's responsibility via union-find grouping).
+    //
+    // derived_default holds the default (false) axiom value for every derived
+    // variable in the closure. Axiom evaluation seeds from these defaults and
+    // applies rules until no more fire (forward chaining).
+    //
+    // relevant_axioms is sorted by axiom layer so forward chaining respects
+    // stratification: a rule for layer k can only fire after all layer <k
+    // rules have stabilized.
+    // -----------------------------------------------------------------------
+    unordered_map<int, int> goal_value_for_derived_var;
     for (FactProxy g : task_proxy.get_goals()) {
-        if (g.get_variable().get_id() == derived_var_id) {
-            goal_derived_value = g.get_value();
-            break;
+        int gvar = g.get_variable().get_id();
+        if (visited_derived.count(gvar) &&
+            find(derived_var_ids.begin(), derived_var_ids.end(), gvar) !=
+                derived_var_ids.end()) {
+            goal_value_for_derived_var[gvar] = g.get_value();
         }
     }
-    bool is_goal_var = (goal_derived_value != -1);
+    assert(goal_value_for_derived_var.size() == derived_var_ids.size());
 
-    // Default values for all derived variables in the dependency closure.
     unordered_map<int, int> derived_default;
     for (int d : visited_derived)
         derived_default[d] = variables[d].get_default_axiom_value();
 
-    // Axioms relevant to the closure, sorted by axiom layer.
     struct AxiomRule {
         int layer, eff_var, eff_val;
         vector<pair<int, int>> conditions; // (var_id, required_value)
@@ -667,108 +703,46 @@ int build_axiom_factor(
              return a.layer < b.layer;
          });
 
-    // Step 4: evaluation context for a derived variable d' whose closure S_{d'} ⊆ S_d.
-    struct DerivedPreInfo {
-        vector<AxiomRule> axioms;          // axiom rules for d's closure, sorted by layer
-        unordered_map<int, int> defaults;  // default values for closure derived vars
-    };
-
-    // Step 4 setup: for each derived variable d' ≠ derived_var_id whose closure
-    // S_{d'} ⊆ S_d, build an axiom-evaluation context so we can later determine
-    // d's truth exactly per product state.
-    unordered_map<int, DerivedPreInfo> evaluable_derived_info;
-
-    auto try_build_derived_info = [&](int d_prime) -> bool {
-        if (evaluable_derived_info.count(d_prime))
-            return true;
-        // Compute transitive primary-variable closure for d_prime.
-        unordered_set<int> vis;
-        queue<int> bq;
-        bq.push(d_prime);
-        vis.insert(d_prime);
-        unordered_set<int> pv;
-        while (!bq.empty()) {
-            int cur = bq.front(); bq.pop();
-            for (OperatorProxy axiom : task_proxy.get_axioms()) {
-                EffectProxy eff = axiom.get_effects()[0];
-                if (eff.get_fact().get_variable().get_id() != cur) continue;
-                for (FactProxy cond : eff.get_conditions()) {
-                    VariableProxy pvar = cond.get_variable();
-                    if (pvar.is_derived()) {
-                        if (!vis.count(pvar.get_id())) {
-                            vis.insert(pvar.get_id());
-                            bq.push(pvar.get_id());
-                        }
-                    } else {
-                        pv.insert(pvar.get_id());
-                    }
-                }
-            }
-        }
-        // Only proceed if S_{d'} ⊆ S_d.
-        for (int v : pv)
-            if (!var_id_to_idx.count(v))
-                return false;
-        // Build evaluation context.
-        DerivedPreInfo info;
-        for (int dv : vis)
-            info.defaults[dv] = variables[dv].get_default_axiom_value();
-        for (OperatorProxy axiom : task_proxy.get_axioms()) {
-            EffectProxy eff = axiom.get_effects()[0];
-            int ev = eff.get_fact().get_variable().get_id();
-            if (!vis.count(ev)) continue;
-            AxiomRule rule;
-            rule.layer   = variables[ev].get_axiom_layer();
-            rule.eff_var = ev;
-            rule.eff_val = eff.get_fact().get_value();
-            for (FactProxy cond : eff.get_conditions())
-                rule.conditions.emplace_back(
-                    cond.get_variable().get_id(), cond.get_value());
-            info.axioms.push_back(move(rule));
-        }
-        sort(info.axioms.begin(), info.axioms.end(),
-             [](const AxiomRule &a, const AxiomRule &b) {
-                 return a.layer < b.layer;
-             });
-        evaluable_derived_info[d_prime] = move(info);
-        return true;
-    };
-
     // -----------------------------------------------------------------------
-    // Step 5 setup: precompute, once per relevant operator, the parts of its
-    // preconditions/effects that touch product variables. The actual
-    // application of these to concrete states happens lazily during the
-    // reachability exploration below, so this replaces the old "loop over
-    // every operator, then loop over every one of the (huge) full product
-    // states" nesting with "loop over every *discovered* state, then loop
-    // over the (small, fixed) set of relevant operators".
+    // Step 5 setup: precompute relevant operators.
+    //
+    // An operator is relevant if it has a precondition or effect on any
+    // primary variable in S_d, OR if its only connection to this factor is a
+    // precondition on one of the target derived variables (has_derived_pre).
+    //
+    // Operators with has_derived_pre cannot be evaluated during the BFS
+    // (goal states are not known yet). They are deferred: after goal states
+    // are computed, they receive self-loops in goal states and no transitions
+    // elsewhere, because the derived variable is true exactly in goal states.
+    //
+    // For conditional effects whose condition references a variable outside
+    // S_d, we conservatively add both the forward transition (effect fires)
+    // and a self-loop (effect does not fire). This over-approximates but
+    // preserves admissibility.
     // -----------------------------------------------------------------------
     struct RelevantEffect {
-        int idx;                      // position in var_ids/dom/mult
-        int post;                     // value to set if the effect fires
-        vector<int> self_cond_vals;   // conditions on the effect's own variable
-        bool has_outside_cond;        // condition references a variable outside S_d
+        int idx;                    // position in var_ids/dom/mult
+        int post;                   // value written if effect fires
+        vector<int> self_cond_vals; // conditions on the effect's own variable
+        bool has_outside_cond;      // true if any condition is on a var outside S_d
     };
-
     struct RelevantOperator {
         int label;
-        vector<int> op_pre;           // size n; -1 = unconstrained
+        vector<int> op_pre;         // size n; -1 = unconstrained
         vector<RelevantEffect> effects;
-        bool has_derived_pre = false;       // Step 2: only connection is derived pre on derived_var_id
-        bool has_derived_pre_mixed = false; // Step 3: product-var connection + derived pre on derived_var_id
-        // Step 4: derived preconditions on d' ≠ derived_var_id where S_{d'} ⊆ S_d.
-        // Each entry is (d', required_val).
-        vector<pair<int, int>> evaluable_other_pres;
+        bool has_derived_pre = false; // only connection is a derived pre on target var
     };
 
     int num_labels = labels.get_num_total_labels();
     vector<bool> is_relevant(num_labels, false);
     vector<RelevantOperator> relevant_ops;
 
+    unordered_set<int> target_derived_set(derived_var_ids.begin(),
+                                          derived_var_ids.end());
+
     for (OperatorProxy op : task_proxy.get_operators()) {
         int label = op.get_id();
 
-        // Operator-level preconditions on product variables.
         vector<int> op_pre(n, -1);
         for (FactProxy pre : op.get_preconditions()) {
             auto it = var_id_to_idx.find(pre.get_variable().get_id());
@@ -776,39 +750,22 @@ int build_axiom_factor(
                 op_pre[it->second] = pre.get_value();
         }
 
-        // Determine relevance: does the operator touch any product variable?
         bool relevant = false;
         for (int i = 0; i < n; ++i) {
             if (op_pre[i] != -1) { relevant = true; break; }
         }
         if (!relevant) {
             for (EffectProxy eff : op.get_effects()) {
-                if (var_id_to_idx.count(
-                        eff.get_fact().get_variable().get_id())) {
+                if (var_id_to_idx.count(eff.get_fact().get_variable().get_id())) {
                     relevant = true;
                     break;
                 }
             }
         }
-        // An operator is also relevant if its only connection to this factor
-        // is a precondition on the target derived variable. It cannot be
-        // evaluated during the BFS (goal states are not yet known), so it is
-        // deferred: self-loop where d' holds, no transition where d' is false.
         bool has_derived_pre = false;
         if (!relevant) {
             for (FactProxy pre : op.get_preconditions()) {
-                if (pre.get_variable().get_id() == derived_var_id) {
-                    has_derived_pre = true;
-                    relevant = true;
-                    break;
-                }
-            }
-        }
-        // Step 2: relevant only through a precondition on derived_var_id.
-        // Deferred: self-loop in goal states, nothing elsewhere.
-        if (!relevant) {
-            for (FactProxy pre : op.get_preconditions()) {
-                if (pre.get_variable().get_id() == derived_var_id) {
+                if (target_derived_set.count(pre.get_variable().get_id())) {
                     has_derived_pre = true;
                     relevant = true;
                     break;
@@ -818,31 +775,12 @@ int build_axiom_factor(
         if (!relevant)
             continue;
 
-        // Step 3: relevant through product vars AND has precondition on derived_var_id.
-        // Participates in BFS normally; transitions filtered post-BFS to goal states only.
-        bool has_derived_pre_mixed = false;
-        if (!has_derived_pre) {
-            for (FactProxy pre : op.get_preconditions()) {
-                if (pre.get_variable().get_id() == derived_var_id) {
-                    has_derived_pre_mixed = true;
-                    break;
-                }
-            }
-        }
-
         is_relevant[label] = true;
         RelevantOperator rop;
         rop.label = label;
-        rop.op_pre = move(op_pre);
         rop.has_derived_pre = has_derived_pre;
-        rop.has_derived_pre_mixed = has_derived_pre_mixed;
+        rop.op_pre = move(op_pre);
 
-        // For conditional effects: if an effect on a product variable has a
-        // condition that references a variable outside S_d, we cannot
-        // determine from the product state alone whether the condition
-        // holds. We conservatively add both the forward transition (effect
-        // fires) and a self-loop (effect does not fire) at exploration time,
-        // which over-approximates but preserves admissibility.
         for (EffectProxy eff : op.get_effects()) {
             int eff_var_id = eff.get_fact().get_variable().get_id();
             auto it = var_id_to_idx.find(eff_var_id);
@@ -860,37 +798,62 @@ int build_axiom_factor(
             }
             rop.effects.push_back(move(re));
         }
-
-        // Step 4: scan for derived preconditions on d' ≠ derived_var_id.
-        if (!rop.has_derived_pre) { // skip Step-2 operators (they do no BFS anyway)
-            for (FactProxy pre : op.get_preconditions()) {
-                VariableProxy pvar = pre.get_variable();
-                if (!pvar.is_derived()) continue;
-                int d_prime = pvar.get_id();
-                if (d_prime == derived_var_id) continue; // already handled by Steps 2/3
-                if (try_build_derived_info(d_prime))
-                    rop.evaluable_other_pres.emplace_back(d_prime, pre.get_value());
-            }
-        }
-
         relevant_ops.push_back(move(rop));
     }
 
+    if (log.is_at_least_normal())
+        log << "  Axiom factor BFS: " << n << " primary vars, "
+            << relevant_ops.size() << " relevant ops" << endl;
+
+    const int max_axiom_states = 100000;
+
     // -----------------------------------------------------------------------
-    // Step 5: Reachability exploration.
+    // Pre-BFS feasibility guard.
     //
-    // Instead of enumerating all num_product_states tuples (which scales
-    // with the product of every primary variable's domain size, regardless
-    // of how many tuples are actually reachable), explore only the product
-    // states reachable from the initial state by repeatedly applying the
-    // relevant operators above. This is the core scalability fix: cost is
-    // now O(num_reachable_states * num_relevant_operators) instead of
-    // O(num_product_states * num_relevant_operators).
+    // BFS cost is O(reachable_states * relevant_ops). Cap reachable_states at
+    // max_axiom_states and check the product against a 500M work limit.
+    // Returning -1 is always safe: no factor is added, the heuristic simply
+    // loses information about this derived goal variable but stays admissible.
+    // -----------------------------------------------------------------------
+    if (n > 0 && !relevant_ops.empty()) {
+        long long product_domain = 1;
+        for (int i = 0; i < n; ++i) {
+            if (product_domain > max_axiom_states) break;
+            product_domain *= dom[i];
+        }
+        const long long max_bfs_work = 500000000LL;
+        long long estimated_work =
+            min(product_domain, (long long)max_axiom_states)
+            * (long long)relevant_ops.size();
+        if (estimated_work > max_bfs_work) {
+            if (log.is_at_least_normal())
+                log << "  Axiom factor BFS: estimated work ~"
+                    << estimated_work
+                    << " exceeds limit; skipping factor"
+                       " (heuristic remains admissible)." << endl;
+            return -1;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 5: Reachability BFS over the product state space.
+    //
+    // Instead of enumerating all full-product states (exponential in n),
+    // explore only the states reachable from the initial state by applying
+    // relevant operators. Cost is O(reachable * relevant_ops) rather than
+    // O(full_product * relevant_ops).
+    //
+    // Each product state has two IDs:
+    //   full id  — the mixed-radix encoding from Step 2, used for the
+    //              representation lookup table and for decode_val.
+    //   dense id — a 0-based index in BFS discovery order, used to number
+    //              the TransitionSystem states built below.
     // -----------------------------------------------------------------------
     unordered_map<long long, int> full_to_dense;
     vector<long long> dense_to_full;
     queue<long long> frontier;
 
+    // Register a full state, assigning a fresh dense id if unseen.
     auto get_dense = [&](long long full_state) -> int {
         auto it = full_to_dense.find(full_state);
         if (it != full_to_dense.end())
@@ -902,43 +865,11 @@ int build_axiom_factor(
         return new_id;
     };
 
-    int init_dense_state = get_dense(init_full_state);
-    (void)init_dense_state; // it is always 0, kept for clarity at the use below
+    get_dense(init_full_state);
 
     vector<vector<Transition>> label_trans(num_labels);
 
-    log << "  Axiom factor BFS: " << n << " primary vars, "
-    << relevant_ops.size() << " relevant ops" << endl;
-
-    // Pre-BFS feasibility check: skip if operator count alone makes
-    // the BFS infeasible. Even a bounded state space of 100k states
-    // times thousands of operators per state can take minutes.
-    // Returning -1 is always safe: admissibility is preserved.
-    if (n > 0 && (long long)relevant_ops.size() > 5000) {
-        if (log.is_at_least_normal())
-            log << "  Axiom factor BFS: operator count "
-                << relevant_ops.size()
-                << " exceeds limit; skipping factor"
-                   " (heuristic remains admissible)." << endl;
-        return -1;
-    }
-
-    int _bfs_steps = 0;
-    // Domains with many primary variables (e.g. grid-axioms) can have
-    // reachable product spaces in the millions even for small problem
-    // instances. The unordered_map and transition vectors grow roughly
-    // proportional to (states * relevant_operators), so memory and time
-    // blow up fast. Cap exploration here: if the BFS discovers more than
-    // max_axiom_states states before finishing, abort and return -1.
-    // The caller interprets -1 as "factor not built" and skips it.
-    // Admissibility is preserved: with no axiom factor, M&S simply has no
-    // information about the derived goal variable, so the heuristic
-    // underestimates (i.e. remains a lower bound on actual cost).
-    const int max_axiom_states = 100000;
     while (!frontier.empty()) {
-        // Check the limit before expanding the next state so we bail out
-        // as soon as the discovered set crosses the threshold, without
-        // starting any more operator applications.
         if (static_cast<int>(dense_to_full.size()) > max_axiom_states) {
             if (log.is_at_least_normal())
                 log << "  Axiom factor BFS reached " << max_axiom_states
@@ -949,13 +880,12 @@ int build_axiom_factor(
         long long s_full = frontier.front();
         frontier.pop();
         int s_dense = full_to_dense.at(s_full);
-        if (++_bfs_steps % 100000 == 0)
-            log << "  BFS: " << _bfs_steps << " steps, "
-                << dense_to_full.size() << " states so far" << endl;
 
         for (const RelevantOperator &rop : relevant_ops) {
+            // Operators with a derived precondition on the target variable
+            // are deferred until after goal states are known (see below).
             if (rop.has_derived_pre)
-                continue; // applicability depends on d'; deferred to after goal states
+                continue;
             bool applicable = true;
             for (int i = 0; i < n; ++i) {
                 if (rop.op_pre[i] != -1 && decode_val(s_full, i) != rop.op_pre[i]) {
@@ -966,21 +896,12 @@ int build_axiom_factor(
             if (!applicable)
                 continue;
 
-            // Among effects whose self-conditions are satisfied ("active"),
-            // ones without an outside condition always fire. Ones with an
-            // outside condition (referencing a variable outside S_d) may or
-            // may not fire, INDEPENDENTLY of every other such effect on this
-            // same operator application -- the product space has no way to
-            // tell. Enumerate every subset of the active outside-conditioned
-            // effects rather than just "all fire" / "none fire": with two or
-            // more independent optional effects, the partial-firing
-            // combinations (exactly one fires, not the other) are also real
-            // reachable transitions, and skipping them silently shrinks the
-            // transition relation, making the heuristic overestimate.
-            vector<bool> effect_active(rop.effects.size());
-            vector<int> optional_effect_positions;
-            for (size_t i = 0; i < rop.effects.size(); ++i) {
-                const RelevantEffect &re = rop.effects[i];
+            // Apply effects incrementally on t_full. Decoding from t_full
+            // (not s_full) handles multiple effects on the same variable.
+            long long t_full = s_full;
+            bool need_self_loop = false;
+
+            for (const RelevantEffect &re : rop.effects) {
                 bool fires = true;
                 for (int cval : re.self_cond_vals) {
                     if (decode_val(s_full, re.idx) != cval) {
@@ -988,41 +909,39 @@ int build_axiom_factor(
                         break;
                     }
                 }
-                effect_active[i] = fires;
-                if (fires && re.has_outside_cond)
-                    optional_effect_positions.push_back(i);
+                if (!fires)
+                    continue;
+
+                // An outside condition may or may not hold; conservatively
+                // add a self-loop for the case where the effect does not fire.
+                if (re.has_outside_cond)
+                    need_self_loop = true;
+
+                t_full -= decode_val(t_full, re.idx) * mult[re.idx];
+                t_full += re.post * mult[re.idx];
             }
 
-            int num_subsets = 1 << optional_effect_positions.size();
-            for (int subset = 0; subset < num_subsets; ++subset) {
-                vector<bool> optional_fires(rop.effects.size(), false);
-                for (size_t b = 0; b < optional_effect_positions.size(); ++b)
-                    if (subset & (1 << b))
-                        optional_fires[optional_effect_positions[b]] = true;
-
-                long long t_full = s_full;
-                for (size_t i = 0; i < rop.effects.size(); ++i) {
-                    if (!effect_active[i])
-                        continue;
-                    const RelevantEffect &re = rop.effects[i];
-                    if (re.has_outside_cond && !optional_fires[i])
-                        continue;
-                    // Apply the effect to t_full. Decode from t_full (not
-                    // s_full) so that earlier effects on the same variable
-                    // (within this operator) are taken into account.
-                    t_full -= decode_val(t_full, re.idx) * mult[re.idx];
-                    t_full += re.post * mult[re.idx];
-                }
-
-                int t_dense = get_dense(t_full);
-                label_trans[rop.label].emplace_back(s_dense, t_dense);
-            }
+            int t_dense = get_dense(t_full);
+            label_trans[rop.label].emplace_back(s_dense, t_dense);
+            if (need_self_loop && t_dense != s_dense)
+                label_trans[rop.label].emplace_back(s_dense, s_dense);
         }
     }
 
     int num_reachable_states = static_cast<int>(dense_to_full.size());
 
-    // Step 4: evaluate the axiom closure, now only for reachable states.
+    // -----------------------------------------------------------------------
+    // Step 4: Evaluate the axiom closure for each reachable state.
+    //
+    // A state is a goal state iff every derived_var_id evaluates to its goal
+    // value after full stratified axiom evaluation. We seed all closure-derived
+    // variables at their defaults and run forward chaining in layer order.
+    // A single pass suffices because FD stratification prevents intra-layer
+    // positive cycles (each rule fires at most once).
+    //
+    // This is done lazily — only for the num_reachable_states states
+    // discovered above, not for every one of the full product states.
+    // -----------------------------------------------------------------------
     vector<int> derived_vals(variables.size());
     vector<bool> goal_states(num_reachable_states, false);
     for (int d = 0; d < num_reachable_states; ++d) {
@@ -1030,89 +949,42 @@ int build_axiom_factor(
         for (auto &[dv, def] : derived_default)
             derived_vals[dv] = def;
 
-                // FD stratification only forbids intra-layer *negative* dependencies
-        // (a same-layer condition must use the variable's non-default value);
-        // same-layer positive dependency chains (e.g. rule for d2 conditions
-        // on d1's non-default value, both at layer 0) are legal, and the
-        // order axioms happen to appear in the file does not need to respect
-        // such chains. A single pass in (layer, file-order) is therefore not
-        // sufficient in general: it can evaluate a rule before one of its
-        // same-layer dependencies has fired. Iterate to a fixpoint instead;
-        // this always terminates since each variable fires at most once, so
-        // at most relevant_axioms.size() passes are ever needed.
-        bool changed = true;
-        while (changed) {
-            changed = false;
-            for (const AxiomRule &rule : relevant_axioms) {
-                if (derived_vals[rule.eff_var] != derived_default.at(rule.eff_var))
-                    continue; // already fired; axioms fire at most once
-                bool satisfied = true;
-                for (auto [cvar, cval] : rule.conditions) {
-                    int cur_val;
-                    if (variables[cvar].is_derived()) {
-                        auto it = derived_default.find(cvar);
-                        cur_val = (it != derived_default.end())
-                                  ? derived_vals[cvar]
-                                  : variables[cvar].get_default_axiom_value();
-                    } else {
-                        auto it = var_id_to_idx.find(cvar);
-                        if (it == var_id_to_idx.end())
-                            continue; // not in product space: over-approximate
-                        cur_val = decode_val(s_full, it->second);
-                    }
-                    if (cur_val != cval) { satisfied = false; break; }
+        for (const AxiomRule &rule : relevant_axioms) {
+            if (derived_vals[rule.eff_var] != derived_default.at(rule.eff_var))
+                continue; // already fired; each axiom fires at most once
+            bool satisfied = true;
+            for (auto [cvar, cval] : rule.conditions) {
+                int cur_val;
+                if (variables[cvar].is_derived()) {
+                    auto it = derived_default.find(cvar);
+                    cur_val = (it != derived_default.end())
+                              ? derived_vals[cvar]
+                              : variables[cvar].get_default_axiom_value();
+                } else {
+                    auto it = var_id_to_idx.find(cvar);
+                    if (it == var_id_to_idx.end())
+                        continue; // not in S_d: over-approximate (sound)
+                    cur_val = decode_val(s_full, it->second);
                 }
-                if (satisfied) {
-                    derived_vals[rule.eff_var] = rule.eff_val;
-                    changed = true;
-                }
+                if (cur_val != cval) { satisfied = false; break; }
             }
+            if (satisfied)
+                derived_vals[rule.eff_var] = rule.eff_val;
         }
 
-        goal_states[d] = !is_goal_var ||
-                         (derived_vals[derived_var_id] == goal_derived_value);
-    }
-
-    // Step 4: precompute the value of each evaluable d' at every reachable state.
-    unordered_map<int, vector<int>> derived_state_vals; // d' -> [dense_id] -> value
-    for (auto &[d_prime, info] : evaluable_derived_info) {
-        vector<int> state_vals(num_reachable_states);
-        unordered_map<int, int> dvals;
-        for (int d = 0; d < num_reachable_states; ++d) {
-            int s_full = dense_to_full[d];
-            dvals = info.defaults;
-            bool changed = true;
-            while (changed) {
-                changed = false;
-                for (const AxiomRule &rule : info.axioms) {
-                    if (dvals[rule.eff_var] != info.defaults.at(rule.eff_var))
-                        continue;
-                    bool satisfied = true;
-                    for (auto [cvar, cval] : rule.conditions) {
-                        int cur_val;
-                        if (variables[cvar].is_derived()) {
-                            cur_val = dvals.count(cvar)
-                                      ? dvals.at(cvar)
-                                      : variables[cvar].get_default_axiom_value();
-                        } else {
-                            // Guaranteed in S_d by the S_{d'} ⊆ S_d check.
-                            cur_val = decode_val(s_full, var_id_to_idx.at(cvar));
-                        }
-                        if (cur_val != cval) { satisfied = false; break; }
-                    }
-                    if (satisfied) {
-                        dvals[rule.eff_var] = rule.eff_val;
-                        changed = true;
-                    }
-                }
+        bool is_goal = true;
+        for (auto &[gvar, gval] : goal_value_for_derived_var) {
+            if (derived_vals[gvar] != gval) {
+                is_goal = false;
+                break;
             }
-            state_vals[d] = dvals[d_prime];
         }
-        derived_state_vals[d_prime] = move(state_vals);
+        goal_states[d] = is_goal;
     }
 
-    // Step 2: operators with only a derived-var precondition get self-loops
-    // in goal states (where derived_var_id holds), no transition elsewhere.
+    // Deferred operators: those whose only connection to this factor is a
+    // precondition on a target derived variable. The derived variable is true
+    // exactly in goal states, so add self-loops there and nothing elsewhere.
     for (const RelevantOperator &rop : relevant_ops) {
         if (!rop.has_derived_pre)
             continue;
@@ -1122,49 +994,13 @@ int build_axiom_factor(
         }
     }
 
-    // Step 3: operators with product-var connections that also require
-    // derived_var_id must not fire in non-goal states. Remove those transitions.
-    for (const RelevantOperator &rop : relevant_ops) {
-        if (!rop.has_derived_pre_mixed)
-            continue;
-        auto &trans = label_trans[rop.label];
-        trans.erase(
-            remove_if(trans.begin(), trans.end(),
-                      [&](const Transition &t) { return !goal_states[t.src]; }),
-            trans.end());
-    }
-
-    // Step 4: filter transitions for operators with evaluable derived preconditions.
-    for (const RelevantOperator &rop : relevant_ops) {
-        if (rop.evaluable_other_pres.empty())
-            continue;
-        auto &trans = label_trans[rop.label];
-        trans.erase(
-            remove_if(trans.begin(), trans.end(),
-                [&](const Transition &t) {
-                    for (auto [d_prime, req_val] : rop.evaluable_other_pres) {
-                        if (derived_state_vals.at(d_prime)[t.src] != req_val)
-                            return true;
-                    }
-                    return false;
-                }),
-            trans.end());
-    }
-
     // -----------------------------------------------------------------------
-    // Step 6: Group labels with identical transitions into local labels
+    // Step 6: Group labels with identical transitions into local labels.
     //
-    // Follows FTSFactory::build_transitions_for_operator: scan existing local
-    // labels for a matching transition set; if found, merge the current label
-    // into that group; otherwise create a new local label.
-    // Irrelevant labels are all grouped into a single self-loop local label,
-    // following FTSFactory::build_transitions_for_irrelevant_ops. Both the
-    // transition vectors and the self-loop vector are now sized by
-    // num_reachable_states rather than num_product_states.
+    // Follows FTSFactory convention: scan for a matching local label group;
+    // merge the label in if found, otherwise create a new group.
+    // All irrelevant labels share a single self-loop group.
     // -----------------------------------------------------------------------
-    // Size to max_num_labels (not num_total_labels) so that apply_label_reduction
-    // can access indices beyond the current label count, matching the convention
-    // used throughout FTSFactory.
     vector<int> label_to_local_label(labels.get_max_num_labels(), -1);
     vector<LocalLabelInfo> local_label_infos;
 
@@ -1194,7 +1030,6 @@ int build_axiom_factor(
         }
     }
 
-    // Group all irrelevant labels as self-loops at every reachable state.
     LabelGroup irrelevant_lg;
     int irr_cost = INF;
     for (int label : labels) {
@@ -1216,28 +1051,42 @@ int build_axiom_factor(
     }
 
     // -----------------------------------------------------------------------
-    // Step 7: Construct the TransitionSystem and the corresponding
-    //         MergeAndShrinkRepresentationProduct, then inject the factor.
+    // Step 7: Construct the TransitionSystem and inject into the FTS.
     //
-    // The TransitionSystem is now sized by num_reachable_states. The
-    // representation's lookup table still has to be sized by the full
-    // product (since get_value() encodes concrete states using the full
-    // mixed-radix scheme), but every entry that does not correspond to a
-    // discovered reachable state is marked PRUNED_STATE.
+    // The TransitionSystem is sized by num_reachable_states (not the full
+    // product). The representation lookup table is still indexed by full
+    // product state ids (via full_to_dense), so unreachable combinations are
+    // simply absent from the map and will be looked up as PRUNED_STATE.
+    //
+    // If output parameters are provided, fill them with the exact values of
+    // the primary variables (S_d) for each reachable state. The caller uses
+    // this to prevent lossy shrinking of the factor while any S_d variable
+    // is still also represented exactly by a separate atomic factor.
     // -----------------------------------------------------------------------
     auto ts = make_unique<TransitionSystem>(
         num_total_vars,
-        vector<int>(var_ids),  // incorporated_variables = primary vars of S_d
+        vector<int>(var_ids),  // incorporated_variables = S_d primary vars
         labels,
         move(label_to_local_label),
         move(local_label_infos),
         num_reachable_states,
         move(goal_states),
         full_to_dense.at(init_full_state),
-        /* axiom_derived */ true);  // carries the derived variable's value
+        /* axiom_derived */ true);
 
     auto mas_rep = make_unique<MergeAndShrinkRepresentationProduct>(
         var_ids, all_dom, move(full_to_dense), num_reachable_states);
+
+    if (out_pending_var_order && out_state_pending_values) {
+        *out_pending_var_order = var_ids;
+        out_state_pending_values->assign(num_reachable_states, vector<int>(n));
+        for (int d = 0; d < num_reachable_states; ++d) {
+            long long s_full = dense_to_full[d];
+            for (int i = 0; i < n; ++i)
+                (*out_state_pending_values)[d][i] = decode_val(s_full, i);
+        }
+    }
+
     return fts.add_factor(move(ts), move(mas_rep), log);
 }
 }

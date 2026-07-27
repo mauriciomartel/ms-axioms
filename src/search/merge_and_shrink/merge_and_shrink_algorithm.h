@@ -2,6 +2,8 @@
 #define MERGE_AND_SHRINK_MERGE_AND_SHRINK_ALGORITHM_H
 
 #include "../utils/logging.h"
+#include <unordered_map>
+#include <unordered_set>
 
 #include <memory>
 
@@ -48,6 +50,10 @@ class MergeAndShrinkAlgorithm {
 
     long starting_peak_memory;
 
+    std::unordered_map<int, std::unordered_set<int>> axiom_factor_pending_vars;
+    std::unordered_map<int, std::vector<int>> axiom_factor_pending_var_order;
+    std::unordered_map<int, std::vector<std::vector<int>>>
+        axiom_factor_pending_values;
     void report_peak_memory_delta(bool final = false) const;
     void dump_options() const;
     void warn_on_unusual_options() const;

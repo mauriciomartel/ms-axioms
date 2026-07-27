@@ -517,53 +517,130 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
         log_progress(timer, "after computation of atomic factors", log);
     }
 
-    // For each derived variable that is either a goal or read by some
-    // operator (as a precondition or as a condition of a conditional
-    // effect), build an axiom-induced abstract factor Theta_{S,d} and
-    // immediately shrink it with quasi-bisimulation. Derived variables that
-    // are only ever read by other axioms (and never by an operator or the
-    // goal) do not need their own factor: build_axiom_factor already
-    // resolves those transitively while evaluating the axiom closure of the
-    // variable that does need a factor.
-    //
-    // This must happen before the pruning loop so the loop can detect
-    // unsolvable axiom factors and abort early.
-    if (has_relevant_derived_vars) {
-        ShrinkQuasiBisimulation qbisim;
-        for (int derived_var_id : derived_vars_needing_axiom_factor) {
-            if (log.is_at_least_normal()) {
-                log << "Building axiom factor for derived variable "
-                    << derived_var_id << "." << endl;
-            }
-            // Build the product transition system for the primary variables
-            // in S_d and inject it into the FTS. Distances are computed
-            // immediately inside add_factor using the FTS-level flags,
-            // so goal distances are guaranteed to be available here.
-            int axiom_index = build_axiom_factor(
-    task_proxy, derived_var_id, fts, log);
-            // build_axiom_factor returns -1 when the reachable product state
-            // space exceeds its built-in limit (see fts_factory.cc). In that
-            // case no factor was added to the FTS, so accessing
-            // fts.get_transition_system(-1) below would be undefined behaviour.
-            // Skip the shrinking step entirely: the derived goal variable just
-            // won't be represented in the M&S abstract space, which makes the
-            // heuristic less tight but keeps it admissible.
-            if (axiom_index >= 0) {
-                // Shrink using quasi-bisimulation to keep the factor within
-                // max_states_before_merge, since it will eventually be merged
-                // with the regular factors in the main loop.
-                StateEquivalenceRelation equiv =
-                    qbisim.compute_equivalence_relation(
-                        fts.get_transition_system(axiom_index),
-                        fts.get_distances(axiom_index),
-                        max_states_before_merge,
-                        log);
-                fts.apply_abstraction(axiom_index, equiv, log);
-                if (log.is_at_least_normal()) {
-                    log_progress(
-                        timer, "after building and shrinking axiom factor", log);
+    bool has_derived_goals = false;
+    for (FactProxy goal : task_proxy.get_goals())
+        if (goal.get_variable().is_derived()) { has_derived_goals = true; break; }
+
+    // Derived goal variables whose S_d sets (primary-variable dependency
+    // closures) overlap must be built as a single combined factor.
+    // M&S requires each variable to be represented by exactly one live
+    // factor at a time; building separate per-derived-variable factors that
+    // share primary variables and bisimulation-shrinking them independently
+    // destroys the correlation between the shared variables and produces
+    // unsound abstract states.
+    if (has_derived_goals) {
+        vector<int> goal_derived_vars;
+        for (FactProxy goal : task_proxy.get_goals())
+            if (goal.get_variable().is_derived())
+                goal_derived_vars.push_back(goal.get_variable().get_id());
+
+        vector<unordered_set<int>> primary_sets;
+        primary_sets.reserve(goal_derived_vars.size());
+        for (int d : goal_derived_vars)
+            primary_sets.push_back(
+                compute_axiom_factor_primary_vars(task_proxy, d));
+
+        // Union-find over goal_derived_vars: merge any two whose S_d sets
+        // intersect (transitively), so they end up in the same group.
+        vector<int> uf_parent(goal_derived_vars.size());
+        for (size_t i = 0; i < uf_parent.size(); ++i) uf_parent[i] = i;
+        function<int(int)> uf_find = [&](int x) {
+            while (uf_parent[x] != x)
+                x = uf_parent[x] = uf_parent[uf_parent[x]];
+            return x;
+        };
+        for (size_t i = 0; i < goal_derived_vars.size(); ++i)
+            for (size_t j = i + 1; j < goal_derived_vars.size(); ++j) {
+                bool overlap = false;
+                for (int v : primary_sets[j])
+                    if (primary_sets[i].count(v)) { overlap = true; break; }
+                if (overlap) {
+                    int ri = uf_find(i), rj = uf_find(j);
+                    if (ri != rj) uf_parent[ri] = rj;
                 }
             }
+
+        // Build one joint factor per equivalence class.
+        unordered_map<int, vector<int>> groups;
+        for (size_t i = 0; i < goal_derived_vars.size(); ++i)
+            groups[uf_find(i)].push_back(goal_derived_vars[i]);
+
+                for (auto &[root, derived_var_ids] : groups) {
+            if (log.is_at_least_normal()) {
+                log << "Building axiom factor for derived variable(s)";
+                for (int d : derived_var_ids) log << " " << d;
+                log << "." << endl;
+            }
+
+            // Build one joint product factor for all derived variables in
+            // this group. The output parameters capture, for every reachable
+            // abstract state, the exact values of the S_d primary variables
+            // (pending_var_order gives the variable ids; pending_state_values
+            // gives the corresponding value tuple per state). This information
+            // is used below to prevent unsound shrinking while those primary
+            // variables are still dually represented (see below).
+            vector<int> pending_var_order;
+            vector<vector<int>> pending_state_values;
+            int axiom_index = build_axiom_factor(
+                task_proxy, derived_var_ids, fts, log,
+                &pending_var_order, &pending_state_values);
+
+            // build_axiom_factor returns -1 when the BFS exceeded the
+            // built-in state cap. In that case no factor was added to the
+            // FTS, so no pending tracking is needed: the primary variables
+            // remain represented only by their existing atomic factors and
+            // can be shrunk freely by the main loop.
+            if (axiom_index >= 0) {
+                // Collect every primary variable that belongs to the S_d
+                // closure of any derived variable in this group. Each of
+                // these is now represented TWICE in the FTS: exactly (one
+                // value per state) by its own atomic factor at index v, and
+                // approximately (collapsed by bisimulation inside the axiom
+                // factor) by the newly built axiom factor. The two must not
+                // be shrunk in a way that makes them disagree, or the merged
+                // product will contain abstract states with no concrete
+                // counterpart (e.g. X=1 in one factor merged with X=2 in the
+                // other).
+                unordered_set<int> pending_vars;
+                for (size_t i = 0; i < goal_derived_vars.size(); ++i)
+                    if (uf_find(i) == root)
+                        pending_vars.insert(
+                            primary_sets[i].begin(), primary_sets[i].end());
+
+                // Seed pending tracking for each atomic factor whose variable
+                // is now pending. An atomic factor's states are already the
+                // variable's values one-to-one, so the identity table is the
+                // trivial pending-value representation: state s has value s.
+                // This ensures the main loop applies the same no-lossy-shrink
+                // constraint symmetrically to both sides of each pending pair.
+                for (int v : pending_vars) {
+                    if (!axiom_factor_pending_vars.count(v)) {
+                        int dom = fts.get_transition_system(v).get_size();
+                        vector<vector<int>> identity_values(dom);
+                        for (int val = 0; val < dom; ++val)
+                            identity_values[val] = {val};
+                        axiom_factor_pending_vars[v] = {v};
+                        axiom_factor_pending_var_order[v] = {v};
+                        axiom_factor_pending_values[v] = move(identity_values);
+                    }
+                }
+
+                // Register the axiom factor itself with its pending set and
+                // the per-state value table filled in by build_axiom_factor.
+                // The main loop reads these to constrain shrinking and to
+                // detect and handle absorption (when the axiom factor is
+                // eventually merged with each pending atomic factor, that
+                // variable leaves the pending set and inconsistent product
+                // states are pruned).
+                axiom_factor_pending_vars[axiom_index] = move(pending_vars);
+                axiom_factor_pending_var_order[axiom_index] =
+                    move(pending_var_order);
+                axiom_factor_pending_values[axiom_index] =
+                    move(pending_state_values);
+            }
+
+            if (log.is_at_least_normal())
+                log_progress(timer, "after building axiom factor", log);
         }
     }
 

@@ -1,6 +1,9 @@
 #ifndef MERGE_AND_SHRINK_FTS_FACTORY_H
 #define MERGE_AND_SHRINK_FTS_FACTORY_H
 
+#include <unordered_set>
+#include <vector>
+
 /*
   Factory for factored transition systems.
 
@@ -24,6 +27,9 @@ extern FactoredTransitionSystem create_factored_transition_system(
     const TaskProxy &task_proxy, bool compute_init_distances,
     bool compute_goal_distances, utils::LogProxy &log);
 
+extern std::unordered_set<int> compute_axiom_factor_primary_vars(
+    const TaskProxy &task_proxy, int derived_var_id);
+
 /*
   Build the abstract factor Theta_{S,d} for the derived variable
   derived_var_id and inject it into fts via add_factor.
@@ -42,9 +48,11 @@ extern FactoredTransitionSystem create_factored_transition_system(
 */
 extern int build_axiom_factor(
     const TaskProxy &task_proxy,
-    int derived_var_id,
+    const std::vector<int> &derived_var_ids,
     FactoredTransitionSystem &fts,
-    utils::LogProxy &log);
+    utils::LogProxy &log,
+    std::vector<int> *out_pending_var_order = nullptr,
+    std::vector<std::vector<int>> *out_state_pending_values = nullptr);
 }
 
 #endif

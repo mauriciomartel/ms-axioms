@@ -2,10 +2,10 @@
 #define MERGE_AND_SHRINK_MERGE_AND_SHRINK_ALGORITHM_H
 
 #include "../utils/logging.h"
-#include <unordered_map>
-#include <unordered_set>
 
 #include <memory>
+#include <unordered_map>
+#include <unordered_set>
 
 class TaskProxy;
 

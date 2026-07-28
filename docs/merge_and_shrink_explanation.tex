@@ -5856,47 +5856,6 @@ for (const RelevantOperator &rop : relevant_ops) {
     consistent with the pattern observed on \texttt{psr-middle}.
 
 % ─────────────────────────────────────────────────────────────────────────────
-    \paragraph{Results: \texttt{philosophers} p01.}
-
-    The \texttt{philosophers} domain models the dining-philosophers problem
-    with message-passing queues; derived predicates encode the
-    \texttt{blocked} and \texttt{has-fork} state of each philosopher.
-    The p01 instance has 2 philosophers, 37 variables (2 derived, jointly
-    encoded), and optimal cost $h^* = 18$.
-    Blind A* expands 117 states in 0.77\,ms with $h_{\mathrm{init}} = 1$.
-
-    The joint-factor BFS groups the two derived variables (31 and 36) into
-    a single axiom factor with 10 primary variables and 34 relevant
-    operators.
-
-    \begin{center}
-    \begin{tabular}{lrrrrrr}
-    \toprule
-    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
-      & \textbf{Plan cost} & \textbf{Max abs.} & \textbf{Peak mem.} & \textbf{Build time} \\
-    \midrule
-    \texttt{blind}           & 1  & 117 & \textbf{18\,\checkmark} & --     & 12.6\,MB & 0.004\,s \\
-    \texttt{SCCS}            & 10 &  58 & \textbf{18\,\checkmark} & 3\,640 & 13.4\,MB & 0.038\,s \\
-    \texttt{stateless DFP}   & $18 = h^*$ & 19 & \textbf{18\,\checkmark} & 49\,959 & 20.2\,MB & 2.16\,s \\
-    \texttt{stateless MIASM} & $18 = h^*$ & 19 & \textbf{18\,\checkmark} & 21\,285 & 16.6\,MB & 22.4\,s \\
-    \bottomrule
-    \end{tabular}
-    \end{center}
-
-    SCCS reduces expanded states by $2\times$ over blind ($h_{\mathrm{init}}
-    = 10$), while both DFP and MIASM achieve the \emph{perfect} heuristic
-    ($h_{\mathrm{init}} = 18 = h^*$): the search traverses the optimal path
-    directly, expanding only 19 states (vs.\ 117 blind) with $h$ decreasing
-    by exactly~1 at each step.  The quality advantage of DFP over SCCS comes
-    at a cost of $57\times$ slower build time; MIASM matches DFP's heuristic
-    quality but is $10\times$ slower than DFP (22.4\,s vs.\ 2.16\,s) and
-    produces a smaller maximum intermediate abstraction (21\,285 vs.\
-    49\,959), reflecting its cautious size-minimizing merge selection.
-    For this domain, DFP is the best strategy overall: it achieves the
-    perfect heuristic at a build cost that is still negligible relative to
-    search.
-
-% ─────────────────────────────────────────────────────────────────────────────
     \paragraph{Results: \texttt{word-rooms}.}
 
     The \texttt{word-rooms} domain (431 variables, epistemic planning;
@@ -6079,6 +6038,47 @@ int build_axiom_factor(
     heuristic quality nor search reduction justifies the build time
     (89--115\,s), even though the gigabyte memory cost is eliminated by the
     joint-factor fix.
+
+% ─────────────────────────────────────────────────────────────────────────────
+    \paragraph{Results: \texttt{philosophers} p01.}
+
+    The \texttt{philosophers} domain models the dining-philosophers problem
+    with message-passing queues; derived predicates encode the
+    \texttt{blocked} and \texttt{has-fork} state of each philosopher.
+    The p01 instance has 2 philosophers, 37 variables (2 derived, jointly
+    encoded), and optimal cost $h^* = 18$.
+    Blind A* expands 117 states in 0.77\,ms with $h_{\mathrm{init}} = 1$.
+
+    The joint-factor BFS groups the two derived variables (31 and 36) into
+    a single axiom factor with 10 primary variables and 34 relevant
+    operators.
+
+    \begin{center}
+    \begin{tabular}{lrrrrrr}
+    \toprule
+    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
+      & \textbf{Plan cost} & \textbf{Max abs.} & \textbf{Peak mem.} & \textbf{Build time} \\
+    \midrule
+    \texttt{blind}           & 1  & 117 & \textbf{18\,\checkmark} & --     & 12.6\,MB & 0.004\,s \\
+    \texttt{SCCS}            & 10 &  58 & \textbf{18\,\checkmark} & 3\,640 & 13.4\,MB & 0.038\,s \\
+    \texttt{stateless DFP}   & $18 = h^*$ & 19 & \textbf{18\,\checkmark} & 49\,959 & 20.2\,MB & 2.16\,s \\
+    \texttt{stateless MIASM} & $18 = h^*$ & 19 & \textbf{18\,\checkmark} & 21\,285 & 16.6\,MB & 22.4\,s \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    SCCS reduces expanded states by $2\times$ over blind ($h_{\mathrm{init}}
+    = 10$), while both DFP and MIASM achieve the \emph{perfect} heuristic
+    ($h_{\mathrm{init}} = 18 = h^*$): the search traverses the optimal path
+    directly, expanding only 19 states (vs.\ 117 blind) with $h$ decreasing
+    by exactly~1 at each step.  The quality advantage of DFP over SCCS comes
+    at a cost of $57\times$ slower build time; MIASM matches DFP's heuristic
+    quality but is $10\times$ slower than DFP (22.4\,s vs.\ 2.16\,s) and
+    produces a smaller maximum intermediate abstraction (21\,285 vs.\
+    49\,959), reflecting its cautious size-minimizing merge selection.
+    For this domain, DFP is the best strategy overall: it achieves the
+    perfect heuristic at a build cost that is still negligible relative to
+    search.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

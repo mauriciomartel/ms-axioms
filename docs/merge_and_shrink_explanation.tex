@@ -4803,7 +4803,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \midrule
     \texttt{philosophers}             & \texttt{pddl-axioms} & \checkmark & validated Phase~1 (p01--p03); Step~5 p01: SCCS $h_{\mathrm{init}}=10$, 58 exp; DFP/MIASM: $h_{\mathrm{init}}=18=h^*$, 19 exp (perfect) \\
     \texttt{optical-telegraphs}       & \texttt{pddl-axioms} & \checkmark & axiom factor BFS hits 100\,k cap (42 primary vars, 286 ops) for all strategies; $h_{\mathrm{init}}=0$; all 3 expand 10{,}662 $>$ blind 10{,}179; build 16--195\,s \\
-    \texttt{muddy-child}              & \texttt{ce}          & --         & \\
+    \texttt{muddy-child}              & \texttt{ce}          & \checkmark & axiom factor (vars 36,39,40,43; 12 primary, 4 ops) has 0 goal states (over-approximation); factor skipped per Fix~A; $h_{\mathrm{init}}=0$; all 3 expand 20 $>$ blind 14; build $<$50\,ms \\
     \texttt{muddy-children}           & \texttt{ce}          & --         & \\
     \texttt{sum}                      & \texttt{ce}          & --         & \\
     \midrule
@@ -6125,6 +6125,63 @@ int build_axiom_factor(
     For \texttt{optical-telegraphs}, M\&S is completely cost-ineffective:
     the heuristic provides no search guidance and no strategy justifies
     the build overhead.
+
+% ─────────────────────────────────────────────────────────────────────────────
+    \paragraph{Results: \texttt{muddy-child}.}
+
+    The \texttt{muddy-child/3-muddy\_1.sas} instance encodes a 3-child muddy
+    children puzzle with 44~variables (8~derived: vars~36--43) and optimal
+    cost $h^* = 4$.
+    Blind A* expands 14 states with $h_{\mathrm{init}} = 0$.
+
+    The 8~derived variables split into five union-find groups.
+    Four singleton groups (vars~37, 38, 41, 42) each produce a trivial axiom
+    factor with 0~primary variables and 0~relevant operators; these factors
+    are 1-state transition systems contributing no heuristic information.
+    The fifth group (vars~36, 39, 40, 43) produces a joint axiom factor with
+    12~primary variables and 4~relevant operators.
+    During BFS goal-state evaluation, derived variable conditions are
+    over-approximated: any BFS state whose non-$S_d$ goal conditions cannot be
+    verified without a full axiom evaluation is treated as a candidate, but the
+    actual axiom evaluator then finds no state satisfies all four derived goal
+    conditions.
+    The factor therefore has \emph{zero goal states}.
+
+    Prior to Fix~A (\texttt{build\_axiom\_factor} returning~$-1$ when no goal
+    state is found), this caused a crash under \texttt{SCCS}: the empty
+    group~0 in \texttt{ShrinkBisimulation::initialize\_groups} propagated into
+    \texttt{apply\_abstraction}, which asserts every equivalence class is
+    non-empty.
+    Fix~A skips the factor and logs a diagnostic message, preserving
+    admissibility at the cost of losing all heuristic information about
+    the derived goal variables.
+
+    \begin{center}
+    \begin{tabular}{lrrrrrr}
+    \toprule
+    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
+      & \textbf{Plan cost} & \textbf{Max abs.} & \textbf{Peak mem.} & \textbf{Build time} \\
+    \midrule
+    \texttt{blind}           & 0 & 14 & \textbf{4\,\checkmark} & --  & $\approx$13.0\,MB & -- \\
+    \texttt{SCCS}            & 0 & 20 & \textbf{4\,\checkmark} & 2   & 12.8\,MB & 18.9\,ms \\
+    \texttt{stateless DFP}   & 0 & 20 & \textbf{4\,\checkmark} & 2   & 12.8\,MB & 24.3\,ms \\
+    \texttt{stateless MIASM} & 0 & 20 & \textbf{4\,\checkmark} & 2   & 12.9\,MB & 49.7\,ms \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    All three M\&S strategies produce $h_{\mathrm{init}} = 0$ and expand
+    20~states---43\% more than blind A*'s 14---while incurring build times
+    of 19--50\,ms with negligible memory overhead.
+    The maximum intermediate abstraction size of~2 confirms that no useful
+    abstraction is constructed: the only axiom factor with semantic content
+    (the joint factor for vars~36, 39, 40, 43) is discarded, and the
+    remaining singleton factors contribute nothing beyond 1-state systems.
+    Fix~A therefore introduces a correctness--informativeness trade-off:
+    the heuristic is admissible but blind with respect to all derived goal
+    conditions.
+    For \texttt{muddy-child}, M\&S provides no search guidance and blind A*
+    is strictly preferable.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

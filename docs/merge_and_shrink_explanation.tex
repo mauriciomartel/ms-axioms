@@ -4801,7 +4801,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \midrule
     \multicolumn{4}{l}{\textit{Phase~1 only — axioms in goal conditions (5)}} \\
     \midrule
-    \texttt{philosophers}             & \texttt{pddl-axioms} & \checkmark & validated in Phase~1 (p01--p03) \\
+    \texttt{philosophers}             & \texttt{pddl-axioms} & \checkmark & validated Phase~1 (p01--p03); Step~5 p01: SCCS $h_{\mathrm{init}}=10$, 58 exp; DFP/MIASM: $h_{\mathrm{init}}=18=h^*$, 19 exp (perfect) \\
     \texttt{optical-telegraphs}       & \texttt{pddl-axioms} & --         & \\
     \texttt{muddy-child}              & \texttt{ce}          & --         & \\
     \texttt{muddy-children}           & \texttt{ce}          & --         & \\
@@ -5854,6 +5854,47 @@ for (const RelevantOperator &rop : relevant_ops) {
     cost-ineffective here.  The MIASM overhead scales with abstraction
     size (max abs 245--335 here vs.\ only 6--12 for the robot domains),
     consistent with the pattern observed on \texttt{psr-middle}.
+
+% ─────────────────────────────────────────────────────────────────────────────
+    \paragraph{Results: \texttt{philosophers} p01.}
+
+    The \texttt{philosophers} domain models the dining-philosophers problem
+    with message-passing queues; derived predicates encode the
+    \texttt{blocked} and \texttt{has-fork} state of each philosopher.
+    The p01 instance has 2 philosophers, 37 variables (2 derived, jointly
+    encoded), and optimal cost $h^* = 18$.
+    Blind A* expands 117 states in 0.77\,ms with $h_{\mathrm{init}} = 1$.
+
+    The joint-factor BFS groups the two derived variables (31 and 36) into
+    a single axiom factor with 10 primary variables and 34 relevant
+    operators.
+
+    \begin{center}
+    \begin{tabular}{lrrrrrr}
+    \toprule
+    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
+      & \textbf{Plan cost} & \textbf{Max abs.} & \textbf{Peak mem.} & \textbf{Build time} \\
+    \midrule
+    \texttt{blind}           & 1  & 117 & \textbf{18\,\checkmark} & --     & 12.6\,MB & 0.004\,s \\
+    \texttt{SCCS}            & 10 &  58 & \textbf{18\,\checkmark} & 3\,640 & 13.4\,MB & 0.038\,s \\
+    \texttt{stateless DFP}   & $18 = h^*$ & 19 & \textbf{18\,\checkmark} & 49\,959 & 20.2\,MB & 2.16\,s \\
+    \texttt{stateless MIASM} & $18 = h^*$ & 19 & \textbf{18\,\checkmark} & 21\,285 & 16.6\,MB & 22.4\,s \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    SCCS reduces expanded states by $2\times$ over blind ($h_{\mathrm{init}}
+    = 10$), while both DFP and MIASM achieve the \emph{perfect} heuristic
+    ($h_{\mathrm{init}} = 18 = h^*$): the search traverses the optimal path
+    directly, expanding only 19 states (vs.\ 117 blind) with $h$ decreasing
+    by exactly~1 at each step.  The quality advantage of DFP over SCCS comes
+    at a cost of $57\times$ slower build time; MIASM matches DFP's heuristic
+    quality but is $10\times$ slower than DFP (22.4\,s vs.\ 2.16\,s) and
+    produces a smaller maximum intermediate abstraction (21\,285 vs.\
+    49\,959), reflecting its cautious size-minimizing merge selection.
+    For this domain, DFP is the best strategy overall: it achieves the
+    perfect heuristic at a build cost that is still negligible relative to
+    search.
 
 % ─────────────────────────────────────────────────────────────────────────────
     \paragraph{Results: \texttt{word-rooms}.}

@@ -982,6 +982,20 @@ int build_axiom_factor(
         goal_states[d] = is_goal;
     }
 
+    // If no BFS state satisfies all derived goal conditions, the factor
+    // provides no useful heuristic information and would return h=INF for
+    // the initial state (inadmissible). Skip it, same as the BFS-cap case.
+    bool has_any_goal = false;
+    for (bool g : goal_states) {
+        if (g) { has_any_goal = true; break; }
+    }
+    if (!has_any_goal) {
+        if (log.is_at_least_normal())
+            log << "  Axiom factor BFS: no goal states reachable; skipping factor"
+                   " (heuristic remains admissible)." << endl;
+        return -1;
+    }
+
     // Deferred operators: those whose only connection to this factor is a
     // precondition on a target derived variable. The derived variable is true
     // exactly in goal states, so add self-loops there and nothing elsewhere.

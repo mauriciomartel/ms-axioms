@@ -4802,7 +4802,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \multicolumn{4}{l}{\textit{Phase~1 only — axioms in goal conditions (5)}} \\
     \midrule
     \texttt{philosophers}             & \texttt{pddl-axioms} & \checkmark & validated Phase~1 (p01--p03); Step~5 p01: SCCS $h_{\mathrm{init}}=10$, 58 exp; DFP/MIASM: $h_{\mathrm{init}}=18=h^*$, 19 exp (perfect) \\
-    \texttt{optical-telegraphs}       & \texttt{pddl-axioms} & --         & \\
+    \texttt{optical-telegraphs}       & \texttt{pddl-axioms} & \checkmark & axiom factor BFS hits 100\,k cap (42 primary vars, 286 ops) for all strategies; $h_{\mathrm{init}}=0$; all 3 expand 10{,}662 $>$ blind 10{,}179; build 16--195\,s \\
     \texttt{muddy-child}              & \texttt{ce}          & --         & \\
     \texttt{muddy-children}           & \texttt{ce}          & --         & \\
     \texttt{sum}                      & \texttt{ce}          & --         & \\
@@ -6079,6 +6079,52 @@ int build_axiom_factor(
     For this domain, DFP is the best strategy overall: it achieves the
     perfect heuristic at a build cost that is still negligible relative to
     search.
+
+% ─────────────────────────────────────────────────────────────────────────────
+    \paragraph{Results: \texttt{optical-telegraphs}.}
+
+    The \texttt{optical-telegraphs} domain models asynchronous message
+    passing via optical telegraph stations with derived predicates encoding
+    reachability conditions over station states.
+    The test instance has 177~variables (4~derived: vars~161, 162, 169, 176)
+    and optimal cost $h^* = 28$.
+    Blind A* expands 10{,}179 states with $h_{\mathrm{init}} = 1$.
+
+    All four derived variables share overlapping support sets and are grouped
+    by union-find into a single joint axiom factor with 42~primary variables
+    and 286~relevant operators.
+    The BFS over this factor's product space exceeds the 100{,}000-state cap
+    and is \emph{skipped}; the heuristic consequently returns
+    $h_{\mathrm{init}} = 0$ for every goal condition involving derived
+    variables, giving M\&S no useful guidance.
+
+    \begin{center}
+    \begin{tabular}{lrrrrrr}
+    \toprule
+    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
+      & \textbf{Plan cost} & \textbf{Max abs.} & \textbf{Peak mem.} & \textbf{Build time} \\
+    \midrule
+    \texttt{blind}           & 1 & 10{,}179 & \textbf{28\,\checkmark} & --          & 13.5\,MB & -- \\
+    \texttt{SCCS}            & 0 & 10{,}662 & \textbf{28\,\checkmark} & 49{,}892    & 39.3\,MB & 16.3\,s \\
+    \texttt{stateless DFP}   & 0 & 10{,}662 & \textbf{28\,\checkmark} & 49{,}892    & 39.2\,MB & 17.6\,s \\
+    \texttt{stateless MIASM} & 0 & 10{,}662 & \textbf{28\,\checkmark} & 49{,}185    & 45.3\,MB & 195\,s \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    All three M\&S strategies produce $h_{\mathrm{init}} = 0$ and expand
+    10{,}662~states---5\% more than blind A*'s 10{,}179---while incurring
+    build times of 16--195\,s and peak memory of 39--45\,MB versus 13.5\,MB
+    for blind.
+    The axiom factor's product BFS is the sole culprit: with 42~primary
+    variables and 286~relevant operators the 100{,}000-state cap is hit,
+    the factor is skipped, and all derived-variable goal conditions receive
+    heuristic value~0.
+    MIASM's 195\,s build time makes it far worse than SCCS or DFP on this
+    domain with no quality gain to show for it.
+    For \texttt{optical-telegraphs}, M\&S is completely cost-ineffective:
+    the heuristic provides no search guidance and no strategy justifies
+    the build overhead.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

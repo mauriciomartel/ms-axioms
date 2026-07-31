@@ -996,6 +996,48 @@ int build_axiom_factor(
         return -1;
     }
 
+    // Guard: if the dense initial state cannot reach any goal state via the
+    // transitions built above, the factor would give h=INF for the task's
+    // actual initial state — inadmissible. Skip for the same reason as Fix A.
+    {
+        int init_dense = full_to_dense.at(init_full_state);
+        if (!goal_states[init_dense]) {
+            // Build a compact successor list to avoid rescanning label_trans
+            // for every BFS state.
+            vector<vector<int>> succ(num_reachable_states);
+            for (int lbl = 0; lbl < num_labels; ++lbl) {
+                for (const Transition &tr : label_trans[lbl]) {
+                    succ[tr.src].push_back(tr.target);
+                }
+            }
+            for (auto &s : succ)
+                utils::sort_unique(s);
+
+            vector<bool> visited(num_reachable_states, false);
+            queue<int> fw;
+            visited[init_dense] = true;
+            fw.push(init_dense);
+            bool found = false;
+            while (!fw.empty() && !found) {
+                int s = fw.front(); fw.pop();
+                for (int t : succ[s]) {
+                    if (!visited[t]) {
+                        visited[t] = true;
+                        if (goal_states[t]) { found = true; break; }
+                        fw.push(t);
+                    }
+                }
+            }
+            if (!found) {
+                if (log.is_at_least_normal())
+                    log << "  Axiom factor: initial state cannot reach any goal "
+                           "state; skipping factor (heuristic remains admissible)."
+                        << endl;
+                return -1;
+            }
+        }
+    }
+
     // Deferred operators: those whose only connection to this factor is a
     // precondition on a target derived variable. The derived variable is true
     // exactly in goal states, so add self-loops there and nothing elsewhere.
@@ -1101,6 +1143,25 @@ int build_axiom_factor(
         }
     }
 
-    return fts.add_factor(move(ts), move(mas_rep), log);
+    int added_index = fts.add_factor(move(ts), move(mas_rep), log);
+    if (log.is_at_least_normal()) {
+        const TransitionSystem &dbg_ts = fts.get_transition_system(added_index);
+        const Distances &dbg_d = fts.get_distances(added_index);
+        int num_goals = 0;
+        for (int s = 0; s < dbg_ts.get_size(); ++s)
+            if (dbg_ts.is_goal_state(s)) ++num_goals;
+        int init_s = dbg_ts.get_init_state();
+        log << "[AXIOM FACTOR DIAG] states=" << dbg_ts.get_size()
+            << " goal_states=" << num_goals
+            << " init=" << init_s
+            << " init_goal_dist=";
+        if (dbg_d.are_goal_distances_computed())
+            log << dbg_d.get_goal_distance(init_s);
+        else
+            log << "N/A";
+        log << " solvable=" << (fts.is_factor_solvable(added_index) ? "YES" : "NO")
+            << endl;
+    }
+    return added_index;
 }
 }

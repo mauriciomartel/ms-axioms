@@ -509,7 +509,7 @@ void MergeAndShrinkAlgorithm::main_loop(
                             kept.push_back(move(vals[s]));
                     vals = move(kept);
                 }
-                if (log.is_at_least_verbose()) {
+                if (log.is_at_least_normal()) {
                     log << "Pruned " << pruned_count << " states inconsistent "
                         << "with an already-tracked variable value while "
                         << "absorbing a pending variable." << endl;

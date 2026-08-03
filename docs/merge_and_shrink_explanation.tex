@@ -4749,6 +4749,70 @@ for (const RelevantOperator &rop : relevant_ops) {
     small instance) to catch structural bugs early; then complex domains (many
     derived variables, conditional effects) to stress the full pipeline.
 
+    \paragraph{Merge strategy configurations used for testing.}
+
+    All Step~5 results are obtained by piping a pre-translated \texttt{.sas}
+    file into the \texttt{downward} binary with one of the three configurations
+    below.  The shared options (\texttt{shrink\_strategy},
+    \texttt{label\_reduction}, \texttt{max\_states},
+    \texttt{threshold\_before\_merge}) are identical across all three; only
+    the merge strategy differs.
+
+    \medskip
+    \noindent\textbf{SCCS (topological):}
+\begin{lstlisting}
+astar(merge_and_shrink(
+    merge_strategy=merge_sccs(
+        order_of_sccs=topological,
+        merge_selector=score_based_filtering(
+            scoring_functions=[goal_relevance(), dfp(),
+                               total_order()])),
+    shrink_strategy=shrink_bisimulation(greedy=false),
+    label_reduction=exact(before_shrinking=true, before_merging=false),
+    max_states=50000,
+    threshold_before_merge=1))
+\end{lstlisting}
+
+    \noindent\textbf{Stateless DFP:}
+\begin{lstlisting}
+astar(merge_and_shrink(
+    merge_strategy=merge_stateless(
+        merge_selector=score_based_filtering(
+            scoring_functions=[
+                goal_relevance(), dfp(),
+                total_order(atomic_ts_order=reverse_level,
+                            product_ts_order=new_to_old,
+                            atomic_before_product=true)])),
+    shrink_strategy=shrink_bisimulation(greedy=false),
+    label_reduction=exact(before_shrinking=true, before_merging=false),
+    max_states=50000,
+    threshold_before_merge=1))
+\end{lstlisting}
+
+    \noindent\textbf{Stateless MIASM:}
+\begin{lstlisting}
+astar(merge_and_shrink(
+    merge_strategy=merge_stateless(
+        merge_selector=score_based_filtering(
+            scoring_functions=[
+                sf_miasm(shrink_strategy=shrink_bisimulation(greedy=false),
+                         max_states=50000,
+                         threshold_before_merge=1),
+                total_order(atomic_ts_order=reverse_level,
+                            product_ts_order=new_to_old,
+                            atomic_before_product=true)])),
+    shrink_strategy=shrink_bisimulation(greedy=false),
+    label_reduction=exact(before_shrinking=true, before_merging=false),
+    max_states=50000,
+    threshold_before_merge=1))
+\end{lstlisting}
+
+    \noindent Each run reads from a pre-translated \texttt{.sas} file via
+    standard input:
+\begin{lstlisting}[language=bash]
+./downward --search "<config>" < path/to/problem.sas
+\end{lstlisting}
+
     \paragraph{Domain testing checklist.}
 
     All 45 benchmark domains in the feature branch are listed below.

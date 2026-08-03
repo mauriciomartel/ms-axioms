@@ -4873,7 +4873,7 @@ astar(merge_and_shrink(
     \midrule
     \multicolumn{4}{l}{\textit{Compiled axioms — no explicit \texttt{:derived} in PDDL (11)}} \\
     \midrule
-    \texttt{airport-adl}              & \texttt{pddl-axioms} & --         & \\
+    \texttt{airport-adl}              & \texttt{pddl-axioms} & \checkmark & no derived vars in SAS$^+$; single SCC (10 vars); all 3 strategies: $h_{\mathrm{init}}=8=h^*$, 9 exp (blind 18), 7 dead ends; DFP 7\,\% faster than SCCS; MIASM max abs 28 vs 56 \\
     \texttt{appn-adl}                 & \texttt{pddl-axioms} & --         & \\
     \texttt{fridge}                   & \texttt{pddl-axioms} & --         & \\
     \texttt{openstacks}               & \texttt{pddl-axioms} & --         & \\
@@ -6513,6 +6513,62 @@ the axiom factor captures the full derived-variable reasoning in 28 states with
 a single goal state, the resulting heuristic achieves $h_{\mathrm{init}} = 2$,
 improving on blind's~1 and reducing node expansions from~5 to~4.  DFP provides
 the best trade-off: perfect heuristic quality at the lowest build cost.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Results: \texttt{airport-adl}.}
+
+The \texttt{airport-adl} benchmark models airport ground traffic management:
+a single airplane must taxi from a runway segment to a parking position by
+traversing a sequence of taxiway segments.
+The translated SAS$^+$ task for the tested instance has \textbf{10 variables}
+and 45 fact pairs; crucially, \emph{no derived variables} appear in the
+translation.
+Although the domain is listed under ``compiled axioms'' (no explicit
+\texttt{:derived} in PDDL), the translator produces a purely propositional
+task, so M\&S runs without any axiom-specific code paths.
+The causal graph places all 10 variables in a \textbf{single SCC}.
+
+Blind A* reports $h_{\mathrm{init}} = 1$ and expands 18~states to find the
+optimal plan of cost~8 (7~\texttt{move} actions followed by
+\texttt{park airplane\_cfbeg medium seg\_pp\_0\_60 south}).
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{Config} & \bm{$h_{\mathrm{init}}$} & \textbf{Expanded}
+  & \textbf{Plan cost} & \textbf{Max abs} & \textbf{Peak mem} & \textbf{Build} \\
+\midrule
+blind A*            & 1 & 18 & 8 & ---  & 12.96\,MB & ---       \\
+SCCS                & 8 & 9  & 8 & 56   & 12.96\,MB & 0.00219\,s  \\
+stateless DFP       & 8 & 9  & 8 & 56   & 12.96\,MB & 0.00204\,s  \\
+stateless MIASM     & 8 & 9  & 8 & 28   & 12.96\,MB & 0.00273\,s  \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All three M\&S strategies achieve $h_{\mathrm{init}} = 8 = h^*$: a
+\textbf{perfect heuristic} matching the optimal plan cost exactly.
+Each expands only 9~states---half of blind's~18---and identifies 7~dead-end
+states before expansion.
+Since the causal graph is a single SCC, SCCS has no SCC structure to exploit
+and degenerates to the same merge-selector as stateless DFP; accordingly both
+strategies produce an identical merge order and a maximum intermediate
+abstraction of 56~states.
+MIASM chooses a different merge sequence and yields a smaller peak abstraction
+of 28~states at the cost of a 34\,\% longer build (0.00273\,s vs.\ 0.00204\,s
+for DFP), with no difference in search quality.
+DFP is the fastest strategy (7\,\% faster than SCCS), while SCCS and DFP
+both produce the smallest-footprint heuristic in their shared 56-state
+abstraction.
+
+Because all variables are combined into a single monolithic abstraction that
+preserves exact optimal distances, the final abstraction is a perfect
+bisimulation: the heuristic equals $h^*$ at every reachable state.
+A* therefore expands only the 9~states along the optimal path (one per
+$f$-layer from 8 down to~0), with no suboptimal backtracking.
+For \texttt{airport-adl}, M\&S with any of the three strategies strictly
+dominates blind A*.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

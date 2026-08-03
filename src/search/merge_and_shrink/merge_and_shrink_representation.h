@@ -99,6 +99,7 @@ class MergeAndShrinkRepresentationProduct : public MergeAndShrinkRepresentation 
     */
     const std::vector<long long> multipliers;
     std::unordered_map<long long, int> lookup_table;
+    int fallback_abstract_id; // goal state id for absent BFS entries; updated by apply_abstraction/set_distances
 public:
     /*
       var_ids: variable IDs forming the product (order determines multiplier layout).
@@ -126,7 +127,8 @@ public:
         const std::vector<int> &var_ids,
         const std::vector<int> &domain_sizes,
         std::unordered_map<long long, int> &&initial_lookup_table,
-        int num_reachable_states);
+        int num_reachable_states,
+        int fallback_id);
     virtual ~MergeAndShrinkRepresentationProduct() = default;
 
     /*

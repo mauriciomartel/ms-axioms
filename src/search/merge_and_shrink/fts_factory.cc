@@ -1119,6 +1119,13 @@ int build_axiom_factor(
     // this to prevent lossy shrinking of the factor while any S_d variable
     // is still also represented exactly by a separate atomic factor.
     // -----------------------------------------------------------------------
+
+    // Find the first goal state's dense id to use as the fallback
+    // for primary variable configurations absent from the BFS.
+    int goal_dense_id = -1;
+    for (int d = 0; d < num_reachable_states; ++d)
+        if (goal_states[d]) { goal_dense_id = d; break; }
+
     auto ts = make_unique<TransitionSystem>(
         num_total_vars,
         vector<int>(var_ids),  // incorporated_variables = S_d primary vars
@@ -1131,7 +1138,8 @@ int build_axiom_factor(
         /* axiom_derived */ true);
 
     auto mas_rep = make_unique<MergeAndShrinkRepresentationProduct>(
-        var_ids, all_dom, move(full_to_dense), num_reachable_states);
+    var_ids, all_dom, move(full_to_dense), num_reachable_states,
+    goal_dense_id);
 
     if (out_pending_var_order && out_state_pending_values) {
         *out_pending_var_order = var_ids;

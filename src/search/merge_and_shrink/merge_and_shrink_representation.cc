@@ -218,18 +218,21 @@ MergeAndShrinkRepresentationProduct::MergeAndShrinkRepresentationProduct(
         already run and `this->domain_size` holds the correct product size, so
         it is safe to use it here as the vector length.
       */
-      lookup_table(domain_size) {
+      lookup_table(),
+      fallback_abstract_id(-1) {
     for (int i = 0; i < domain_size; ++i)
         lookup_table[i] = i;
 }
 
 MergeAndShrinkRepresentationProduct::MergeAndShrinkRepresentationProduct(
     const vector<int> &var_ids, const vector<int> &domain_sizes,
-    unordered_map<long long, int> &&initial_lookup_table, int num_reachable_states)
+    unordered_map<long long, int> &&initial_lookup_table, int num_reachable_states,
+    int fallback_id)
     : MergeAndShrinkRepresentation(num_reachable_states),
       var_ids(var_ids),
       multipliers(compute_product_multipliers(var_ids, domain_sizes)),
-      lookup_table(move(initial_lookup_table)) {
+      lookup_table(move(initial_lookup_table)),
+      fallback_abstract_id(fallback_id) {
 }
 
 void MergeAndShrinkRepresentationProduct::set_distances(
@@ -241,6 +244,8 @@ void MergeAndShrinkRepresentationProduct::set_distances(
         if (val != PRUNED_STATE)
             val = distances.get_goal_distance(val);
     }
+    if (fallback_abstract_id >= 0)
+        fallback_abstract_id = distances.get_goal_distance(fallback_abstract_id);
 }
 
 void MergeAndShrinkRepresentationProduct::apply_abstraction_to_lookup_table(
@@ -255,6 +260,8 @@ void MergeAndShrinkRepresentationProduct::apply_abstraction_to_lookup_table(
         }
     }
     domain_size = new_domain_size;
+    if (fallback_abstract_id >= 0)
+        fallback_abstract_id = abstraction_mapping[fallback_abstract_id];
 }
 
 int MergeAndShrinkRepresentationProduct::get_value(const State &state) const {
@@ -266,7 +273,8 @@ int MergeAndShrinkRepresentationProduct::get_value(const State &state) const {
     for (size_t i = 0; i < var_ids.size(); ++i)
         product_state_id += static_cast<long long>(state[var_ids[i]].get_value()) * multipliers[i];
     auto it = lookup_table.find(product_state_id);
-    return it != lookup_table.end() ? it->second : PRUNED_STATE;
+    return it != lookup_table.end() ? it->second
+       : (fallback_abstract_id >= 0 ? fallback_abstract_id : PRUNED_STATE);
 }
 
 bool MergeAndShrinkRepresentationProduct::is_total() const {

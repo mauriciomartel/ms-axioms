@@ -6265,6 +6265,177 @@ int build_axiom_factor(
     produces an axiom factor with 41~primary variables, 4~relevant operators,
     10~reachable states, and 1~goal state, yielding $h_{\mathrm{init}} = 2$.
 
+    \textbf{Code fixes required.}
+    Before the fixes described below, unmodified M\&S crashed and later
+    declared the instance unsolvable; multiple independent bugs had to be
+    corrected in concert before the three strategies returned the right answer.
+
+    \emph{Fix~A — skip axiom factors whose BFS finds no goal states}
+    (\texttt{fts\_factory.cc}).
+    Applies to the four singleton groups (vars~88, 90, 93, 95).
+    Each runs a BFS over 4~primary variables using 3~relevant operators, but
+    no state passes the full axiom-closure check, leaving the goal-state vector
+    empty.
+    Without Fix~A \texttt{build\_axiom\_factor} returned a zero-goal-state
+    \texttt{TransitionSystem}, and the subsequent
+    \texttt{ShrinkBisimulation::initialize\_groups} call asserted that
+    group~0 was non-empty — a crash.
+    Fix~A makes \texttt{build\_axiom\_factor} return~$-1$ before constructing
+    the transition system; the caller skips the factor entirely.
+    (This fix is shared with \texttt{muddy-child}; see that paragraph for
+    the detailed crash trace.)
+
+    \emph{Fix~B --- skip unreachable-state pruning for derived-variable atomic factors}
+    (\texttt{merge\_and\_shrink\_algorithm.cc}, initial pruning loop).
+    The M\&S algorithm prunes atomic factors before the main merge loop.
+    Unreachable-state pruning works by forward BFS from the initial state
+    using operator transitions.
+    For a derived variable such as \texttt{muddy(child\_a)}, the value in the
+    initial state is the default axiom value (usually~0); the variable is
+    updated by axiom rules, \emph{not} operators, so operators cannot reach
+    value~1 from value~0 in the derived variable's atomic factor.
+    Forward pruning therefore labels the non-default value as unreachable
+    and removes it, producing a 1-state factor that is blind to the goal
+    condition on the derived variable.
+    The fix introduces an \texttt{is\_derived\_atomic} flag (true when
+    \texttt{index $<$ num\_variables} and the variable is derived) and
+    disables \texttt{prune\_unreachable\_states} for those factors.
+
+    \emph{Fix~C --- skip irrelevant-state pruning for axiom factors}
+    (\texttt{merge\_and\_shrink\_algorithm.cc}, initial pruning loop).
+    Irrelevant-state pruning works by backward BFS from goal states.
+    An axiom factor (index $\geq$ \texttt{num\_variables}) covers only a
+    subset of the primary variables in $S_d$; backward reachability within
+    that partial space does not capture all operator paths that lead to a
+    goal in the full system, so states that are genuinely reachable via
+    operators outside $S_d$ can be incorrectly labelled irrelevant and
+    pruned, yielding $h = \infty$ for concrete states that map to them.
+    The fix introduces an \texttt{is\_axiom\_factor} flag and disables
+    \texttt{prune\_irrelevant\_states} for those factors.
+    A companion guard on the solvability check (line~840) prevents the
+    algorithm from declaring the whole problem unsolvable if an axiom
+    factor appears unsolvable after its (legitimately constrained) pruning
+    pass.
+
+    \emph{Fix~D --- skip unreachable/irrelevant pruning for axiom-derived merged factors}
+    (\texttt{merge\_and\_shrink\_algorithm.cc}, main merge loop).
+    During the merge loop a boolean array \texttt{is\_axiom\_derived} tracks
+    whether a factor descends from any axiom factor.
+    The same reasoning as Fixes~B--C applies to merged products that contain
+    an axiom factor: applying either pruning type to such a product could
+    remove states that are reachable in the full system via operators not
+    represented in the partial product.
+    The fix propagates the flag across merges
+    (\texttt{is\_axiom\_derived[new] = is\_axiom\_derived[left] || is\_axiom\_derived[right]})
+    and skips both pruning types and the solvability check for any merged
+    factor that carries the flag.
+
+    \emph{Fix~E --- collapse dead-end abstract states in the axiom factor}
+    (\texttt{merge\_and\_shrink\_algorithm.cc}).
+    After the joint axiom factor (vars~81--104) is added to the FTS and
+    goal distances are computed, some BFS-reachable abstract states may have
+    goal distance~$\infty$ (they are dead ends in the abstract space).
+    A concrete state that maps to such an abstract state would receive
+    $h = \infty$, making the heuristic inadmissible.
+    The fix constructs a \texttt{StateEquivalenceRelation} that merges every
+    dead-end abstract state into the goal abstract state (keeping non-dead-end
+    states in their own singleton classes) and calls
+    \texttt{fts.apply\_abstraction}.
+    Because the goal state has $h = 0 \leq h^*$, lumping dead-end states into
+    it is admissible.
+
+    \emph{Fix~F --- collapse derived-variable atomic factors to a single abstract state}
+    (\texttt{merge\_and\_shrink\_algorithm.cc}).
+    Even with Fixes~A--E, the derived-variable atomic factors
+    (indices 81--104 in the FTS) can cause $h = \infty$ during later
+    merge-loop shrinking: their transition systems have no useful structure
+    (they are set by axiom rules, not operators), but bisimulation-shrinking
+    can still produce an abstract goal distance of~$\infty$ for the initial
+    abstract state if no goal-reaching path exists within the single-variable
+    factor alone.
+    The fix collapses each derived atomic factor to a trivial single-state
+    abstraction immediately after the axiom factor is built:
+\begin{lstlisting}[language=C++]
+for (int d : derived_var_ids) {
+    if (fts.is_active(d)) {
+        int sz = fts.get_transition_system(d).get_size();
+        StateEquivalenceRelation rel(1);
+        for (int s = 0; s < sz; ++s)
+            rel[0].push_front(s);
+        fts.apply_abstraction(d, rel, log);
+    }
+}
+\end{lstlisting}
+    This removes the factor's ability to distinguish any variable values,
+    making it a neutral 1-state factor that contributes no information and
+    cannot raise $h$ above zero.
+
+    \emph{Fix~G --- fallback abstract state for primary-variable configurations absent from the BFS}
+    (\texttt{fts\_factory.cc},
+     \texttt{merge\_and\_shrink\_representation.h/.cc}).
+    This fix resolved the final and most subtle bug: after all prior fixes,
+    seven concrete task states were still reported as dead ends, causing the
+    search to declare the problem unsolvable.
+
+    \textbf{Root cause.}
+    The BFS in \texttt{build\_axiom\_factor} enqueues only operators with
+    \texttt{has\_derived\_pre = false}; operators whose only connection to the
+    axiom factor is a precondition on the target derived variable are skipped
+    during exploration (lines~890--891 of \texttt{fts\_factory.cc}):
+\begin{lstlisting}[language=C++]
+if (rop.has_derived_pre)
+    continue; // applicability depends on d'; deferred to after goal states
+\end{lstlisting}
+    After the BFS completes, those operators receive self-loops \emph{only} at
+    goal states (lines~1002--1008):
+\begin{lstlisting}[language=C++]
+for (const RelevantOperator &rop : relevant_ops) {
+    if (!rop.has_derived_pre) continue;
+    for (int s = 0; s < num_reachable_states; ++s)
+        if (goal_states[s])
+            label_trans[rop.label].emplace_back(s, s);
+}
+\end{lstlisting}
+    Concretely, a task operator conditioned on a derived variable is
+    applicable only when that derived variable holds (i.e.\ in the goal
+    abstract state of the factor) and may advance the primary variables to a
+    combination that was \emph{never visited by the BFS}.
+    That combination has no entry in the sparse
+    \texttt{unordered\_map<long long,\,int>} lookup table of
+    \texttt{MergeAndShrinkRepresentationProduct}; \texttt{get\_value} fell
+    back to \texttt{PRUNED\_STATE} ($= -1$), which the distance machinery
+    interprets as $h = \infty$.
+
+    \textbf{Fix.}
+    A new field \texttt{int fallback\_abstract\_id} (default $-1$ for
+    non-sparse representations) is added to
+    \texttt{MergeAndShrinkRepresentationProduct}.
+    In \texttt{fts\_factory.cc}, the dense id of the unique goal state is
+    saved \emph{before} the \texttt{goal\_states} vector is moved into
+    the \texttt{TransitionSystem}:
+\begin{lstlisting}[language=C++]
+int goal_dense_id = -1;
+for (int d = 0; d < num_reachable_states; ++d)
+    if (goal_states[d]) { goal_dense_id = d; break; }
+\end{lstlisting}
+    This id is passed to the sparse constructor and stored as
+    \texttt{fallback\_abstract\_id}.
+    In \texttt{get\_value}, an absent key now returns the fallback:
+\begin{lstlisting}[language=C++]
+auto it = lookup_table.find(product_state_id);
+return it != lookup_table.end() ? it->second
+       : (fallback_abstract_id >= 0 ? fallback_abstract_id
+                                     : PRUNED_STATE);
+\end{lstlisting}
+    The fallback is kept consistent through abstraction (remapped via
+    \texttt{apply\_abstraction\_to\_lookup\_table} using the same
+    \texttt{abstraction\_mapping} array as every table entry) and through
+    distance-setting (\texttt{set\_distances} converts it from an abstract
+    state id to a goal distance, exactly like every other live entry).
+    After this fix, all seven previously-dead-end states received
+    $h = 0$ (they map to the goal abstract state), the search found no
+    dead ends, and the optimal plan of cost~$6$ was returned.
+
     \begin{center}
     \begin{tabular}{lrrrrrr}
     \toprule

@@ -4804,7 +4804,7 @@ for (const RelevantOperator &rop : relevant_ops) {
     \texttt{philosophers}             & \texttt{pddl-axioms} & \checkmark & validated Phase~1 (p01--p03); Step~5 p01: SCCS $h_{\mathrm{init}}=10$, 58 exp; DFP/MIASM: $h_{\mathrm{init}}=18=h^*$, 19 exp (perfect) \\
     \texttt{optical-telegraphs}       & \texttt{pddl-axioms} & \checkmark & axiom factor BFS hits 100\,k cap (42 primary vars, 286 ops) for all strategies; $h_{\mathrm{init}}=0$; all 3 expand 10{,}662 $>$ blind 10{,}179; build 16--195\,s \\
     \texttt{muddy-child}              & \texttt{ce}          & \checkmark & axiom factor (vars 36,39,40,43; 12 primary, 4 ops) has 0 goal states (over-approximation); factor skipped per Fix~A; $h_{\mathrm{init}}=0$; all 3 expand 20 $>$ blind 14; build $<$50\,ms \\
-    \texttt{muddy-children}           & \texttt{ce}          & --         & \\
+    \texttt{muddy-children}           & \texttt{ce}          & \checkmark & 1 of 5 axiom factors built (41 primary, 10 states, $h_{\mathrm{init}}=2$); all 3 strategies: $h_{\mathrm{init}}=2$, 54 exp $>$ blind 35; DFP 3.3$\times$ faster than SCCS; MIASM 11.6$\times$ slower \\
     \texttt{sum}                      & \texttt{ce}          & --         & \\
     \midrule
     \multicolumn{4}{l}{\textit{Compiled axioms — no explicit \texttt{:derived} in PDDL (11)}} \\
@@ -6182,6 +6182,53 @@ int build_axiom_factor(
     conditions.
     For \texttt{muddy-child}, M\&S provides no search guidance and blind A*
     is strictly preferable.
+
+% ─────────────────────────────────────────────────────────────────────────────
+    \paragraph{Results: \texttt{muddy-children}.}
+
+    The \texttt{muddy-children/3-muddy.sas} instance encodes a larger 3-child
+    muddy children puzzle with 105~variables (24~derived: vars~81--104) and
+    optimal cost $h^* = 6$.
+    Blind A* expands 35~states with $h_{\mathrm{init}} = 1$ (the goal
+    conditions include primary variable constraints, so the blind heuristic
+    returns~1 for the non-goal initial state).
+
+    The 24~derived variables split into five union-find groups.
+    Four singleton groups (vars~88, 90, 93, 95) each produce an axiom factor
+    with 4~primary variables and 3~relevant operators whose BFS finds no goal
+    states; these factors are skipped, preserving admissibility.
+    The fifth joint group (vars~81--104, excluding the four singletons above)
+    produces an axiom factor with 41~primary variables, 4~relevant operators,
+    10~reachable states, and 1~goal state, yielding $h_{\mathrm{init}} = 2$.
+
+    \begin{center}
+    \begin{tabular}{lrrrrrr}
+    \toprule
+    \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
+      & \textbf{Plan cost} & \textbf{Max abs.} & \textbf{Peak mem.} & \textbf{Build time} \\
+    \midrule
+    \texttt{blind}           & 1 & 35 & \textbf{6\,\checkmark} & --  & 12.7\,MB & -- \\
+    \texttt{SCCS}            & 2 & 54 & \textbf{6\,\checkmark} & 10  & 13.5\,MB & 0.413\,s \\
+    \texttt{stateless DFP}   & 2 & 54 & \textbf{6\,\checkmark} & 10  & 13.1\,MB & 0.124\,s \\
+    \texttt{stateless MIASM} & 2 & 54 & \textbf{6\,\checkmark} & 10  & 14.8\,MB & 1.44\,s \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    All three M\&S strategies achieve $h_{\mathrm{init}} = 2$ and find the
+    optimal plan (cost~6), but expand 54~states---54\% more than blind A*'s
+    35.  The apparent paradox ($h_{\mathrm{init}}=2 > 1$ yet more states
+    expanded) arises because the 10-state abstraction is too coarse: many
+    non-goal concrete states map to the goal abstract state and receive
+    $h = 0$.  During search these states are treated like unexplored Dijkstra
+    nodes ($f = g$), while blind's $h = 1$ keeps $f = g + 1$ and defers them
+    longer, yielding tighter pruning overall.
+    All three strategies produce identical search performance; the only
+    differences are in build time.  DFP (0.124\,s) is 3.3$\times$ faster than
+    SCCS (0.413\,s) and 11.6$\times$ faster than MIASM (1.44\,s), with no
+    benefit in heuristic quality.
+    For \texttt{muddy-children}, M\&S provides negative search guidance and
+    blind A* is strictly preferable.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

@@ -585,6 +585,25 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
                 task_proxy, derived_var_ids, fts, log,
                 &pending_var_order, &pending_state_values);
 
+            // Collapse each derived goal variable's atomic factor.
+            // Operators can never directly set a derived variable, so the
+            // atomic factor gives goal_dist=INF for every state where the
+            // derived variable hasn't yet reached its goal value (i.e. the
+            // entire plan). This makes h=INF for all task states on the
+            // solution path — inadmissible. The axiom factor (if built)
+            // captures the derived-variable goal condition instead; the
+            // collapsed atomic factor contributes h=0 to the max, preserving
+            // admissibility.
+            for (int d : derived_var_ids) {
+                if (fts.is_active(d)) {
+                    int size = fts.get_transition_system(d).get_size();
+                    StateEquivalenceRelation relation(1);
+                    for (int s = 0; s < size; ++s)
+                        relation[0].push_front(s);
+                    fts.apply_abstraction(d, relation, log);
+                }
+            }
+
             // build_axiom_factor returns -1 when the BFS exceeded the
             // built-in state cap. In that case no factor was added to the
             // FTS, so no pending tracking is needed: the primary variables
@@ -670,7 +689,7 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
                                  task_proxy.get_variables()[index].is_derived();
         bool is_axiom_factor = index >= num_variables;
         bool effective_prune_unreachable = prune_unreachable_states && !is_derived_atomic;
-        bool effective_prune_irrelevant = prune_irrelevant_states && !is_axiom_factor;
+        bool effective_prune_irrelevant = prune_irrelevant_states && !is_axiom_factor && !is_derived_atomic;
         if (effective_prune_unreachable || effective_prune_irrelevant) {
             bool pruned_factor = prune_step(
                 fts, index,
@@ -678,7 +697,7 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
                 log);
             pruned = pruned || pruned_factor;
         }
-        if (!is_axiom_factor && !fts.is_factor_solvable(index)) {
+        if (!is_axiom_factor && !is_derived_atomic && !fts.is_factor_solvable(index)) {
             log << "Atomic FTS is unsolvable, stopping computation." << endl;
             unsolvable = true;
             break;

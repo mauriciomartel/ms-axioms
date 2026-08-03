@@ -4869,7 +4869,7 @@ astar(merge_and_shrink(
     \texttt{optical-telegraphs}       & \texttt{pddl-axioms} & \checkmark & axiom factor BFS hits 100\,k cap (42 primary vars, 286 ops) for all strategies; $h_{\mathrm{init}}=0$; all 3 expand 10{,}662 $>$ blind 10{,}179; build 16--195\,s \\
     \texttt{muddy-child}              & \texttt{ce}          & \checkmark & axiom factor (vars 36,39,40,43; 12 primary, 4 ops) has 0 goal states (over-approximation); factor skipped per Fix~A; $h_{\mathrm{init}}=0$; all 3 expand 20 $>$ blind 14; build $<$50\,ms \\
     \texttt{muddy-children}           & \texttt{ce}          & \checkmark & 1 of 5 axiom factors built (41 primary, 10 states, $h_{\mathrm{init}}=2$); all 3 strategies: $h_{\mathrm{init}}=2$, 54 exp $>$ blind 35; DFP 3.3$\times$ faster than SCCS; MIASM 11.6$\times$ slower \\
-    \texttt{sum}                      & \texttt{ce}          & --         & \\
+    \texttt{sum}                      & \texttt{ce}          & \checkmark & 1 axiom factor (26 primary, 28 states, 1 goal, $h_{\mathrm{init}}=2$); all 3 strategies: $h_{\mathrm{init}}=2$, 4 exp $<$ blind 5; DFP 5.2$\times$ faster than SCCS; MIASM 7.9$\times$ slower than DFP \\
     \midrule
     \multicolumn{4}{l}{\textit{Compiled axioms — no explicit \texttt{:derived} in PDDL (11)}} \\
     \midrule
@@ -6464,6 +6464,55 @@ return it != lookup_table.end() ? it->second
     benefit in heuristic quality.
     For \texttt{muddy-children}, M\&S provides negative search guidance and
     blind A* is strictly preferable.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Domain: \texttt{sum} (\texttt{ce}).}
+The \texttt{sum} benchmark (instance \texttt{sum\_3.sas}) is a knowledge-based
+reasoning problem in which agents must collaboratively determine a target sum.
+The translated task has 114 variables, of which 9 are derived (variables
+105--113), placing it in the compiled-to-explicit axioms (\texttt{ce}) category.
+All 9 derived variables belong to a single axiom factor group containing
+26~primary variables, 7~relevant operators, and \textbf{28 reachable abstract
+states} with exactly 1~goal state.
+Unlike the \texttt{muddy-children} domain, the \texttt{sum} axiom factor builds
+without error under all three merge strategies: no additional code fixes were
+required beyond those already applied for \texttt{muddy-children}.
+
+Blind A* serves as the baseline: it reports $h_{\mathrm{init}} = 1$ and
+expands 5~states before finding the optimal plan of cost~3
+(\texttt{all\_sense}; \texttt{all\_hear\_if\_b\_knows\_his\_number\_1};
+\texttt{all\_hear\_if\_c\_knows\_his\_number\_1}).
+The three M\&S configurations all produce $h_{\mathrm{init}} = 2$, a strictly
+tighter admissible bound than blind's~1 (with optimal cost $h^* = 3$), and each
+expands only 4~states---one fewer than blind.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{Config} & \bm{$h_{\mathrm{init}}$} & \textbf{Expanded}
+  & \textbf{Plan cost} & \textbf{Max abs} & \textbf{Peak mem} & \textbf{Build} \\
+\midrule
+blind A*            & 1 & 5 & 3 & ---  & 12.7\,MB & ---       \\
+SCCS                & 2 & 4 & 3 & 28   & 14.0\,MB & 1.430\,s  \\
+stateless DFP       & 2 & 4 & 3 & 28   & 13.3\,MB & 0.275\,s  \\
+stateless MIASM     & 2 & 4 & 3 & 28   & 14.7\,MB & 2.176\,s  \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All three strategies build the same 28-state axiom factor abstraction and
+achieve identical search performance: $h_{\mathrm{init}} = 2$, 4~expanded
+states, and the same optimal plan.  The differences lie entirely in build time.
+DFP (0.275\,s) is 5.2$\times$ faster than SCCS (1.430\,s) and 7.9$\times$
+faster than MIASM (2.176\,s), while delivering no advantage in heuristic
+quality.  Zero dead ends are detected by any strategy.
+
+The \texttt{sum} domain is a positive showcase for M\&S with axioms.  Because
+the axiom factor captures the full derived-variable reasoning in 28 states with
+a single goal state, the resulting heuristic achieves $h_{\mathrm{init}} = 2$,
+improving on blind's~1 and reducing node expansions from~5 to~4.  DFP provides
+the best trade-off: perfect heuristic quality at the lowest build cost.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

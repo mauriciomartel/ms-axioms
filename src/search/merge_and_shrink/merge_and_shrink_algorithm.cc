@@ -585,20 +585,55 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
                 task_proxy, derived_var_ids, fts, log,
                 &pending_var_order, &pending_state_values);
 
-            // Collapse each derived goal variable's atomic factor.
-            // Operators can never directly set a derived variable, so the
-            // atomic factor gives goal_dist=INF for every state where the
-            // derived variable hasn't yet reached its goal value (i.e. the
-            // entire plan). This makes h=INF for all task states on the
-            // solution path — inadmissible. The axiom factor (if built)
-            // captures the derived-variable goal condition instead; the
-            // collapsed atomic factor contributes h=0 to the max, preserving
-            // admissibility.
+            // Collapse dead-end axiom factor states (goal_dist=INF) into the
+            // goal state. Task states mapping to dead-end axiom factor states
+            // receive h=INF; if those task states can reach the goal in the
+            // real task, this is inadmissible. Merging them into the goal
+            // state gives h=0 (admissible: 0 <= h*).
+            if (axiom_index >= 0) {
+                const TransitionSystem &ax_ts =
+                    fts.get_transition_system(axiom_index);
+                const Distances &ax_d = fts.get_distances(axiom_index);
+                int ax_size = ax_ts.get_size();
+                if (ax_d.are_goal_distances_computed()) {
+                    int goal_sink = -1;
+                    for (int s = 0; s < ax_size; ++s)
+                        if (ax_ts.is_goal_state(s)) { goal_sink = s; break; }
+                    bool has_dead_ends = false;
+                    for (int s = 0; s < ax_size; ++s)
+                        if (ax_d.get_goal_distance(s) == INF) {
+                            has_dead_ends = true; break;
+                        }
+                    if (has_dead_ends && goal_sink >= 0) {
+                        StateEquivalenceRelation rel;
+                        StateEquivalenceClass sink_class;
+                        for (int s = 0; s < ax_size; ++s) {
+                            if (s == goal_sink || ax_d.get_goal_distance(s) == INF) {
+                                sink_class.push_front(s);
+                            } else {
+                                StateEquivalenceClass cls;
+                                cls.push_front(s);
+                                rel.push_back(move(cls));
+                            }
+                        }
+                        rel.push_back(move(sink_class));
+                        fts.apply_abstraction(axiom_index, rel, log);
+                    }
+                }
+            }
+
+            // Collapse each derived-variable atomic factor to a single
+            // abstract state. Operators cannot set derived variables, so
+            // those factors have no operator transitions and their initial
+            // state (value=false) appears irrelevant to the goal
+            // (value=true). Collapsing them prevents inadmissible h=INF
+            // from irrelevance-pruning while still allowing the main loop
+            // to merge them into the axiom factor later.
             for (int d : derived_var_ids) {
                 if (fts.is_active(d)) {
-                    int size = fts.get_transition_system(d).get_size();
+                    int sz = fts.get_transition_system(d).get_size();
                     StateEquivalenceRelation relation(1);
-                    for (int s = 0; s < size; ++s)
+                    for (int s = 0; s < sz; ++s)
                         relation[0].push_front(s);
                     fts.apply_abstraction(d, relation, log);
                 }

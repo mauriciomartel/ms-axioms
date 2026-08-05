@@ -4874,7 +4874,7 @@ astar(merge_and_shrink(
     \multicolumn{4}{l}{\textit{Compiled axioms — no explicit \texttt{:derived} in PDDL (11)}} \\
     \midrule
     \texttt{airport-adl}              & \texttt{pddl-axioms} & \checkmark & no derived vars in SAS$^+$; single SCC (10 vars); all 3 strategies: $h_{\mathrm{init}}=8=h^*$, 9 exp (blind 18), 7 dead ends; DFP 7\,\% faster than SCCS; MIASM max abs 28 vs 56 \\
-    \texttt{appn-adl}                 & \texttt{pddl-axioms} & --         & \\
+    \texttt{appn-adl}                 & \texttt{pddl-axioms} & \checkmark & no derived vars; 5 SCCs; zero-cost ops → blind $h=0$; all 3: $h_{\mathrm{init}}=2=h^*$, 16 exp = blind; MIASM fastest (0.00207\,s) \& smallest abs (108 vs 162) \\
     \texttt{fridge}                   & \texttt{pddl-axioms} & --         & \\
     \texttt{openstacks}               & \texttt{pddl-axioms} & --         & \\
     \texttt{openstacks-opt08-adl}     & \texttt{pddl-axioms} & --         & \\
@@ -6569,6 +6569,66 @@ A* therefore expands only the 9~states along the optimal path (one per
 $f$-layer from 8 down to~0), with no suboptimal backtracking.
 For \texttt{airport-adl}, M\&S with any of the three strategies strictly
 dominates blind A*.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Results: \texttt{appn-adl}.}
+
+The \texttt{appn-adl} benchmark models an active power-network diagnosis
+problem: a breaker must be driven through a sequence of command and observation
+steps to reach an abnormal state.
+Like \texttt{airport-adl}, this domain carries no explicit \texttt{:derived}
+predicates; the translated SAS$^+$ task has \textbf{12 variables} and 28 fact
+pairs with \emph{no derived variables}.
+The causal graph decomposes into \textbf{five SCCs}:
+two small clusters $\{0,2\}$ and $\{8,3,6,9,4,7,5\}$, and three singletons
+$\{1\}$, $\{10\}$, $\{11\}$.
+The task contains zero-cost operators (\texttt{advance-to-obs}, several command
+and close actions), so blind A* returns $h_{\mathrm{init}} = 0$
+(the minimum operator cost) and provides no search guidance.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{Expanded}
+  & \textbf{Plan cost} & \textbf{Max abs} & \textbf{Peak mem} & \textbf{Build} \\
+\midrule
+blind A*            & 0 & 16 & 2 & ---  & 12.83\,MB & ---       \\
+SCCS                & 2 & 16 & 2 & 162  & 12.96\,MB & 0.00315\,s  \\
+stateless DFP       & 2 & 16 & 2 & 162  & 12.96\,MB & 0.00268\,s  \\
+stateless MIASM     & 2 & 16 & 2 & 108  & 12.96\,MB & 0.00207\,s  \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All three M\&S strategies achieve $h_{\mathrm{init}} = 2 = h^*$: a perfect
+heuristic at the initial state.
+Despite this, all three expand the same 16~states as blind, and no dead ends
+are detected.
+The explanation lies in the zero-cost operator structure: because
+\texttt{advance-to-obs} and most command actions have cost~0, the only
+cost-bearing actions are the two \texttt{breaker-abnormal} steps (cost~1 each).
+Under A*, the $f$-value of the initial state is $g + h = 0 + 2 = 2$, and
+because every optimal-path state satisfies $g + h^* = 2$ exactly, all
+reachable states on the optimal path share $f = 2$.
+A* therefore cannot defer any reachable state on cost grounds: the perfect
+heuristic gives $f = 2$ everywhere on the optimal path, so every such state
+must be expanded, yielding the same 16~expansions as blind.
+
+MIASM reverses its typical behaviour relative to the other domains: it is the
+\emph{fastest} strategy (0.00207\,s, 29\,\% faster than DFP and 52\,\% faster
+than SCCS) and simultaneously produces the \emph{smallest} peak abstraction
+(108~states vs.\ 162 for SCCS and DFP), with no penalty in heuristic quality.
+SCCS is the slowest despite exploiting the five-SCC decomposition, because the
+large $\{8,3,6,9,4,7,5\}$ SCC still forces all seven variables to be merged
+in a single group.
+DFP is 15\,\% faster than SCCS.
+
+For \texttt{appn-adl}, M\&S provides a perfect admissible heuristic
+($h_{\mathrm{init}} = 2 = h^*$) but cannot reduce node expansions due to the
+zero-cost action structure.
+MIASM is the recommended strategy: it achieves the same quality as SCCS and
+DFP at the lowest build cost and smallest memory footprint.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

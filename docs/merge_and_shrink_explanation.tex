@@ -4883,7 +4883,7 @@ astar(merge_and_shrink(
     \texttt{assembly}                 & \texttt{ce}          & (skip)     & \\
     \texttt{miconic-fulladl}          & \texttt{ce}          & \checkmark & \\
     \texttt{snowman-basic}            & \texttt{ce}          & (skip)     & \\
-    \texttt{snowman-cheating}         & \texttt{ce}          & --         & \\
+    \texttt{snowman-cheating}         & \texttt{ce}          & (skip)     & \\
     \midrule
     \multicolumn{4}{l}{\textit{Standard regression — no axioms (4)}} \\
     \midrule
@@ -6967,6 +6967,24 @@ must expand all of them regardless of heuristic quality.
 
 \texttt{snowman-basic} is intractable for both blind A* and M\&S and is
 omitted from further testing.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Results: \texttt{snowman-cheating} (\texttt{ce}).}
+
+The \texttt{snowman-cheating} domain has \textbf{458 variables} and 1\,020
+fact pairs (64~bytes per state).
+Like \texttt{snowman-basic}, it uses zero-cost operators:
+blind A* returns $h_{\mathrm{init}} = 0$ throughout.
+After 13~seconds blind has expanded 109\,161~states through f-layer~7,
+growing roughly fourfold per layer, with no solution found.
+
+The same two obstacles apply as for \texttt{snowman-basic}: the variable
+count (458, well above any tractable M\&S threshold) makes a useful
+abstraction impossible within the 50\,000-state limit, and the zero-cost
+structure means no expansion savings could result even from a perfect
+heuristic.
+
+\texttt{snowman-cheating} is omitted from further testing.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

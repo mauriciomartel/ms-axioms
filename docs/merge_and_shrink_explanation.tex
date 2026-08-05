@@ -4880,7 +4880,7 @@ astar(merge_and_shrink(
     \texttt{openstacks-opt08-adl}     & \texttt{pddl-axioms} & \checkmark & single SCC (21 vars); zero-cost ops → blind $h=0$; all 3: $h_{\mathrm{init}}=1<h^*=2$, 209 exp = blind; SCCS fastest (0.01304\,s); MIASM slowest \& largest abs (1\,060 vs 560) \\
     \texttt{openstacks-sat08-adl}     & \texttt{pddl-axioms} & \checkmark & \\
     \texttt{trucks}                   & \texttt{pddl-axioms} & \checkmark & \\
-    \texttt{assembly}                 & \texttt{ce}          & --         & \\
+    \texttt{assembly}                 & \texttt{ce}          & (skip)     & \\
     \texttt{miconic-fulladl}          & \texttt{ce}          & --         & \\
     \texttt{snowman-basic}            & \texttt{ce}          & --         & \\
     \texttt{snowman-cheating}         & \texttt{ce}          & --         & \\
@@ -6874,6 +6874,31 @@ heuristic, smallest abstraction, fastest build, and lowest memory.
 The domain's two-SCC causal structure is precisely what SCCS exploits;
 stateless selectors that ignore SCC boundaries incur heavy shrinking overhead
 and produce weaker heuristics.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Results: \texttt{assembly} (\texttt{ce}).}
+
+The \texttt{assembly} domain has \textbf{120 variables} and 240 fact pairs
+(16~bytes per state).
+Blind A* is infeasible: after 157~s and 1.76~GB of memory it has expanded
+20.6~million states through f-layer~22 with no solution found.
+
+The causal graph decomposes into 8~SCCs, but the structure offers no relief:
+one SCC contains \textbf{75~variables}, and two others contain 20~variables
+each, with the remaining five being singletons.
+SCCS was run to verify; it built the complete abstraction in 1.6~s
+but bisimulation shrinking collapsed the 75-variable SCC to only
+\textbf{96~states total}, yielding $h_{\mathrm{init}} = 1$---identical to
+blind.
+The search progression under SCCS was indistinguishable from blind (same
+expansion counts at every f-layer), confirming the abstraction carries no
+useful information.
+DFP and MIASM were not tested; when SCCS degenerates to $h = 1$ with the
+dominant SCC absorbing all information, stateless selectors can only fare
+worse.
+
+\texttt{assembly} is intractable for both blind A* and M\&S within the
+50\,000-state limit and is omitted from further testing.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

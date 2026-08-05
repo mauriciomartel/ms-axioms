@@ -4889,7 +4889,7 @@ astar(merge_and_shrink(
     \midrule
     \texttt{gripper}                  & (top-level)          & \checkmark & \\
     \texttt{miconic}                  & (top-level)          & \checkmark & \\
-    \texttt{miconic-simpleadl}        & (top-level)          & --         & \\
+    \texttt{miconic-simpleadl}        & (top-level)          & \checkmark & \\
     \texttt{satellite}                & (top-level)          & --         & \\
     \end{longtable}
     }
@@ -7049,6 +7049,44 @@ The domain has exactly 5 reachable states, so expansion count cannot
 improve over blind regardless of heuristic quality.
 All builds are sub-millisecond with negligible memory overhead.
 No regressions detected.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Regression: \texttt{miconic-simpleadl}.}
+
+The \texttt{miconic-simpleadl} domain (1~passenger, 2~floors) has \textbf{3 variables}
+and 6 fact pairs with no derived variables---the same SAS$^+$ footprint as
+\texttt{miconic}.
+Blind A* expands 5~states to find an optimal plan of cost~4.
+The causal graph has two SCCs, identical in structure to \texttt{miconic}.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{Expanded}
+  & \textbf{Plan cost} & \textbf{Max abs} & \textbf{Peak mem} & \textbf{Build} \\
+\midrule
+blind A*            & 1 & 5 & 4 & --- & 12.83\,MB & ---     \\
+SCCS                & 1 & 5 & 4 &   4 & 12.96\,MB & 0.87\,ms \\
+stateless DFP       & 1 & 5 & 4 &   4 & 12.96\,MB & 0.39\,ms \\
+stateless MIASM     & 1 & 5 & 4 &   4 & 12.96\,MB & 0.82\,ms \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All three strategies produce $h_{\mathrm{init}} = 1 < h^* = 4$ (lossy), in
+contrast to \texttt{miconic} which achieves perfect bisimulation
+($h_{\mathrm{init}} = 4 = h^*$) with the same variable count.
+The difference stems from the operator translation: \texttt{miconic-simpleadl}
+uses \emph{stop/start} operators while \texttt{miconic} uses \emph{board/depart}
+operators, yielding different bisimulation equivalence classes and only 4 abstract
+states versus \texttt{miconic}'s 8.
+The f-layer trace (1~$\to$~3~$\to$~4) confirms the heuristic is underinformative
+throughout: the f\,=\,2 layer is skipped because all g\,=\,0 successors receive
+$h = 2$, but these values still underestimate the true distances.
+Because the domain has exactly 5 reachable states, expansion count is identical to
+blind regardless.
+All builds are sub-millisecond; no regressions detected.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

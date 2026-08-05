@@ -4876,7 +4876,7 @@ astar(merge_and_shrink(
     \texttt{airport-adl}              & \texttt{pddl-axioms} & \checkmark & no derived vars in SAS$^+$; single SCC (10 vars); all 3 strategies: $h_{\mathrm{init}}=8=h^*$, 9 exp (blind 18), 7 dead ends; DFP 7\,\% faster than SCCS; MIASM max abs 28 vs 56 \\
     \texttt{appn-adl}                 & \texttt{pddl-axioms} & \checkmark & no derived vars; 5 SCCs; zero-cost ops → blind $h=0$; all 3: $h_{\mathrm{init}}=2=h^*$, 16 exp = blind; MIASM fastest (0.00207\,s) \& smallest abs (108 vs 162) \\
     \texttt{fridge}                   & \texttt{pddl-axioms} & (skip)     & 105 vars (smallest instance); blind $h=1$, 4.4\,M exp in 79\,s (466\,MB), unsolved --- M\&S intractable at this scale \\
-    \texttt{openstacks}               & \texttt{pddl-axioms} & --         & \\
+    \texttt{openstacks}               & \texttt{pddl-axioms} & \checkmark & single SCC (22 vars); all 3: $h_{\mathrm{init}}=11$, 2\,010 exp (blind 4\,782, $-$58\,\%), 736 dead ends; MIASM fastest (0.01473\,s) but largest abs (2\,970 vs 1\,680) \\
     \texttt{openstacks-opt08-adl}     & \texttt{pddl-axioms} & --         & \\
     \texttt{openstacks-sat08-adl}     & \texttt{pddl-axioms} & --         & \\
     \texttt{trucks}                   & \texttt{pddl-axioms} & --         & \\
@@ -6656,6 +6656,61 @@ M\&S testing was not attempted for the following reasons:
 \texttt{fridge} is infeasible for practical M\&S testing at this instance
 size.  The domain requires either a more compact problem encoding or a
 heuristic specifically designed for domains with very large flat state spaces.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Results: \texttt{openstacks}.}
+
+The \texttt{openstacks} benchmark models a make-to-order production planning
+problem: products must be manufactured and orders shipped while minimising
+the number of open stacks.
+The translated SAS$^+$ task has \textbf{22 variables} and 57 fact pairs with
+no derived variables, and the causal graph is a \textbf{single SCC} containing
+all 22 variables.
+Blind A* reports $h_{\mathrm{init}} = 1$ and expands 4\,782 states in 11\,ms
+to find the optimal plan of cost~23.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{Expanded}
+  & \textbf{Plan cost} & \textbf{Max abs} & \textbf{Peak mem} & \textbf{Build} \\
+\midrule
+blind A*            &  1 & 4\,782 & 23 & ---   & 13.09\,MB & ---       \\
+SCCS                & 11 & 2\,010 & 23 & 1\,680 & 13.23\,MB & 0.01775\,s  \\
+stateless DFP       & 11 & 2\,010 & 23 & 1\,680 & 13.22\,MB & 0.01604\,s  \\
+stateless MIASM     & 11 & 2\,010 & 23 & 2\,970 & 13.84\,MB & 0.01473\,s  \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All three M\&S strategies achieve $h_{\mathrm{init}} = 11$, a substantial
+improvement over blind's~1 (optimal cost $h^* = 23$).
+All three expand exactly 2\,010 states---58\,\% fewer than blind's 4\,782---and
+prune 736 dead-end states before expansion.
+Because all 22 variables form a single SCC, SCCS degenerates to the same
+merge selector as stateless DFP, producing an identical merge order, identical
+maximum intermediate abstraction (1\,680 states), and identical search
+performance; the only difference is build time: DFP (0.01604\,s) is 10\,\%
+faster than SCCS (0.01775\,s).
+
+MIASM exhibits an unusual pattern on this domain: it produces a
+\emph{larger} maximum intermediate abstraction (2\,970 states vs.\ 1\,680 for
+SCCS/DFP) while simultaneously being the \emph{fastest} strategy to build
+(0.01473\,s, 8\,\% faster than DFP).
+The larger peak abstraction reflects MIASM's merge order deferring costly
+bisimulation shrinking steps until later in the sequence; despite exploring
+more intermediate states, it avoids the repeated small bisimulation
+computations that slow SCCS and DFP in the early merges.
+MIASM also consumes slightly more peak memory (13.84\,MB vs.\ 13.22\,MB),
+the trade-off for its faster build.
+All three strategies produce identical heuristic quality and search behaviour.
+
+For \texttt{openstacks}, M\&S strictly dominates blind: $h_{\mathrm{init}}$
+jumps from~1 to~11, expansions drop by 58\,\%, and 736 dead ends are pruned
+at no quality cost.  MIASM is the recommended strategy---fastest build with
+equal search performance---unless memory is constrained, in which case DFP
+offers the best time/memory balance.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

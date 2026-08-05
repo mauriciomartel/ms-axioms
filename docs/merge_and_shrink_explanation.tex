@@ -4877,7 +4877,7 @@ astar(merge_and_shrink(
     \texttt{appn-adl}                 & \texttt{pddl-axioms} & \checkmark & no derived vars; 5 SCCs; zero-cost ops → blind $h=0$; all 3: $h_{\mathrm{init}}=2=h^*$, 16 exp = blind; MIASM fastest (0.00207\,s) \& smallest abs (108 vs 162) \\
     \texttt{fridge}                   & \texttt{pddl-axioms} & (skip)     & 105 vars (smallest instance); blind $h=1$, 4.4\,M exp in 79\,s (466\,MB), unsolved --- M\&S intractable at this scale \\
     \texttt{openstacks}               & \texttt{pddl-axioms} & \checkmark & single SCC (22 vars); all 3: $h_{\mathrm{init}}=11$, 2\,010 exp (blind 4\,782, $-$58\,\%), 736 dead ends; MIASM fastest (0.01473\,s) but largest abs (2\,970 vs 1\,680) \\
-    \texttt{openstacks-opt08-adl}     & \texttt{pddl-axioms} & --         & \\
+    \texttt{openstacks-opt08-adl}     & \texttt{pddl-axioms} & \checkmark & single SCC (21 vars); zero-cost ops → blind $h=0$; all 3: $h_{\mathrm{init}}=1<h^*=2$, 209 exp = blind; SCCS fastest (0.01304\,s); MIASM slowest \& largest abs (1\,060 vs 560) \\
     \texttt{openstacks-sat08-adl}     & \texttt{pddl-axioms} & --         & \\
     \texttt{trucks}                   & \texttt{pddl-axioms} & --         & \\
     \texttt{assembly}                 & \texttt{ce}          & --         & \\
@@ -6711,6 +6711,58 @@ jumps from~1 to~11, expansions drop by 58\,\%, and 736 dead ends are pruned
 at no quality cost.  MIASM is the recommended strategy---fastest build with
 equal search performance---unless memory is constrained, in which case DFP
 offers the best time/memory balance.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Results: \texttt{openstacks-opt08-adl}.}
+
+The \texttt{openstacks-opt08-adl} domain is the IPC\,2008 optimal-track
+variant of \texttt{openstacks}, translated with zero-cost operators for most
+actions (\texttt{start-order}, \texttt{make-product}, \texttt{ship-order}) and
+cost~1 only for \texttt{open-new-stack}.
+The translated SAS$^+$ task has \textbf{21 variables} and 51 fact pairs with
+no derived variables; the causal graph is a \textbf{single SCC} containing all
+21 variables.
+Because the minimum operator cost is~0, blind A* returns
+$h_{\mathrm{init}} = 0$ and expands 209~states in under 1\,ms, finding an
+optimal plan of cost~2 (17~steps, two \texttt{open-new-stack} actions).
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{Expanded}
+  & \textbf{Plan cost} & \textbf{Max abs} & \textbf{Peak mem} & \textbf{Build} \\
+\midrule
+blind A*            & 0 & 209 & 2 & ---   & 12.96\,MB & ---       \\
+SCCS                & 1 & 209 & 2 & 560   & 13.10\,MB & 0.01304\,s  \\
+stateless DFP       & 1 & 209 & 2 & 560   & 13.09\,MB & 0.02045\,s  \\
+stateless MIASM     & 1 & 209 & 2 & 1\,060 & 13.37\,MB & 0.02508\,s  \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All three M\&S strategies achieve $h_{\mathrm{init}} = 1$, an improvement over
+blind's~0 but \emph{below} the optimal $h^* = 2$: the abstraction is lossy
+and cannot recover the exact cost of both stack-opening actions from the initial
+state.
+Despite the heuristic improvement, all three strategies expand the same 209
+states as blind and detect no dead ends.
+The explanation mirrors \texttt{appn-adl}: with zero-cost operators, every
+state on the optimal path satisfies $f = g + h = 2$ (once the first
+\texttt{open-new-stack} fires), so A* cannot defer any reachable state and the
+full 209-state search is unavoidable regardless of heuristic quality.
+
+The build-time ordering is reversed relative to the usual pattern.
+SCCS is the \emph{fastest} strategy (0.01304\,s), DFP is 57\,\% slower
+(0.02045\,s), and MIASM is the slowest (0.02508\,s, 92\,\% slower than SCCS).
+SCCS and DFP produce identical maximum intermediate abstractions (560~states),
+while MIASM's different merge sequence yields a larger peak of 1\,060~states
+and slightly more peak memory (13.37\,MB vs.\ 13.10\,MB).
+
+For \texttt{openstacks-opt08-adl}, M\&S provides a mild heuristic improvement
+($h=1$ vs.\ $h=0$) but no search benefit due to the zero-cost action structure.
+Of the three strategies, SCCS is the best choice: fastest build, smallest
+abstraction, and equal search quality.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

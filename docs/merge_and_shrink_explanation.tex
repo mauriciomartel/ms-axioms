@@ -4878,19 +4878,19 @@ astar(merge_and_shrink(
     \texttt{fridge}                   & \texttt{pddl-axioms} & (skip)     & 105 vars (smallest instance); blind $h=1$, 4.4\,M exp in 79\,s (466\,MB), unsolved --- M\&S intractable at this scale \\
     \texttt{openstacks}               & \texttt{pddl-axioms} & \checkmark & single SCC (22 vars); all 3: $h_{\mathrm{init}}=11$, 2\,010 exp (blind 4\,782, $-$58\,\%), 736 dead ends; MIASM fastest (0.01473\,s) but largest abs (2\,970 vs 1\,680) \\
     \texttt{openstacks-opt08-adl}     & \texttt{pddl-axioms} & \checkmark & single SCC (21 vars); zero-cost ops → blind $h=0$; all 3: $h_{\mathrm{init}}=1<h^*=2$, 209 exp = blind; SCCS fastest (0.01304\,s); MIASM slowest \& largest abs (1\,060 vs 560) \\
-    \texttt{openstacks-sat08-adl}     & \texttt{pddl-axioms} & \checkmark & \\
-    \texttt{trucks}                   & \texttt{pddl-axioms} & \checkmark & \\
-    \texttt{assembly}                 & \texttt{ce}          & (skip)     & \\
-    \texttt{miconic-fulladl}          & \texttt{ce}          & \checkmark & \\
-    \texttt{snowman-basic}            & \texttt{ce}          & (skip)     & \\
-    \texttt{snowman-cheating}         & \texttt{ce}          & (skip)     & \\
+    \texttt{openstacks-sat08-adl}     & \texttt{pddl-axioms} & \checkmark & single SCC (21 vars); zero-cost ops → blind $h=0$; all 3: $h_{\mathrm{init}}=1<h^*=3$, 463 exp $=$ blind; DFP fastest (0.01324\,s); MIASM largest abs (1\,272 vs 560) \\
+    \texttt{trucks}                   & \texttt{pddl-axioms} & \checkmark & two SCCs (4-var $+$ 15-var); SCCS: $h_{\mathrm{init}}=13=h^*$, 14 exp (blind 3\,513, 251$\times$), 25 dead ends, max abs 8\,192, 22\,ms; DFP: $h_{\mathrm{init}}=9$, 176 exp, 1.03\,s; MIASM: $h_{\mathrm{init}}=12$, 41 exp, 1.16\,s --- SCCS dominates \\
+    \texttt{assembly}                 & \texttt{ce}          & (skip)     & 120 vars, 8 SCCs; blind intractable (1.76\,GB, no solution at $f{=}22$); SCCS: 75-var dominant SCC $\to$ max abs 96, $h_{\mathrm{init}}=1=$ blind --- search indistinguishable from blind \\
+    \texttt{miconic-fulladl}          & \texttt{ce}          & \checkmark & 4 vars, 1 derived var (axiom factor: 2 states, $h_{\mathrm{axiom}}=1$, 4 ops); all 3: $h_{\mathrm{init}}=1<h^*=4$, 5 exp $=$ blind, max abs 4; sub-ms \\
+    \texttt{snowman-basic}            & \texttt{ce}          & (skip)     & 663 vars; zero-cost ops → blind $h=0$; 1.5\,M states at $f{=}22$, 280\,MB in 39\,s, no solution --- zero-cost $+$ scale double failure \\
+    \texttt{snowman-cheating}         & \texttt{ce}          & (skip)     & 458 vars; zero-cost ops → blind $h=0$; 109\,k states at $f{=}7$, growing $4\times$/layer, no solution --- same double failure as \texttt{snowman-basic} \\
     \midrule
     \multicolumn{4}{l}{\textit{Standard regression — no axioms (4)}} \\
     \midrule
-    \texttt{gripper}                  & (top-level)          & \checkmark & \\
-    \texttt{miconic}                  & (top-level)          & \checkmark & \\
-    \texttt{miconic-simpleadl}        & (top-level)          & \checkmark & \\
-    \texttt{satellite}                & (top-level)          & (skip)     & \\
+    \texttt{gripper}                  & (top-level)          & \checkmark & two SCCs (1-var $+$ 6-var); all 3: $h_{\mathrm{init}}=11=h^*$, 12 exp (blind 239, 20$\times$); SCCS max abs 75 vs DFP/MIASM 150; build $<$3\,ms \\
+    \texttt{miconic}                  & (top-level)          & \checkmark & two SCCs (1-var $+$ 2-var); all 3: $h_{\mathrm{init}}=4=h^*$, 5 exp $=$ blind (only 5 reachable states), max abs 8; sub-ms \\
+    \texttt{miconic-simpleadl}        & (top-level)          & \checkmark & two SCCs (1-var $+$ 2-var); all 3: $h_{\mathrm{init}}=1<h^*=4$ (lossy; contrast with \texttt{miconic}), 5 exp $=$ blind, max abs 4; sub-ms \\
+    \texttt{satellite}                & (top-level)          & (skip)     & 110 vars; blind $h=1$, 23.6\,M eval at $f{=}4$, 1.28\,GB in 45\,s --- intractable; M\&S at 50\,k-state cap would be coarse analogous to \texttt{assembly} \\
     \end{longtable}
     }
 

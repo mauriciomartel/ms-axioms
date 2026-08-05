@@ -4890,7 +4890,7 @@ astar(merge_and_shrink(
     \texttt{gripper}                  & (top-level)          & \checkmark & \\
     \texttt{miconic}                  & (top-level)          & \checkmark & \\
     \texttt{miconic-simpleadl}        & (top-level)          & \checkmark & \\
-    \texttt{satellite}                & (top-level)          & --         & \\
+    \texttt{satellite}                & (top-level)          & (skip)     & \\
     \end{longtable}
     }
 
@@ -7087,6 +7087,23 @@ $h = 2$, but these values still underestimate the true distances.
 Because the domain has exactly 5 reachable states, expansion count is identical to
 blind regardless.
 All builds are sub-millisecond; no regressions detected.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Regression: \texttt{satellite} (skip).}
+
+The \texttt{satellite} domain (1~satellite, 1~instrument, 2~directions) has
+\textbf{110 variables} and 788 fact pairs.
+Blind A* reaches f\,=\,4 after 45\,s with 23.6\,M states evaluated and
+1.28\,GB of peak memory, growing roughly 150$\times$ per f-layer; the search
+is intractable.
+
+Merge-and-shrink is skipped for this domain.
+With 110 variables and the 50\,000-state abstraction cap, the M\&S build
+would produce a very coarse factor---analogous to the \texttt{assembly} result
+(120 variables, dominant 75-variable SCC, max abstraction 96 states,
+$h_{\mathrm{init}} = 1$)---and is unlikely to yield a heuristic informative
+enough to recover tractability.
+The domain is therefore marked \emph{skip}.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

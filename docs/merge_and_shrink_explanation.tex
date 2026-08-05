@@ -4881,7 +4881,7 @@ astar(merge_and_shrink(
     \texttt{openstacks-sat08-adl}     & \texttt{pddl-axioms} & \checkmark & \\
     \texttt{trucks}                   & \texttt{pddl-axioms} & \checkmark & \\
     \texttt{assembly}                 & \texttt{ce}          & (skip)     & \\
-    \texttt{miconic-fulladl}          & \texttt{ce}          & --         & \\
+    \texttt{miconic-fulladl}          & \texttt{ce}          & \checkmark & \\
     \texttt{snowman-basic}            & \texttt{ce}          & --         & \\
     \texttt{snowman-cheating}         & \texttt{ce}          & --         & \\
     \midrule
@@ -6899,6 +6899,50 @@ worse.
 
 \texttt{assembly} is intractable for both blind A* and M\&S within the
 50\,000-state limit and is omitted from further testing.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Results: \texttt{miconic-fulladl} (\texttt{ce}).}
+
+The \texttt{miconic-fulladl} domain is a minimal elevator instance.
+The translated SAS$^+$ task has \textbf{4 variables} and 8 fact pairs.
+Crucially, \textbf{variable~3 is a derived variable}: M\&S builds a dedicated
+axiom factor for it (2~states, 1~goal state, $h_{\mathrm{axiom}} = 1$,
+solvable, 4~relevant operators) before entering the main merge loop.
+The causal graph has 3~SCCs: a singleton $\{0\}$, a pair $\{1,2\}$, and the
+derived-variable singleton $\{3\}$.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{Expanded}
+  & \textbf{Plan cost} & \textbf{Max abs} & \textbf{Peak mem} & \textbf{Build} \\
+\midrule
+blind A*            & 1 & 5 & 4 & --- & 12.83\,MB & ---      \\
+SCCS                & 1 & 5 & 4 & 4   & 12.96\,MB & 0.56\,ms \\
+stateless DFP       & 1 & 5 & 4 & 4   & 12.96\,MB & 0.53\,ms \\
+stateless MIASM     & 1 & 5 & 4 & 4   & 12.96\,MB & 0.60\,ms \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All three M\&S strategies produce $h_{\mathrm{init}} = 1$ and expand exactly
+5~states---the same as blind.
+The abstraction collapses to only 4~states (one per floor position/direction
+combination), which is already the minimum bisimulation for this tiny instance.
+Despite returning $h_{\mathrm{init}} = 1 < h^* = 4$, all three strategies
+skip the f\,=\,2 f-layer that blind expands (blind jumps from f=1 to f=2;
+M\&S jumps directly to f=3), reflecting a slightly tighter lower bound on
+intermediate states.
+The total expansion count is nonetheless identical because the problem has
+only 5 reachable states.
+All build times are sub-millisecond; differences between strategies are
+negligible at this scale.
+
+The primary interest of this domain is the \textbf{axiom factor}: the derived
+variable is correctly handled by the new axiom-factor construction, producing
+a compact 2-state factor that participates in the merge sequence without
+degrading heuristic quality.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

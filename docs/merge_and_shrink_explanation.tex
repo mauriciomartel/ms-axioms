@@ -4882,7 +4882,7 @@ astar(merge_and_shrink(
     \texttt{trucks}                   & \texttt{pddl-axioms} & \checkmark & \\
     \texttt{assembly}                 & \texttt{ce}          & (skip)     & \\
     \texttt{miconic-fulladl}          & \texttt{ce}          & \checkmark & \\
-    \texttt{snowman-basic}            & \texttt{ce}          & --         & \\
+    \texttt{snowman-basic}            & \texttt{ce}          & (skip)     & \\
     \texttt{snowman-cheating}         & \texttt{ce}          & --         & \\
     \midrule
     \multicolumn{4}{l}{\textit{Standard regression — no axioms (4)}} \\
@@ -6943,6 +6943,30 @@ The primary interest of this domain is the \textbf{axiom factor}: the derived
 variable is correctly handled by the new axiom-factor construction, producing
 a compact 2-state factor that participates in the merge sequence without
 degrading heuristic quality.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Results: \texttt{snowman-basic} (\texttt{ce}).}
+
+The \texttt{snowman-basic} domain has \textbf{663 variables} and 1\,430 fact
+pairs (88~bytes per state), making it more than five times larger than
+\texttt{assembly} (120~variables), which was already intractable.
+Blind A* returns $h_{\mathrm{init}} = 0$: the minimum operator cost is~0, so
+the admissible blind bound collapses to zero for all states.
+After 39~seconds blind has expanded 1.5~million states through f-layer~7,
+consuming 280~MB with no solution found; the expansion count is growing
+roughly fourfold per layer.
+
+Two obstacles make M\&S equally hopeless.
+First, at 663~variables the M\&S build itself would almost certainly
+degenerate like \texttt{assembly}: the dominant SCC will be enormous and
+bisimulation shrinking will compress the abstraction to a handful of states,
+yielding $h = 0$ throughout.
+Second, even a perfect abstraction cannot reduce expansions in a zero-cost
+domain: every state on any solution path shares the same f-value, so A*
+must expand all of them regardless of heuristic quality.
+
+\texttt{snowman-basic} is intractable for both blind A* and M\&S and is
+omitted from further testing.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

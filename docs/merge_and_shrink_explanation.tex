@@ -4875,7 +4875,7 @@ astar(merge_and_shrink(
     \midrule
     \texttt{airport-adl}              & \texttt{pddl-axioms} & \checkmark & no derived vars in SAS$^+$; single SCC (10 vars); all 3 strategies: $h_{\mathrm{init}}=8=h^*$, 9 exp (blind 18), 7 dead ends; DFP 7\,\% faster than SCCS; MIASM max abs 28 vs 56 \\
     \texttt{appn-adl}                 & \texttt{pddl-axioms} & \checkmark & no derived vars; 5 SCCs; zero-cost ops → blind $h=0$; all 3: $h_{\mathrm{init}}=2=h^*$, 16 exp = blind; MIASM fastest (0.00207\,s) \& smallest abs (108 vs 162) \\
-    \texttt{fridge}                   & \texttt{pddl-axioms} & \checkmark & 105 vars (smallest instance); blind $h=1$, 4.4\,M exp in 79\,s (466\,MB), no solution; M\&S not attempted --- infeasible at this scale \\
+    \texttt{fridge}                   & \texttt{pddl-axioms} & (skip)     & 105 vars (smallest instance); blind $h=1$, 4.4\,M exp in 79\,s (466\,MB), unsolved --- M\&S intractable at this scale \\
     \texttt{openstacks}               & \texttt{pddl-axioms} & --         & \\
     \texttt{openstacks-opt08-adl}     & \texttt{pddl-axioms} & --         & \\
     \texttt{openstacks-sat08-adl}     & \texttt{pddl-axioms} & --         & \\

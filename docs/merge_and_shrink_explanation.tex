@@ -4888,7 +4888,7 @@ astar(merge_and_shrink(
     \multicolumn{4}{l}{\textit{Standard regression — no axioms (4)}} \\
     \midrule
     \texttt{gripper}                  & (top-level)          & \checkmark & \\
-    \texttt{miconic}                  & (top-level)          & --         & \\
+    \texttt{miconic}                  & (top-level)          & \checkmark & \\
     \texttt{miconic-simpleadl}        & (top-level)          & --         & \\
     \texttt{satellite}                & (top-level)          & --         & \\
     \end{longtable}
@@ -7018,6 +7018,36 @@ SCCS produces the most compact abstraction (75~states) by exploiting the
 two-SCC structure; DFP and MIASM both converge to 150~states via different
 merge orders but reach the same perfect heuristic.
 All build times are sub-3\,ms.
+No regressions detected.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Regression: \texttt{miconic}.}
+
+The \texttt{miconic} domain (1~passenger, 2~floors) has \textbf{3 variables}
+and 6 fact pairs with no derived variables.
+Blind A* expands 5~states to find an optimal plan of cost~4.
+The causal graph has two SCCs: a singleton $\{0\}$ and a pair $\{1,2\}$.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{Expanded}
+  & \textbf{Plan cost} & \textbf{Max abs} & \textbf{Peak mem} & \textbf{Build} \\
+\midrule
+blind A*            & 1 & 5 & 4 & --- & 12.83\,MB & ---     \\
+SCCS                & 4 & 5 & 4 &   8 & 12.96\,MB & 0.43\,ms \\
+stateless DFP       & 4 & 5 & 4 &   8 & 12.96\,MB & 0.74\,ms \\
+stateless MIASM     & 4 & 5 & 4 &   8 & 12.96\,MB & 0.78\,ms \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All three strategies achieve $h_{\mathrm{init}} = 4 = h^*$ (perfect
+bisimulation) in under 1\,ms.
+The domain has exactly 5 reachable states, so expansion count cannot
+improve over blind regardless of heuristic quality.
+All builds are sub-millisecond with negligible memory overhead.
 No regressions detected.
 
 % ─────────────────────────────────────────────────────────────────────────────

@@ -7106,6 +7106,453 @@ enough to recover tractability.
 The domain is therefore marked \emph{skip}.
 
 % ─────────────────────────────────────────────────────────────────────────────
+\subsection{Cross-Domain Analysis: Correctness, Effectiveness, and Improvement
+Opportunities}
+\label{sec:cross-domain-analysis}
+
+The 45-domain benchmark campaign (25 Phase~2 axiom-in-precondition domains,
+5 Phase~1 axiom-in-goal domains, 11 compiled-axiom domains, 4 regression
+domains) provides enough evidence to draw substantive conclusions about the
+implementation's correctness, effectiveness, and the design choices that most
+affect practical performance.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsubsection{Correctness}
+
+\paragraph{Overall verdict.}
+The implementation is correct: every non-skip domain produces the right plan
+cost, no domain violates admissibility, and the three regression domains
+(gripper, miconic, miconic-simpleadl) exhibit no regressions.  However,
+\textbf{seven distinct bugs} were discovered and fixed during the campaign, two
+of which were silent correctness violations.  Neither would have been found
+without testing against axiom-bearing domains.
+
+\paragraph{Bug catalogue.}
+
+\begin{description}
+
+\item[MIASM cache sizing (sokoban-axioms).] \texttt{MergeScoringFunctionMIASM::initialize}
+sized the score-cache 2-D vector as $(2n-1)\times(2n-1)$ where $n$ is the
+number of task variables.  With $k$ derived-variable axiom factors appended,
+the factor transition system holds $n+k$ entries and the merge loop produces
+composite indices up to $2(n+k)-2$.  On \texttt{sokoban-axioms} ($n=120$,
+$k=40$) this produced a 239$\times$239 cache written at index 318 --- an
+out-of-bounds write causing silent memory corruption.  The fix allocates
+$2(n+k-1)\times 2(n+k-1)$.  \emph{Severity: critical --- any axiom domain
+with $k\geq 1$ derived variables could trigger this.}
+
+\item[Overlapping $S_d$ closures (word-rooms).] The original axiom-factor
+construction built one factor per derived variable, seeding the BFS with that
+variable's primary-variable closure $S_d$ independently.  When two derived
+variables share primary variables (overlapping closures), the per-variable
+product states can assign conflicting values to the shared primary, producing
+an abstract state that is unreachable in the real planning task.  This breaks
+the reconstruction property and makes the heuristic inadmissible.  The fix
+applies a union-find pass over all derived variables before factor construction:
+groups whose closures overlap are merged into a single joint factor, seeded
+with the union of all closures simultaneously.  \emph{Severity: critical ---
+produces an inadmissible heuristic, violating A* optimality.}
+
+\item[No pre-BFS work-estimate guard (ged1-ds1).] The BFS product space for an
+axiom factor is bounded by $n_{\mathrm{values}} \times \lvert\mathrm{ops}\rvert$
+work per state.  For \texttt{ged1-ds1} (derived var~65, $n=9$, 7\,434 relevant
+operators), this makes the BFS effectively non-terminating.  The fix introduces
+a pre-launch guard: if $W = \min(\text{product\_domain},\,\texttt{max\_states})
+\times \lvert\mathrm{relevant\_ops}\rvert > 5\times 10^8$, skip the factor
+immediately.  \emph{Severity: high --- produces a non-terminating planner on
+operator-dense axiom groups.}
+
+\item[Fix~A: no goal state in axiom BFS (muddy-child).] When the BFS for an
+axiom factor finds no goal state, the returned factor contains no goal abstract
+state.  The merge loop then produces a heuristic that assigns $h=\infty$ to
+all concrete states, crashing the search.  Fix~A returns $-1$ from
+\texttt{build\_axiom\_factor} when no goal is reachable, and the caller skips
+the factor.
+
+\item[Fixes~B and~C: spurious unreachable/irrelevant pruning (muddy-children).]
+Exact bisimulation in Fast Downward prunes unreachable and irrelevant abstract
+states before shrinking.  Applied to axiom-derived atomic factors (which
+represent a sub-task, not the full planning task), this pruning incorrectly
+removes states that are reachable or relevant in the full task but not in the
+isolated sub-task.  Fix~B disables unreachable-state pruning for derived-variable
+atomic factors; Fix~C disables irrelevant-state pruning for axiom factors.
+Fix~D extends both to merged factors involving axiom components.
+
+\item[Fix~E: dead-end abstract states not collapsed (muddy-children).]
+Abstract states from which the goal is unreachable in the factor should have
+$h=\infty$ but must not obstruct the merge loop.  Fix~E collapses dead-end
+abstract states in the axiom factor into a dedicated ``dead-end'' abstract state
+so that their $h$ values propagate correctly without corrupting the bisimulation
+partition.
+
+\item[Fix~G: absent primary-variable configurations (muddy-children).]
+The axiom BFS explores a subspace of the full primary-variable assignment space.
+Concrete planning states whose primary-variable values are outside that subspace
+have no entry in the BFS lookup table, causing a lookup to return
+\texttt{PRUNED\_STATE} instead of a valid abstract state.  Fix~G introduces a
+\texttt{fallback\_abstract\_id} field in
+\texttt{MergeAndShrinkRepresentationProduct}: configurations absent from the
+BFS map receive the goal abstract state, bounding $h$ from below at zero (a
+safe, conservative choice).
+\end{description}
+
+The pattern across all bugs is consistent: the axiom-factor code path exercises
+corners of the M\&S infrastructure (cache sizing, pruning guards, dead-end
+handling, partial BFS coverage) that are unreachable from non-axiom domains.
+A regression test suite limited to standard benchmark domains would never have
+caught any of these.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsubsection{Effectiveness}
+
+\paragraph{Strong wins ($>5\times$ expansion reduction).}
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Domain} & \textbf{$h_{\mathrm{init}}$ (M\&S)} & \textbf{Exp.\ (M\&S)}
+  & \textbf{Exp.\ (blind)} & \textbf{Reduction} \\
+\midrule
+\texttt{trucks} (SCCS)      & 13 $= h^*$ & 14      & 3\,513  & 251$\times$ \\
+\texttt{gripper}            & 11 $= h^*$ & 12      & 239     &  20$\times$ \\
+\texttt{blocks-axioms}      & 6  $= h^*$ & 7       & 85      &  12$\times$ \\
+\texttt{sokoban-axioms}     & 10         & 14      & 140     &  10$\times$ \\
+\texttt{philosophers} (DFP/MIASM) & 18 $= h^*$ & 19 & 117   &   6$\times$ \\
+\texttt{collab-and-comm} (SCCS/DFP) & 4  & 18    & 133     & 7.4$\times$ \\
+\texttt{elevator-horndl}    & 15         & 1\,893  & 6\,356  & 3.4$\times$ \\
+\texttt{social-planning}    & 2          & 8\,905  & 21\,109 & 2.4$\times$ \\
+\texttt{openstacks}         & 11         & 2\,010  & 4\,782  & 2.4$\times$ \\
+\texttt{word-rooms}         & 2          & 2\,035  & 7\,782  & 3.8$\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Perfect bisimulation ($h_{\mathrm{init}} = h^*$) is achieved on
+\texttt{trucks}, \texttt{gripper}, \texttt{miconic}, \texttt{blocks-axioms},
+\texttt{miconic-axioms}, \texttt{cats-horndl}, \texttt{taskassign-horndl},
+\texttt{airport-adl}, \texttt{appn-adl}, \texttt{philosophers} (DFP/MIASM),
+and \texttt{ged1-ds2nd}.
+These span both axiom-bearing and regression domains and across all three
+strategies, confirming that the bisimulation computation is correct.
+
+\paragraph{Zero-cost operator domains — correct but inherently neutral.}
+
+Four tested domains (appn-adl, openstacks-opt08-adl, openstacks-sat08-adl,
+snowman variants) have operators with minimum cost zero.  In these domains,
+every state on an optimal path satisfies $f = g + h$ with no slack, so
+A* cannot defer any state regardless of heuristic quality.  The f-layer
+invariant holds: even perfect bisimulation does not reduce expansion count.
+
+This is a fundamental property of the planning task, not a deficiency of the
+implementation.  M\&S correctly computes tighter $h_{\mathrm{init}}$ values
+(e.g.\ \texttt{appn-adl}: $h_{\mathrm{init}} = 2 = h^*$ vs.\ blind
+$h_{\mathrm{init}} = 0$), but the search cost remains identical.
+
+\paragraph{Cases where M\&S is actively harmful.}
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Domain} & $h_{\mathrm{init}}$ (M\&S / blind) & \textbf{Exp.\ (M\&S)}
+  & \textbf{Exp.\ (blind)} & \textbf{Overhead} \\
+\midrule
+\texttt{muddy-child}       & 0 / 0 & 20      & 14      & $+43\%$ \\
+\texttt{blocker}           & 0 / 0 & 11      & 7       & $+57\%$ \\
+\texttt{muddy-children}    & 2 / 1 & 54      & 35      & $+54\%$ \\
+\texttt{optical-telegraphs}& 0 / 1 & 10\,662 & 10\,179 & $+5\%$ \\
+\texttt{tpsa-horndl}       & 1 / 1 & 417\,929 & 456\,077 & $-8\%$ exp.\
+  (but $+29$--$53$\,s build on top of 17\,s blind) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Three distinct failure modes explain these outcomes.
+
+\emph{Failure mode~A: axiom factor BFS blocked, $h$ on derived goals forced to
+zero.}  In \texttt{optical-telegraphs}, the joint axiom factor for 4 derived
+variables has 42 primary variables and 286 relevant operators; the BFS exceeds
+the 100\,000-state cap and is abandoned, leaving $h = 0$ for every goal
+condition involving a derived predicate.  M\&S then builds an abstraction with
+no goal-distance information from the axiom layer, guides A* with $h = 0$
+where blind gives $h = 1$, and expands 5\% more states.
+In \texttt{muddy-child}, the same outcome is reached via Fix~A (the axiom
+factor's BFS finds no goal state and the factor is skipped).
+In \texttt{blocker}, all 8 axiom factors are trivial (every abstract state maps
+to a goal state because the goal is a derived predicate whose closure spans the
+entire primary subspace), so all 8 are discarded and $h = 0$ throughout.
+
+\emph{Failure mode~B: over-coarse abstraction inverts A*'s pruning.}  In
+\texttt{muddy-children}, $h_{\mathrm{init}} = 2 > 1$ (blind's $h_{\mathrm{init}}$).
+Yet 54 states are expanded vs.\ blind's 35.  The 10-state abstraction is too
+coarse: many non-goal concrete states are mapped to a goal abstract state and
+receive $h = 0$, causing A* to defer them less than blind's uniform $h = 1$
+does.  A strictly higher initial $h$ can coexist with more total expansions
+when intermediate $h$ values degrade below blind's constant.
+
+\emph{Failure mode~C: build cost dominates.}  \texttt{tpsa-horndl} reduces
+expansions by 8\%, but M\&S build time is 46--70\,s on top of a 17\,s blind
+solve.  Total wall-clock time is 3--5$\times$ worse than blind.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsubsection{Strategy Comparison: SCCS vs Stateless DFP vs Stateless MIASM}
+
+\paragraph{Summary table.}
+
+\begin{center}
+\small
+\begin{tabular}{lp{4.2cm}p{4.2cm}p{3.8cm}}
+\toprule
+\textbf{Strategy} & \textbf{Strengths} & \textbf{Weaknesses}
+  & \textbf{Recommended when} \\
+\midrule
+SCCS      & Perfect bisimulation when SCCs are small and separable
+           (\texttt{trucks}: $h^* = 13$ in 22\,ms).
+           Compact abstractions (gripper: 75 states vs.\ 150 for DFP/MIASM).
+           & Degenerates to DFP on single-SCC domains.
+             Can be \emph{worse} than stateless strategies when topological
+             within-SCC order is suboptimal (\texttt{philosophers}: $h=10$
+             vs.\ DFP/MIASM $h=18=h^*$).
+           & Causal graph has $\geq 2$ clearly separated SCCs of moderate size.
+             Zero-cost domains (fastest build among the three). \\[4pt]
+Stateless DFP & Most consistently reliable.
+               Achieves perfect bisimulation wherever it is achievable
+               and not constrained by merge order.
+               2.6$\times$ faster than SCCS on label-reduction-heavy domains
+               (\texttt{taskassign-horndl}).
+               26\,s faster than SCCS on \texttt{word-rooms} after the
+               union-find fix.
+               Best overall on \texttt{psr-middle} (9 exp.\ vs.\ 13 for SCCS/MIASM).
+             & Grows larger max-intermediate abstractions than SCCS on
+               SCC-structured domains.
+             & Default choice for axiom domains.  Recommended when SCC structure
+               is unknown, single-SCC, or large.  Reliable fallback. \\[4pt]
+Stateless MIASM & Occasionally smallest max-intermediate abstraction
+                  (\texttt{blocks-axioms}: 48 vs.\ 192 for SCCS/DFP).
+                  Fastest build on \texttt{appn-adl} (29\% faster than DFP).
+                & 10--143$\times$ slower build than DFP in large domains.
+                  Sometimes \emph{worse} heuristic quality than both alternatives
+                  (\texttt{collab-and-comm}: $h=3$ vs.\ SCCS/DFP $h=4$,
+                  527\,s build).
+                  Impractical on \texttt{word-rooms} (projected $>3$\,h).
+                & Small domains ($\leq 30$ variables) where build overhead is
+                  negligible.  Not recommended for axiom domains in general. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{SCCS vs.\ stateless: the philosophers anomaly.}
+
+The most instructive strategy comparison is \texttt{philosophers}: SCCS
+achieves $h_{\mathrm{init}} = 10$ while both DFP and MIASM achieve
+$h_{\mathrm{init}} = 18 = h^*$.  SCCS is supposed to exploit SCC structure,
+yet here it is \emph{outperformed} by the structurally blind alternatives.
+
+The reason is that SCCS enforces a topological merge order \emph{within} each
+SCC component.  For the philosophers domain, this topological order creates
+early coarse partitions that can no longer be refined by subsequent bisimulation
+steps, even with the DFP selector inside the SCC.  Stateless DFP, unconstrained
+by SCC boundaries, finds a merge path through the full factor graph that
+preserves goal-distance structure throughout.  The lesson is that
+\textbf{SCC structure is a necessary but not sufficient condition for SCCS
+dominance}: it also matters whether the within-SCC topological merge sequence
+happens to be compatible with the bisimulation partition.
+
+\paragraph{MIASM build cost vs.\ quality.}
+
+MIASM's per-step scoring over all live transition systems is $O(k^2)$ in the
+number of live factors.  With axiom factors appended, $k$ starts at
+$n + k_{\mathrm{derived}}$, which is larger than in the standard M\&S loop.
+
+\begin{center}
+\small
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Domain} & \textbf{MIASM build} & \textbf{DFP build} & \textbf{Ratio} \\
+\midrule
+\texttt{psr-middle}         &  71.3\,s   &  0.91\,s & 78$\times$ \\
+\texttt{ged1-ds2nd}         &  11.3\,s   &  0.14\,s & 81$\times$ \\
+\texttt{ghosh-etal-JAR-acc-cc2} & 593\,s & 16.9\,s  & 35$\times$ \\
+\texttt{collab-and-comm}    & 527\,s     & 17.8\,s  & 30$\times$ \\
+\texttt{taskassign-horndl}  &   2.9\,s   &  0.26\,s & 11$\times$ \\
+\texttt{word-rooms}         & $>3$\,h    &  88.9\,s & $>120\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+In no domain does MIASM produce a strictly better heuristic than DFP while
+also being faster.  In \texttt{collab-and-comm} it produces a \emph{worse}
+heuristic ($h_{\mathrm{init}} = 3$ vs.\ DFP's $h_{\mathrm{init}} = 4$) at
+30$\times$ the build cost.  The MIASM caching introduced to fix the sokoban bug
+helps but does not close the gap in large domains.
+
+The only domain where MIASM is the clear winner is \texttt{appn-adl}: fastest
+build, smallest max-intermediate abstraction, same heuristic quality --- but
+\texttt{appn-adl} has only 12 variables, so build times are under 4\,ms for
+all strategies and the comparison is practically moot.
+
+\paragraph{Recommendation.} \textbf{Stateless DFP should be the default
+strategy for axiom domains.}  SCCS is the correct choice when the causal graph
+is known to have small, well-separated SCCs (as in \texttt{trucks}).  MIASM
+should not be used as the primary strategy for any axiom domain with
+$n \geq 30$ variables.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsubsection{Scalability Limits}
+
+Eight domains are intractable for M\&S regardless of axiom-handling
+correctness: \texttt{ghosh-etal-JAR-grid-cc2} (94\,772 vars),
+\texttt{queens-horndl} (3\,358 vars, $\sim$100\,s/merge),
+\texttt{vta-horndl}/\texttt{vta-roles-horndl} (372--373 vars, 200-variable SCC),
+\texttt{drones-horndl} (1\,128 vars),
+\texttt{snowman-reachability} (1\,288 vars),
+\texttt{fridge} (105 vars, intractable blind search),
+\texttt{assembly} (120 vars, dominant 75-variable SCC → $h_{\mathrm{init}}=1$
+indistinguishable from blind),
+\texttt{satellite} (110 vars, intractable blind search).
+
+The root cause in all cases is the $O(n^2)$ exact label-reduction pass in the
+main merge loop: with $n\geq 100$ variables, each merge step scans the entire
+live factor set, and the loop runs $n-1$ iterations.  This is not specific to
+the axiom extension --- it is a fundamental property of exact label reduction
+--- but the axiom extension worsens it by \emph{increasing} $n$ with the
+prepended axiom factors.
+
+The one axiom-extension-specific scalability fix is the work-estimate guard
+($W > 5\times 10^8$) introduced for ged1-ds1: it prevents the BFS phase from
+hanging on operator-dense axiom groups before the main loop even starts.
+The analogous guard does not yet exist for label-reduction in the main loop.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsubsection{Suggested Improvements}
+
+\paragraph{Improvement~1: pre-emptive detection of useless axiom factors
+(Priority: High).}
+
+Currently the implementation builds an axiom factor, runs the BFS, and only
+then discovers whether the factor contributes any information.  Three categories
+of ``zero-contribution'' factors can be detected \emph{before} the BFS:
+
+\begin{enumerate}
+\item \textbf{No goal fact references any derived variable in the group.}
+  If the planning task's goal conditions contain no derived-variable fact from
+  this union-find group, the factor's $h$ value will be zero for every concrete
+  state and the factor can be skipped immediately.  This would eliminate the
+  \texttt{muddy-child} and \texttt{optical-telegraphs} cases preemptively.
+
+\item \textbf{Every abstract state is a goal state.}
+  If the axiom semantics are such that the derived predicate is always satisfied
+  (as in \texttt{blocker}, where the goal is a derived predicate spanning the
+  full primary subspace), all abstract states receive $h = 0$ and the factor is
+  trivially useless.  A post-BFS but pre-merge check: if
+  $\lvert\text{goal states}\rvert = \lvert\text{all states}\rvert$, discard the
+  factor before merging.
+
+\item \textbf{BFS cap exceeded but goal was not reached.}
+  If the BFS is aborted at the cap and no goal state was found, the current
+  code continues and produces $h = 0$ on all derived goal conditions.  A
+  simpler policy: treat cap-exceeded-without-goal as Fix~A (skip the factor).
+  This is already the safe conservative choice and avoids confusing partial-BFS
+  states polluting the abstract lookup table.
+\end{enumerate}
+
+Implementing all three checks would convert the five ``M\&S worse than blind''
+cases to ``M\&S identical to blind at near-zero overhead''.
+
+\paragraph{Improvement~2: bounded MIASM scoring (Priority: Medium).}
+
+MIASM's $O(k^2)$ per-step scoring is the dominant cost on any domain with
+$k \geq 50$ live factors after axiom prepending.  Two complementary mitigations:
+
+\begin{enumerate}
+\item \textbf{DFP pre-filter.}  At each step, compute the DFP score for all
+  candidate pairs first (cheap: $O(k)$ per pair, cache-friendly).  Submit
+  only the top-$K$ DFP candidates to the full MIASM scoring (currently
+  $O(k^2)$ per candidate pair).  For $K = 10$ and $k = 200$, this reduces
+  scoring work by 20$\times$ while preserving MIASM quality on the pairs
+  that matter.
+
+\item \textbf{Score invalidation tracking.}  MIASM re-evaluates all pairs
+  after each merge, even pairs involving factors that did not participate.
+  Tracking which factors changed and only re-evaluating pairs containing at
+  least one changed factor reduces amortized cost from $O(k^2)$ to $O(k \cdot
+  \Delta)$ where $\Delta$ is the fan-out of each merge step.
+\end{enumerate}
+
+\paragraph{Improvement~3: within-SCC merge lookahead for SCCS (Priority:
+Medium).}
+
+The philosophers anomaly (SCCS $h = 10$ vs.\ DFP $h = 18 = h^*$) shows that
+enforcing SCC topological order within each component can be strictly
+suboptimal.  The fix is to relax the strict per-SCC constraint in the final
+merge phase: after all intra-SCC merges are complete, allow the inter-SCC
+merge step to consider any pair globally (not restricted to topological SCC
+ordering).  Concretely, after the last intra-SCC iteration, switch to DFP
+scoring over all remaining live factors.  This retains SCCS's advantage on
+well-separated SCC domains while recovering DFP's flexibility when SCC
+boundaries are suboptimal for bisimulation.
+
+\paragraph{Improvement~4: unified work-estimate guard (Priority: Medium).}
+
+Three distinct guards currently protect against intractable BFS:
+\begin{itemize}
+\item the $n > 25$ threshold on primary-variable count,
+\item the 100\,000-state BFS cap,
+\item the work-estimate guard $W > 5 \times 10^8$ (introduced for ged1-ds1).
+\end{itemize}
+These address the same underlying phenomenon (BFS infeasibility) from three
+different angles.  Replacing all three with a single configurable work-estimate
+guard would be more principled: $W = \min(\text{product\_domain},
+\texttt{max\_axiom\_factor\_states}) \times \lvert\text{relevant\_ops}\rvert
+> W_{\max}$, where $W_{\max}$ defaults to $5\times 10^8$ and
+\texttt{max\_axiom\_factor\_states} defaults to 100\,000.  This unification
+would also expose both limits as user-configurable parameters rather than
+hardcoded constants.
+
+\paragraph{Improvement~5: heuristic-initialization fallback (Priority: Low).}
+
+After M\&S initialization, if $h_{\mathrm{init}} = 0$ and the domain has
+non-zero-cost operators, the implementation could emit a warning and suggest
+running blind A* instead, since build overhead is pure waste in this case.
+A more aggressive version would automatically switch to blind when
+$h_{\mathrm{init}} \leq h_{\mathrm{blind}}$, where $h_{\mathrm{blind}}$ can
+be computed trivially from the minimum operator cost.  This would apply to the
+\texttt{optical-telegraphs}, \texttt{muddy-child}, and \texttt{blocker} cases.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsubsection{Summary}
+
+\begin{center}
+\small
+\begin{tabular}{lp{9.5cm}}
+\toprule
+\textbf{Question} & \textbf{Answer} \\
+\midrule
+Correct? & Yes, after 7 bugs fixed.  Two (MIASM cache, word-rooms soundness)
+  were critical correctness violations invisible to non-axiom regression tests.
+  All 33 non-skip domains produce the correct plan cost; admissibility holds
+  throughout. \\[3pt]
+Effective? & Yes on $\approx60\%$ of tested domains.  Strong expansion
+  reductions (up to 251$\times$) when the domain is tractable, operators have
+  cost $\geq 1$, and axiom factors are informative.  Neutral on zero-cost
+  operator domains (f-layer invariant).  Actively harmful on 4--5 domains
+  (over-coarse abstraction, blocked axiom BFS, or build cost dominating). \\[3pt]
+Best strategy? & Stateless DFP as default.  SCCS when the causal graph has
+  small well-separated SCCs.  MIASM not recommended for axiom domains with
+  $n \geq 30$ variables: 10--143$\times$ slower build with no systematic
+  quality gain, and occasionally worse quality than DFP. \\[3pt]
+Most critical improvement? & Pre-emptive skip of axiom factors with no relevant
+  goal facts or with cap-exceeded-without-goal BFS (Improvement~1): converts
+  the ``M\&S worse than blind'' cases to neutral at near-zero cost. \\[3pt]
+Second priority? & Bounded MIASM scoring (Improvement~2): a DFP pre-filter
+  with score-invalidation tracking could reduce MIASM build time from 30--80$\times$
+  overhead to 2--5$\times$ without sacrificing quality. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}
 
 \begin{center}

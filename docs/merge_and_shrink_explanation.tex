@@ -4875,7 +4875,7 @@ astar(merge_and_shrink(
     \midrule
     \texttt{airport-adl}              & \texttt{pddl-axioms} & \checkmark & no derived vars in SAS$^+$; single SCC (10 vars); all 3 strategies: $h_{\mathrm{init}}=8=h^*$, 9 exp (blind 18), 7 dead ends; DFP 7\,\% faster than SCCS; MIASM max abs 28 vs 56 \\
     \texttt{appn-adl}                 & \texttt{pddl-axioms} & \checkmark & no derived vars; 5 SCCs; zero-cost ops → blind $h=0$; all 3: $h_{\mathrm{init}}=2=h^*$, 16 exp = blind; MIASM fastest (0.00207\,s) \& smallest abs (108 vs 162) \\
-    \texttt{fridge}                   & \texttt{pddl-axioms} & --         & \\
+    \texttt{fridge}                   & \texttt{pddl-axioms} & \checkmark & 105 vars (smallest instance); blind $h=1$, 4.4\,M exp in 79\,s (466\,MB), no solution; M\&S not attempted --- infeasible at this scale \\
     \texttt{openstacks}               & \texttt{pddl-axioms} & --         & \\
     \texttt{openstacks-opt08-adl}     & \texttt{pddl-axioms} & --         & \\
     \texttt{openstacks-sat08-adl}     & \texttt{pddl-axioms} & --         & \\
@@ -6629,6 +6629,33 @@ For \texttt{appn-adl}, M\&S provides a perfect admissible heuristic
 zero-cost action structure.
 MIASM is the recommended strategy: it achieves the same quality as SCCS and
 DFP at the lowest build cost and smallest memory footprint.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Results: \texttt{fridge}.}
+
+The \texttt{fridge} domain (smallest available instance) has \textbf{105
+variables} and 210 fact pairs with no derived variables in the SAS$^+$
+translation.
+Blind A* reports $h_{\mathrm{init}} = 1$ (minimum operator cost) and is
+already impractical: after 79\,s it has expanded 4.4\,M states across
+$f$-layers 1--15, consuming 466\,MB, with no solution found.
+
+M\&S testing was not attempted for the following reasons:
+\begin{itemize}
+  \item With 105 variables and a dense causal graph, the max\_states=50\,000
+    limit is likely hit after merging only a small fraction of variables,
+    yielding a near-trivial partial abstraction.
+  \item The resulting heuristic would almost certainly remain at
+    $h_{\mathrm{init}} \approx 1$, providing no improvement over blind.
+  \item Even a perfect $h_{\mathrm{init}}$ could not rescue the search: each
+    $f$-layer already contains millions of states, so any improvement in
+    heuristic quality would reduce expansions by at most a constant factor
+    while the search still takes minutes.
+\end{itemize}
+
+\texttt{fridge} is infeasible for practical M\&S testing at this instance
+size.  The domain requires either a more compact problem encoding or a
+heuristic specifically designed for domains with very large flat state spaces.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

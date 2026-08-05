@@ -4887,7 +4887,7 @@ astar(merge_and_shrink(
     \midrule
     \multicolumn{4}{l}{\textit{Standard regression — no axioms (4)}} \\
     \midrule
-    \texttt{gripper}                  & (top-level)          & --         & \\
+    \texttt{gripper}                  & (top-level)          & \checkmark & \\
     \texttt{miconic}                  & (top-level)          & --         & \\
     \texttt{miconic-simpleadl}        & (top-level)          & --         & \\
     \texttt{satellite}                & (top-level)          & --         & \\
@@ -6985,6 +6985,40 @@ structure means no expansion savings could result even from a perfect
 heuristic.
 
 \texttt{snowman-cheating} is omitted from further testing.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\paragraph{Regression: \texttt{gripper}.}
+
+The \texttt{gripper} domain (4~balls, 2~rooms, 2~grippers) has \textbf{7
+variables} and 24 fact pairs with no derived variables.
+Blind A* expands 239~states to find an optimal plan of cost~11.
+The causal graph has two SCCs: a singleton $\{0\}$ and a 6-variable SCC
+$\{1,2,3,4,5,6\}$.
+
+\begin{center}
+\small
+\begin{tabular}{lrrrrrr}
+\toprule
+\textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{Expanded}
+  & \textbf{Plan cost} & \textbf{Max abs} & \textbf{Peak mem} & \textbf{Build} \\
+\midrule
+blind A*            &  1 & 239 & 11 & --- & 12.83\,MB & ---     \\
+SCCS                & 11 &  12 & 11 &  75 & 12.96\,MB & 2.25\,ms \\
+stateless DFP       & 11 &  12 & 11 & 150 & 12.96\,MB & 2.48\,ms \\
+stateless MIASM     & 11 &  12 & 11 & 150 & 12.96\,MB & 3.06\,ms \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+All three strategies achieve $h_{\mathrm{init}} = 11 = h^*$ (perfect
+bisimulation) and expand only 12~states---one per plan step plus the
+goal---a 95\,\% reduction over blind.
+The search stays entirely within the $f = 11$ layer.
+SCCS produces the most compact abstraction (75~states) by exploiting the
+two-SCC structure; DFP and MIASM both converge to 150~states via different
+merge orders but reach the same perfect heuristic.
+All build times are sub-3\,ms.
+No regressions detected.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

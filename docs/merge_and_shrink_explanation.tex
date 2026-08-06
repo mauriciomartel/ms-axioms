@@ -4839,7 +4839,7 @@ astar(merge_and_shrink(
     \midrule
     \texttt{grid-axioms}              & \texttt{pddl-axioms} & \checkmark & all 25 factors skipped ($n=32$) \\
     \texttt{miconic-axioms}           & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=h^*=2$, 2 factors built \\
-    \texttt{blocker}                  & \texttt{pddl-axioms} & \checkmark & 8 factors built, 0 kept (trivial) \\
+    \texttt{blocker}                  & \texttt{pddl-axioms} & \checkmark & 1 factor attempted (var 73, goal-derived); Impr.~1 all-goal (160 states) $\to$ skipped; primary also trivial; 0 kept \\
     \texttt{blocks-axioms}            & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=h^*=6$, 5 factors built \\
     \texttt{sokoban-axioms}           & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=10$, 1 factor kept (MIASM bug fixed) \\
     \texttt{ghosh-etal-JAR-acc-cc2}   & \texttt{pddl-axioms} & \checkmark & $h_{\mathrm{init}}=2$, 34 factors, MIASM 35$\times$ slower \\
@@ -4961,63 +4961,59 @@ astar(merge_and_shrink(
     pipeline runs without errors and the plan cost matches the blind
     reference.
 
-    \paragraph{Results: \texttt{blocker} bm2.}
+    \paragraph{Results: \texttt{blocker} bm2 (with Improvement~1).}
 
     The \texttt{blocker} domain (74 variables, 8 derived) models a
     sliding-block puzzle where the goal predicate \texttt{cat-moves} is
-    derived.  The instance bm2 has 3 primary nodes and serves as the
-    smallest non-trivial scalable benchmark.
+    derived.  The instance bm2 has 3 primary nodes.  Of the 8 derived
+    variables, only variable~73 is goal-derived; variables 29, 32, 33,
+    35, 38, 39, and 40 appear only in operator preconditions and do not
+    receive axiom factors under the current implementation.
 
-    All three strategies build exactly 8 axiom factors for derived
-    variables 29, 32, 33, 35, 38, 39, 40, and 73.  Each factor's BFS
-    closure contains $n = 6$ primary variables and 27 relevant operators.
-    This confirms that Phase~2 Steps~2--4 execute correctly on a
-    domain with multiple derived predicates.
+    Improvement~1 adds an all-goal-state check immediately after the BFS
+    in \texttt{build\_axiom\_factor}: if every reachable abstract state
+    satisfies the derived goal conditions, the factor contributes
+    $h = 0$ everywhere and is skipped before being inserted into the
+    factored transition system.  For variable~73, the BFS explores
+    $n = 6$ primary variables with 27 relevant operators and discovers
+    160 reachable states, \emph{all of which are goal states}.  The check
+    fires and the factor is discarded with the log message:
+    \begin{quote}\small
+    \texttt{Axiom factor: all 160 reachable state(s) are goal states
+    (h=0 everywhere); skipping factor (heuristic remains admissible).}
+    \end{quote}
 
     \begin{center}
     \begin{tabular}{lrrrr}
     \toprule
     \textbf{Config} & \textbf{$h_{\mathrm{init}}$} & \textbf{States}
-      & \textbf{Plan cost} & \textbf{Axiom factors} \\
+      & \textbf{Plan cost} & \textbf{Axiom factor (var 73)} \\
     \midrule
     \texttt{blind}           & -- & 7  & 3   & -- \\
-    \texttt{SCCS}            & 0  & 11 & \textbf{3\,\checkmark} & 8 built ($n=6$ each) \\
-    \texttt{stateless DFP}   & 0  & 11 & \textbf{3\,\checkmark} & 8 built ($n=6$ each) \\
-    \texttt{stateless MIASM} & 0  & 11 & \textbf{3\,\checkmark} & 8 built ($n=6$ each) \\
+    \texttt{SCCS}            & 0  & 11 & \textbf{3\,\checkmark} & all-goal $\to$ skipped \\
+    \texttt{stateless DFP}   & 0  & 11 & \textbf{3\,\checkmark} & all-goal $\to$ skipped \\
+    \texttt{stateless MIASM} & 0  & 11 & \textbf{3\,\checkmark} & all-goal $\to$ skipped \\
     \bottomrule
     \end{tabular}
     \end{center}
 
-    All three strategies report \texttt{Number of factors kept: 0}, which
-    means the single merged factor produced at the end of the main loop is
-    classified as trivial and discarded, yielding $h = 0$ everywhere.
-    Despite this, admissibility is preserved: plan cost~3 matches blind on
-    all strategies.  The search requires 11 expanded states vs.\ 7 for
-    blind—slightly worse, as expected when the heuristic provides no
-    guidance.
+    All three strategies report \texttt{Number of factors kept: 0}.  The
+    primary merged factor (max intermediate abstraction: 10 states) is
+    itself trivially all-goal once the entire variable set is merged and
+    bisimulation-shrunk, so $h = 0$ everywhere regardless.  Admissibility
+    is preserved: plan cost~3 is optimal.  The search expands 11 states
+    vs.\ 7 for blind—slightly worse, as expected when no heuristic
+    guidance is available.
 
-    \textbf{Root cause of ``0 factors kept.''}
-    A factor is classified as trivial (and discarded) when its
-    \texttt{MergeAndShrinkRepresentation} is total and every abstract state
-    in the final transition system is a goal state
-    (\texttt{is\_factor\_trivial} in \texttt{factored\_transition\_system.cc}).
-    In \texttt{blocker}, the goal is a derived predicate
-    (\texttt{cat-moves}) whose axiom closure spans 6 primary variables.
-    Once all 82 initial factors are merged and the resulting abstraction is
-    shrunk by optimal bisimulation, every partition class contains at least
-    one concrete goal state, so every abstract state is marked as a goal
-    state.  The final factor therefore assigns $h = 0$ to all states and
-    carries no information.
-
-    \textbf{This is correct M\&S behavior, not a bug.}
-    The heuristic is admissible by construction; ``0 factors kept'' is the
-    standard outcome when bisimulation cannot preserve any goal-distance
-    information.  DFP and MIASM both cap the maximum intermediate
-    abstraction at 10 states (vs.\ a much larger product for SCCS) and
-    use far less peak memory ($\approx$13.5\,MB vs.\ $\approx$90.8\,MB for
-    SCCS), confirming that the merge-order strategies differ in their
-    intermediate sizes while producing the same degenerate final factor on
-    this instance.
+    \textbf{Effect of Improvement~1 here.}
+    The all-goal check fires correctly and saves the cost of inserting and
+    merging a useless axiom factor.  However, the expansion count is
+    unchanged: the primary merged factor is independently trivially
+    all-goal, so $h = 0$ with or without the axiom factor.  \texttt{blocker}
+    demonstrates that the guard is correct but that the gain depends on
+    whether the primary factor is also non-trivial.  Domains where the
+    primary factor \emph{is} informative while the axiom factor is trivial
+    would show a concrete improvement.
 
     \paragraph{Results: \texttt{blocks-axioms} probBLOCKS-4-0.}
 
@@ -7279,9 +7275,10 @@ no goal-distance information from the axiom layer, guides A* with $h = 0$
 where blind gives $h = 1$, and expands 5\% more states.
 In \texttt{muddy-child}, the same outcome is reached via Fix~A (the axiom
 factor's BFS finds no goal state and the factor is skipped).
-In \texttt{blocker}, all 8 axiom factors are trivial (every abstract state maps
-to a goal state because the goal is a derived predicate whose closure spans the
-entire primary subspace), so all 8 are discarded and $h = 0$ throughout.
+In \texttt{blocker}, only variable~73 is goal-derived; Improvement~1's
+all-goal check fires (160 reachable states, all goal states) and skips
+the factor before it enters the FTS.  The primary merged factor is
+independently trivially all-goal, so $h = 0$ throughout regardless.
 
 \emph{Failure mode~B: over-coarse abstraction inverts A*'s pruning.}  In
 \texttt{muddy-children}, $h_{\mathrm{init}} = 2 > 1$ (blind's $h_{\mathrm{init}}$).

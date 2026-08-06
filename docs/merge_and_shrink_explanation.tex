@@ -7425,11 +7425,12 @@ The analogous guard does not yet exist for label-reduction in the main loop.
 \subsubsection{Suggested Improvements}
 
 \paragraph{Improvement~1: pre-emptive detection of useless axiom factors
-(Priority: High).}
+(Check~2 implemented; Checks~1 and~3 pending).}
 
 Currently the implementation builds an axiom factor, runs the BFS, and only
 then discovers whether the factor contributes any information.  Three categories
-of ``zero-contribution'' factors can be detected \emph{before} the BFS:
+of ``zero-contribution'' factors can be detected \emph{before or immediately
+after} the BFS:
 
 \begin{enumerate}
 \item \textbf{No goal fact references any derived variable in the group.}
@@ -7437,14 +7438,17 @@ of ``zero-contribution'' factors can be detected \emph{before} the BFS:
   this union-find group, the factor's $h$ value will be zero for every concrete
   state and the factor can be skipped immediately.  This would eliminate the
   \texttt{muddy-child} and \texttt{optical-telegraphs} cases preemptively.
+  \emph{(Not yet implemented.)}
 
-\item \textbf{Every abstract state is a goal state.}
+\item \textbf{Every abstract state is a goal state (implemented).}
   If the axiom semantics are such that the derived predicate is always satisfied
   (as in \texttt{blocker}, where the goal is a derived predicate spanning the
   full primary subspace), all abstract states receive $h = 0$ and the factor is
-  trivially useless.  A post-BFS but pre-merge check: if
-  $\lvert\text{goal states}\rvert = \lvert\text{all states}\rvert$, discard the
-  factor before merging.
+  trivially useless.  A post-BFS but pre-merge check was added to
+  \texttt{build\_axiom\_factor} in \texttt{fts\_factory.cc}: after the BFS
+  populates \texttt{goal\_states}, if every entry is \texttt{true} the function
+  returns $-1$ immediately, before calling \texttt{add\_factor}.  See the
+  detailed analysis below.
 
 \item \textbf{BFS cap exceeded but goal was not reached.}
   If the BFS is aborted at the cap and no goal state was found, the current
@@ -7452,10 +7456,137 @@ of ``zero-contribution'' factors can be detected \emph{before} the BFS:
   simpler policy: treat cap-exceeded-without-goal as Fix~A (skip the factor).
   This is already the safe conservative choice and avoids confusing partial-BFS
   states polluting the abstract lookup table.
+  \emph{(Not yet implemented.)}
 \end{enumerate}
 
 Implementing all three checks would convert the five ``M\&S worse than blind''
 cases to ``M\&S identical to blind at near-zero overhead''.
+
+\medskip
+\noindent\textbf{Check~2 — implementation details.}
+
+The guard is inserted immediately after the BFS goal-marking loop in
+\texttt{build\_axiom\_factor}, before the \texttt{add\_factor} call:
+
+\begin{verbatim}
+bool all_goal = true;
+for (bool g : goal_states) {
+    if (!g) { all_goal = false; break; }
+}
+if (all_goal) {
+    log << "  Axiom factor: all " << num_reachable_states
+        << " reachable state(s) are goal states (h=0 everywhere); "
+           "skipping factor (heuristic remains admissible)." << endl;
+    return -1;
+}
+\end{verbatim}
+
+\noindent\textbf{Why an all-goal axiom factor is useless.}
+An axiom factor's sole purpose is to encode goal-distance information for
+derived variables.  Its heuristic contribution is
+$h_{\mathrm{axiom}}(s) = \min\text{-cost path from }\alpha(s)\text{ to any
+goal abstract state}$.
+If every reachable abstract state is a goal state, then
+$h_{\mathrm{axiom}}(s) = 0$ for every search state $s$.  Merging such a factor
+into the primary FTS:
+\begin{itemize}
+  \item contributes nothing to the heuristic value;
+  \item increases the merged product size, which can force the primary
+        abstraction to shrink earlier (under the \texttt{max\_states} cap),
+        coarsening it and potentially destroying useful goal-distance
+        information;
+  \item wastes CPU on label reduction and bisimulation for the merge step.
+\end{itemize}
+The all-goal condition arises when the derived goal condition is structurally
+entailed by all reachable primary states — the problem always satisfies the
+derived goal regardless of the path taken.
+
+\medskip
+\noindent\textbf{What Check~2 fixes.}
+
+\begin{description}
+  \item[Correctness (always).] The guard is unconditionally safe.  If all
+    reachable states are goal states, skipping the factor cannot make the
+    heuristic inadmissible: $h = 0$ is already the tightest lower bound the
+    factor could provide.
+
+  \item[Efficiency (domain-dependent).] When the \emph{primary} merged factor
+    is informative ($h > 0$ for some states) but the axiom factor is all-goal,
+    skipping the axiom factor avoids a wasted merge step and prevents the axiom
+    factor from consuming space in the merged product, thereby preserving the
+    primary heuristic quality.  This is the scenario the improvement was
+    designed for.  The gain is real but depends on whether the primary factor is
+    itself non-trivial.
+\end{description}
+
+\medskip
+\noindent\textbf{What Check~2 does not fix.}
+
+\begin{description}
+  \item[The BFS cost is already paid.]
+    The check runs \emph{after} the BFS completes.  If the BFS explores many
+    states before finding that all are goal states, that exploration cost is
+    already spent.  The improvement eliminates the downstream cost (merge, label
+    reduction, bisimulation) but not the BFS itself.  A complementary
+    optimisation would detect all-goal early during BFS traversal, but this is
+    only worthwhile if the BFS is expensive.
+
+  \item[Domains where the primary factor is also trivially all-goal.]
+    \texttt{blocker} is the exact example.  The check fires correctly for
+    variable~73 (160 reachable states, all goal states), but the primary merged
+    factor is independently all-goal (max intermediate abstraction: 10 states,
+    0 factors kept).  The expansion count is unchanged at 11 vs.\ blind's 7.
+    The guard is correct; the domain has no non-trivial abstract structure
+    regardless of the axiom factor.
+
+  \item[Failure mode~A: BFS cap exceeded.]
+    When the axiom BFS exceeds 100\,000 states and is abandoned,
+    \texttt{build\_axiom\_factor} already returns $-1$ via an existing guard.
+    Check~2 is never reached in that path.
+
+  \item[Fix~A complement: no goal state found.]
+    The existing \texttt{if (!has\_any\_goal) return -1} guard already handles
+    the case where \emph{no} abstract state is a goal state.  Check~2 is the
+    logical dual: it handles the case where \emph{all} abstract states are goal
+    states.  Together they bracket the two degenerate extremes.
+
+  \item[Weak-but-non-zero axiom factors.]
+    If the factor gives $h > 0$ for even one state, the check does not fire.
+    A factor that is technically non-trivial but provides very little guidance
+    (e.g.\ only 1 non-goal state out of 10\,000) will still be merged.  A
+    threshold-based extension (``skip if fewer than $k$ non-goal states'') would
+    be needed to address this case.
+
+  \item[Precondition-derived variables.]
+    The current implementation only builds axiom factors for goal-derived
+    variables.  Variables that appear only in operator preconditions do not get
+    axiom factors at all — not because of Check~2, but because
+    \texttt{build\_factored\_transition\_system} only calls
+    \texttt{build\_axiom\_factor} inside the \texttt{if (has\_derived\_goals)}
+    block.  Check~2 operates within that existing scope.
+\end{description}
+
+\begin{center}
+\small
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{Scenario} & \textbf{Effect of Check~2} \\
+\midrule
+Axiom BFS all-goal; primary factor informative
+  & Saves merge cost; preserves primary heuristic quality \\
+Axiom BFS all-goal; primary factor also trivial (\texttt{blocker})
+  & Fires correctly; expansion count unchanged \\
+Axiom BFS no-goal (Fix~A)
+  & Not reached; prior guard handles it \\
+Axiom BFS exceeds 100\,k states
+  & Not reached; cap guard handles it \\
+Axiom BFS partially goal
+  & Check does not fire; factor proceeds normally \\
+Precondition-derived variables
+  & Out of scope; no axiom factor built regardless \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 \paragraph{Improvement~2: bounded MIASM scoring (Priority: Medium).}
 

@@ -996,6 +996,22 @@ int build_axiom_factor(
         return -1;
     }
 
+    // If every reachable state satisfies the derived goal conditions, the factor
+    // contributes h=0 everywhere: bisimulation collapses it to a single abstract
+    // state and the heuristic learns nothing. Merging it still runs the shrink
+    // loop and can degrade primary-factor quality. Skip it.
+    bool all_goal = true;
+    for (bool g : goal_states) {
+        if (!g) { all_goal = false; break; }
+    }
+    if (all_goal) {
+        if (log.is_at_least_normal())
+            log << "  Axiom factor: all " << num_reachable_states
+                << " reachable state(s) are goal states (h=0 everywhere); "
+                   "skipping factor (heuristic remains admissible)." << endl;
+        return -1;
+    }
+
     // Guard: if the dense initial state cannot reach any goal state via the
     // transitions built above, the factor would give h=INF for the task's
     // actual initial state — inadmissible. Skip for the same reason as Fix A.

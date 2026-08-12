@@ -3543,9 +3543,11 @@ static vector<int> collect_relevant_derived_variables(
 \end{lstlisting}
 
 The \texttt{build\_factored\_transition\_system} function is updated to call
-this helper instead of iterating over goal variables directly, and the
-\texttt{has\_derived\_goals} boolean is replaced by
-\texttt{has\_relevant\_derived\_vars}:
+this helper instead of iterating over goal variables directly.
+\texttt{has\_derived\_goals} and its goal-only scan loop are removed; the
+redundant \texttt{goal\_derived\_vars} vector inside the building block is
+replaced by a reference to \texttt{derived\_vars\_needing\_axiom\_factor},
+which is fed directly into the union-find grouping:
 
 \begin{lstlisting}[language=C++, caption={Using the extended set in build\_factored\_transition\_system}]
 vector<int> derived_vars_needing_axiom_factor =
@@ -3553,27 +3555,45 @@ vector<int> derived_vars_needing_axiom_factor =
 bool has_relevant_derived_vars = !derived_vars_needing_axiom_factor.empty();
 // ...
 if (has_relevant_derived_vars) {
-    ShrinkQuasiBisimulation qbisim;
-    for (int derived_var_id : derived_vars_needing_axiom_factor) {
-        // build and shrink axiom factor as before ...
-    }
+    // Union-find over derived_vars_needing_axiom_factor (unchanged logic,
+    // now covers precondition- and when-clause-derived variables as well).
+    // Build one joint factor per equivalence class and call build_axiom_factor.
 }
 \end{lstlisting}
 
-\texttt{build\_axiom\_factor} is updated to allow non-goal derived variables
-as targets: \texttt{assert(goal\_derived\_value != -1)} is replaced by a
-boolean flag \texttt{is\_goal\_var}, and the goal-state assignment becomes:
+In \texttt{build\_axiom\_factor} (\texttt{fts\_factory.cc}), the only change
+is removing the assertion that previously required every variable in
+\texttt{derived\_var\_ids} to be a planning goal:
 
 \begin{lstlisting}[language=C++]
-bool is_goal_var = (goal_derived_value != -1);
-// ... (axiom evaluation unchanged) ...
-goal_states[d] = !is_goal_var ||
-                 (derived_vals[derived_var_id] == goal_derived_value);
+// Removed:
+// assert(goal_value_for_derived_var.size() == derived_var_ids.size());
 \end{lstlisting}
 
-When \texttt{is\_goal\_var} is false, every product state is a local goal
-state for this factor, and all goal-distance constraints are enforced by
-the other factors that do have real goal values.
+The goal-state computation is unchanged and already handles non-goal derived
+variables correctly by construction: \texttt{goal\_value\_for\_derived\_var}
+is populated only for goal variables, so when the group contains no goal
+variable the inner loop over the map never executes, \texttt{is\_goal} remains
+\texttt{true} for every product state, and all states become goal states.
+This keeps the factor's $h$ contribution zero (admissible) while the
+transition structure still correctly models operator applicability.
+
+Improvement~1's all-goal check (\S\ref{sec:cross-domain-analysis}) must not
+fire for these non-goal derived variable factors: the factor is needed for
+operator applicability even though $h = 0$ everywhere.  The check is therefore
+gated on \texttt{all\_are\_goal\_vars}:
+
+\begin{lstlisting}[language=C++]
+bool all_are_goal_vars =
+    (goal_value_for_derived_var.size() == derived_var_ids.size());
+if (all_are_goal_vars) {
+    // ... existing all-goal check (Improvement 1) ...
+}
+\end{lstlisting}
+
+When any variable in the group is non-goal (\texttt{all\_are\_goal\_vars}
+is false), the all-goal check is skipped entirely regardless of the
+\texttt{goal\_states} contents.
 
 A matching \texttt{count\_relevant\_derived\_variables} helper is added to
 \texttt{merge\_scoring\_function\_total\_order.cc} to keep the precomputed

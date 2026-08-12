@@ -13,6 +13,7 @@ class MergeStrategySCCs : public MergeStrategy {
     std::vector<std::vector<int>> non_singleton_cg_sccs;
 
     std::vector<int> current_ts_indices;
+    bool last_merge_involved_scc_member = false;
 public:
     MergeStrategySCCs(
         const FactoredTransitionSystem &fts,

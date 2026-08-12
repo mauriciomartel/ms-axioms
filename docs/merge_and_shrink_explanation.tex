@@ -7814,28 +7814,41 @@ In all three cases M\&S expands \emph{more} states than blind A* while taking
 orders of magnitude longer to build.
 
 \textbf{Implementation (warning variant).}
-After \texttt{extract\_factors(fts)}, the constructor now evaluates the
-heuristic on the initial state by iterating \texttt{mas\_representations}
-directly:
+After \texttt{extract\_factors(fts)}, the constructor evaluates the
+heuristic on the initial state by iterating \texttt{mas\_representations}:
 \begin{lstlisting}[language=C++]
-State init_state = task_proxy.get_initial_state();
-int h_init = 0;
-bool init_is_dead_end = false;
-for (const auto &rep : mas_representations) {
-    int cost = rep->get_value(init_state);
-    if (cost == PRUNED_STATE || cost == INF) { init_is_dead_end = true; break; }
-    h_init = max(h_init, cost);
-}
-int h_blind = task_properties::get_min_operator_cost(task_proxy);
-if (!init_is_dead_end && h_blind < INF && h_init <= h_blind) {
-    log << "WARNING! ..." << endl;
+{
+    int h_init = 0;
+    bool init_is_dead_end = false;
+    if (!mas_representations.empty()) {
+        State init_state = task_proxy.get_initial_state();
+        for (const auto &rep : mas_representations) {
+            int cost = rep->get_value(init_state);
+            if (cost == PRUNED_STATE || cost == INF) {
+                init_is_dead_end = true;
+                break;
+            }
+            h_init = max(h_init, cost);
+        }
+    }
+    int h_blind = task_properties::get_min_operator_cost(task_proxy);
+    if (!init_is_dead_end && h_blind < INF && h_init <= h_blind) {
+        log << "WARNING! ..." << endl;
+    }
 }
 \end{lstlisting}
-The check fires when \texttt{mas\_representations} is non-empty (i.e.\ the
-task was not detected unsolvable during construction) and
-$h_{\mathrm{init}} \leq h_{\mathrm{blind}}$.  For zero-cost domains,
-$h_{\mathrm{blind}} = 0 = h_{\mathrm{init}}$, so the warning also fires
-there --- correctly, since neither heuristic provides useful guidance.
+The state evaluation is guarded by an inner emptiness check so that the
+initial state is not queried when no representations remain (which would
+be a no-op anyway, but avoids the unnecessary proxy call).  The outer
+scope is unconditional: when \texttt{mas\_representations} is empty ---
+as in \texttt{muddy-child}, where all axiom factors are skipped and all
+primary factors collapse to size~1 --- \texttt{h\_init} stays 0,
+\texttt{compute\_heuristic} also returns~0 for every state, and the
+warning fires with $h_{\mathrm{init}} = 0 \leq h_{\mathrm{blind}}$.
+For detected-unsolvable tasks \texttt{init\_is\_dead\_end} is set true
+and the warning is suppressed.  For zero-cost domains,
+$h_{\mathrm{blind}} = 0 = h_{\mathrm{init}}$, so the check correctly
+fires there as well.
 
 \textbf{Possible extension: automatic fallback.}
 Replacing \texttt{mas\_representations} with a constant-$h_{\mathrm{blind}}$

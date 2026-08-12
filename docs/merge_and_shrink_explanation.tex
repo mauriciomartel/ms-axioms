@@ -7833,15 +7833,55 @@ and register the options in the plugin feature class.  Priority downgraded
 from Medium to Low: the hardcoded defaults work well across all tested
 domains and the formula is already correct.
 
-\paragraph{Improvement~5: heuristic-initialization fallback (Priority: Low).}
+\paragraph{Improvement~5: heuristic-initialization fallback
+(not yet implemented; Priority: Low).}
 
-After M\&S initialization, if $h_{\mathrm{init}} = 0$ and the domain has
-non-zero-cost operators, the implementation could emit a warning and suggest
-running blind A* instead, since build overhead is pure waste in this case.
-A more aggressive version would automatically switch to blind when
-$h_{\mathrm{init}} \leq h_{\mathrm{blind}}$, where $h_{\mathrm{blind}}$ can
-be computed trivially from the minimum operator cost.  This would apply to the
-\texttt{optical-telegraphs}, \texttt{muddy-child}, and \texttt{blocker} cases.
+After M\&S initialization there is no check on $h_{\mathrm{init}}$.  If the
+resulting heuristic is no better than blind search on the initial state, the
+entire M\&S build cost is wasted.  This affects three tested domains:
+
+\begin{center}
+\small
+\begin{tabular}{lrrl}
+\toprule
+\textbf{Domain} & $h_{\mathrm{init}}$ & $h_{\mathrm{blind}}$ & \textbf{Cause} \\
+\midrule
+\texttt{optical-telegraphs} & 0 & 1 & axiom BFS cap hit; factor skipped \\
+\texttt{muddy-child}        & 0 & 1 & Fix~A; all axiom factors skipped \\
+\texttt{blocker}            & 0 & 3 & Improvement~1; all-goal factor skipped \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+In all three cases M\&S expands \emph{more} states than blind A* while taking
+orders of magnitude longer to build.
+
+\textbf{What is missing.}
+\texttt{MergeAndShrinkHeuristic}'s constructor calls \texttt{extract\_factors}
+and then returns.  No code evaluates the heuristic on the initial state or
+compares it to the minimum operator cost.  Two variants could be added:
+
+\begin{enumerate}
+\item \emph{Warning only.}  After \texttt{extract\_factors(fts)}, call
+  \texttt{compute\_heuristic(task\_proxy.get\_initial\_state())} and
+  compare the result against
+  $h_{\mathrm{blind}} = \min_{\,a \in \mathcal{A}} \mathrm{cost}(a)$
+  (one pass over the operator list).  If $h_{\mathrm{init}} \leq
+  h_{\mathrm{blind}}$, emit a warning suggesting blind A* instead.
+  The condition naturally handles zero-cost domains: if all operator costs
+  are~0 then $h_{\mathrm{blind}} = 0 = h_{\mathrm{init}}$, so the warning
+  fires but is correct (neither heuristic gives useful guidance).
+
+\item \emph{Automatic fallback.}  Replace \texttt{mas\_representations} with a
+  single trivial representation that always returns $h_{\mathrm{blind}}$.  This
+  is more invasive and requires either a new \texttt{MergeAndShrinkRepresentation}
+  subclass or exposing a ``constant'' representation in the existing hierarchy.
+\end{enumerate}
+
+The warning variant is a 10-line addition and carries no risk of unsoundness.
+The auto-fallback requires more design but would make these domains behave
+identically to blind without requiring the user to choose a different planner
+configuration.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsubsection{Summary}
@@ -7887,7 +7927,14 @@ Unified BFS guard? & Improvement~4 (priority downgraded to Low): the
    \times \lvert\text{relevant\_ops}\rvert$ is already implemented as the
   pre-BFS work-estimate guard.  The only remaining step is exposing
   \texttt{max\_axiom\_states} (100\,000) and \texttt{max\_bfs\_work}
-  ($5\times10^8$) as named, user-configurable options. \\
+  ($5\times10^8$) as named, user-configurable options. \\[3pt]
+$h_{\mathrm{init}}=0$ on non-zero-cost domain? & Improvement~5 (not yet
+  implemented, Priority: Low): after \texttt{extract\_factors}, compare
+  $h_{\mathrm{init}}$ to $h_{\mathrm{blind}} = \min_a \mathrm{cost}(a)$.
+  If $h_{\mathrm{init}} \leq h_{\mathrm{blind}}$, emit a warning (10-line
+  addition) or auto-switch to a constant-$h_{\mathrm{blind}}$ representation.
+  Affected domains: \texttt{optical-telegraphs}, \texttt{muddy-child},
+  \texttt{blocker}. \\
 \bottomrule
 \end{tabular}
 \end{center}

@@ -7685,50 +7685,7 @@ Precondition-derived variables
 \end{tabular}
 \end{center}
 
-\paragraph{Improvement~2: bounded MIASM scoring
-(both mitigations already available; no code change required).}
-
-MIASM's $O(k^2)$ per-step scoring is the dominant cost on any domain with
-$k \geq 50$ live factors after axiom prepending.  Two complementary mitigations
-were originally proposed; both turn out to be addressed by the existing
-infrastructure.
-
-\begin{enumerate}
-\item \textbf{DFP pre-filter (achievable via configuration).}
-  The \texttt{score\_based\_filtering} selector applies scoring functions
-  sequentially, discarding candidates that are not tied for the current best
-  score before calling the next function.  Placing \texttt{dfp} before
-  \texttt{sf\_miasm} in the scoring list therefore provides the pre-filter
-  automatically: DFP evaluates all $O(k^2)$ pairs cheaply ($O(k)$ per pair,
-  cache-friendly) and passes only the DFP-optimal candidates to the expensive
-  MIASM product computation.  No code change is needed --- this is a
-  configuration choice.  The standard MIASM configuration puts \texttt{sf\_miasm}
-  first; swapping to \texttt{[dfp, sf\_miasm(\ldots), total\_order(\ldots)]}
-  activates the pre-filter.
-
-  \emph{Limitation}: \texttt{score\_based\_filtering} keeps all candidates tied
-  at the minimum DFP score, not a fixed top-$K$.  On domains where many pairs
-  share the minimum DFP weight, the filter may not reduce the MIASM workload
-  significantly.  A configurable top-$K$ cut-off would require a small addition
-  to the selector.
-
-\item \textbf{Score caching (implemented; covers score re-evaluation).}
-  \texttt{MergeScoringFunctionMIASM} has a \texttt{use\_caching} option
-  (default: \texttt{true}).  Under the standard configuration (exact label
-  reduction only, no non-exact shrinking of factors outside the active merge),
-  the MIASM score for any pair $(i,\,j)$ is constant throughout the merge
-  loop.  Once computed, the score is stored in
-  \texttt{cached\_scores\_by\_merge\_candidate\_indices[i][j]} and reused
-  without recomputation.  This eliminates re-evaluation of unchanged pairs,
-  achieving the same asymptotic benefit as the proposed invalidation tracking
-  scheme at zero additional implementation cost.
-
-  The cache is sized at initialization based on the maximum possible factor
-  index ($2(n + n_d) - 1$, where $n_d$ counts derived variables), so it covers
-  all axiom-factor indices that can arise during the merge loop.
-\end{enumerate}
-
-\paragraph{Improvement~3: within-SCC merge lookahead for SCCS
+\paragraph{Improvement~2: within-SCC merge lookahead for SCCS
 (inter-SCC global phase already implemented; intra-SCC cross-SCC candidates
 not yet implemented).}
 
@@ -7747,7 +7704,7 @@ the intra-SCC candidate restriction can be strictly suboptimal.
 The final inter-SCC merge phase is therefore already fully global — after all
 SCCs are processed, SCCS hands every remaining live factor (composite and
 singleton alike) to the configured merge selector.  The original
-formulation of Improvement~3 (``switch to DFP over all remaining live factors
+formulation of Improvement~2 (``switch to DFP over all remaining live factors
 after the last intra-SCC iteration'') describes exactly this existing behaviour.
 
 \textbf{Why the philosophers anomaly persists.}
@@ -7779,7 +7736,7 @@ singleton factors).  This is a more invasive structural change:
 Priority remains Medium: the anomaly is real but isolated (philosophers is the
 only tested domain where SCCS is strictly dominated by DFP).
 
-\paragraph{Improvement~4: unified work-estimate guard
+\paragraph{Improvement~3: unified work-estimate guard
 (formula already implemented; $n>25$ threshold is a ghost; exposing constants
 as parameters is the remaining work).}
 
@@ -7803,7 +7760,7 @@ implemented (or was removed without updating the comment).
 \textbf{Guards~2 and~3: two guards exist, and the unified formula is already
 in use.}
 The pre-BFS work-estimate guard already computes exactly the formula proposed
-by Improvement~4:
+by Improvement~3:
 \[
 W = \min\!\bigl(\text{product\_domain},\;
                \texttt{max\_axiom\_states}\bigr)
@@ -7833,7 +7790,7 @@ and register the options in the plugin feature class.  Priority downgraded
 from Medium to Low: the hardcoded defaults work well across all tested
 domains and the formula is already correct.
 
-\paragraph{Improvement~5: heuristic-initialization fallback
+\paragraph{Improvement~4: heuristic-initialization fallback
 (not yet implemented; Priority: Low).}
 
 After M\&S initialization there is no check on $h_{\mathrm{init}}$.  If the
@@ -7908,19 +7865,13 @@ Best strategy? & Stateless DFP as default.  SCCS when the causal graph has
 Most critical improvement? & Pre-emptive skip of axiom factors with no relevant
   goal facts or with cap-exceeded-without-goal BFS (Improvement~1): converts
   the ``M\&S worse than blind'' cases to neutral at near-zero cost. \\[3pt]
-Second priority? & Bounded MIASM scoring (Improvement~2): already addressed
-  by existing infrastructure.  Score caching (\texttt{use\_caching=true}) avoids
-  re-evaluating unchanged pairs.  A DFP pre-filter is achievable today by
-  placing \texttt{dfp} before \texttt{sf\_miasm} in the
-  \texttt{score\_based\_filtering} list; only a configurable top-$K$ cut-off
-  would require a small code addition. \\[3pt]
-SCCS philosophers anomaly? & Improvement~3: the inter-SCC global merge phase
+SCCS philosophers anomaly? & Improvement~2: the inter-SCC global merge phase
   is already implemented.  Fixing the anomaly requires relaxing the intra-SCC
   candidate restriction so the merge selector can consider cross-SCC pairs
   during each SCC's processing phase.  A conservative variant: run one global
   DFP step after each SCC product is formed, before processing the next SCC.
   This is a structural change to \texttt{merge\_strategy\_sccs.cc}. \\[3pt]
-Unified BFS guard? & Improvement~4 (priority downgraded to Low): the
+Unified BFS guard? & Improvement~3 (priority downgraded to Low): the
   $n>25$ threshold is a ghost --- it appears in a code comment but does not
   exist in any executable code path.  The unified formula
   $\min(\text{product\_domain}, \texttt{max\_axiom\_states})
@@ -7928,7 +7879,7 @@ Unified BFS guard? & Improvement~4 (priority downgraded to Low): the
   pre-BFS work-estimate guard.  The only remaining step is exposing
   \texttt{max\_axiom\_states} (100\,000) and \texttt{max\_bfs\_work}
   ($5\times10^8$) as named, user-configurable options. \\[3pt]
-$h_{\mathrm{init}}=0$ on non-zero-cost domain? & Improvement~5 (not yet
+$h_{\mathrm{init}}=0$ on non-zero-cost domain? & Improvement~4 (not yet
   implemented, Priority: Low): after \texttt{extract\_factors}, compare
   $h_{\mathrm{init}}$ to $h_{\mathrm{blind}} = \min_a \mathrm{cost}(a)$.
   If $h_{\mathrm{init}} \leq h_{\mathrm{blind}}$, emit a warning (10-line

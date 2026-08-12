@@ -674,7 +674,6 @@ int build_axiom_factor(
             goal_value_for_derived_var[gvar] = g.get_value();
         }
     }
-    assert(goal_value_for_derived_var.size() == derived_var_ids.size());
 
     unordered_map<int, int> derived_default;
     for (int d : visited_derived)
@@ -1048,6 +1047,29 @@ int build_axiom_factor(
                 if (log.is_at_least_normal())
                     log << "  Axiom factor: initial state cannot reach any goal "
                            "state; skipping factor (heuristic remains admissible)."
+                        << endl;
+                return -1;
+            }
+        }
+    }
+
+    // Improvement 1: if every reachable state is a goal state, the factor
+    // contributes h=0 everywhere. Only skip when the group is purely
+    // goal-derived — non-goal derived variable factors must be kept for
+    // correct operator applicability even though h=0 throughout.
+    {
+        bool all_are_goal_vars =
+            (goal_value_for_derived_var.size() == derived_var_ids.size());
+        if (all_are_goal_vars) {
+            bool all_goal = true;
+            for (bool g : goal_states) {
+                if (!g) { all_goal = false; break; }
+            }
+            if (all_goal) {
+                if (log.is_at_least_normal())
+                    log << "  Axiom factor: all " << num_reachable_states
+                        << " reachable state(s) are goal states (h=0 everywhere);"
+                           " skipping factor (heuristic remains admissible)."
                         << endl;
                 return -1;
             }

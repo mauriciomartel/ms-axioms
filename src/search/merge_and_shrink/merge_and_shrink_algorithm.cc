@@ -517,22 +517,16 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
         log_progress(timer, "after computation of atomic factors", log);
     }
 
-    bool has_derived_goals = false;
-    for (FactProxy goal : task_proxy.get_goals())
-        if (goal.get_variable().is_derived()) { has_derived_goals = true; break; }
-
-    // Derived goal variables whose S_d sets (primary-variable dependency
+    // Derived variables referenced in goals, operator preconditions, or
+    // when-clause conditions whose S_d sets (primary-variable dependency
     // closures) overlap must be built as a single combined factor.
     // M&S requires each variable to be represented by exactly one live
     // factor at a time; building separate per-derived-variable factors that
     // share primary variables and bisimulation-shrinking them independently
     // destroys the correlation between the shared variables and produces
     // unsound abstract states.
-    if (has_derived_goals) {
-        vector<int> goal_derived_vars;
-        for (FactProxy goal : task_proxy.get_goals())
-            if (goal.get_variable().is_derived())
-                goal_derived_vars.push_back(goal.get_variable().get_id());
+    if (has_relevant_derived_vars) {
+        const vector<int> &goal_derived_vars = derived_vars_needing_axiom_factor;
 
         vector<unordered_set<int>> primary_sets;
         primary_sets.reserve(goal_derived_vars.size());

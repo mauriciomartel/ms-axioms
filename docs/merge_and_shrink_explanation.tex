@@ -7791,7 +7791,7 @@ from Medium to Low: the hardcoded defaults work well across all tested
 domains and the formula is already correct.
 
 \paragraph{Improvement~4: heuristic-initialization fallback
-(warning variant implemented).}
+(implemented).}
 
 After M\&S initialization, if the resulting heuristic is no better than blind
 search on the initial state, the entire M\&S build cost is wasted.
@@ -7882,14 +7882,13 @@ Unified BFS guard? & Improvement~3 (priority downgraded to Low): the
   pre-BFS work-estimate guard.  The only remaining step is exposing
   \texttt{max\_axiom\_states} (100\,000) and \texttt{max\_bfs\_work}
   ($5\times10^8$) as named, user-configurable options. \\[3pt]
-$h_{\mathrm{init}}=0$ on non-zero-cost domain? & Improvement~4 (warning
-  variant implemented): after \texttt{extract\_factors}, the constructor
-  evaluates $h_{\mathrm{init}}$ on the initial state and compares it to
+$h_{\mathrm{init}}=0$ on non-zero-cost domain? & Improvement~4 (implemented):
+  after \texttt{extract\_factors}, the constructor evaluates $h_{\mathrm{init}}$
+  on the initial state and compares it to
   $h_{\mathrm{blind}} = \min_a \mathrm{cost}(a)$.  If
   $h_{\mathrm{init}} \leq h_{\mathrm{blind}}$, a warning is emitted.
   Fires on \texttt{optical-telegraphs}, \texttt{muddy-child}, \texttt{blocker}.
-  Auto-fallback (replace representations with constant-$h_{\mathrm{blind}}$)
-  is left as future work. \\
+  Auto-fallback left as future work. \\
 \bottomrule
 \end{tabular}
 \end{center}

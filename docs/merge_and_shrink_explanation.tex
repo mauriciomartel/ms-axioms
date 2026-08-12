@@ -7779,22 +7779,59 @@ singleton factors).  This is a more invasive structural change:
 Priority remains Medium: the anomaly is real but isolated (philosophers is the
 only tested domain where SCCS is strictly dominated by DFP).
 
-\paragraph{Improvement~4: unified work-estimate guard (Priority: Medium).}
+\paragraph{Improvement~4: unified work-estimate guard
+(formula already implemented; $n>25$ threshold is a ghost; exposing constants
+as parameters is the remaining work).}
 
-Three distinct guards currently protect against intractable BFS:
-\begin{itemize}
-\item the $n > 25$ threshold on primary-variable count,
+The original proposal listed three distinct BFS-infeasibility guards:
+\begin{enumerate}
+\item an $n > 25$ threshold on primary-variable count,
 \item the 100\,000-state BFS cap,
-\item the work-estimate guard $W > 5 \times 10^8$ (introduced for ged1-ds1).
+\item the work-estimate guard $W > 5\times10^8$ (introduced for ged1-ds1).
+\end{enumerate}
+After examining the code in both the local branch and
+\texttt{feature/axioms-in-ms}, the actual state is different on all three
+points.
+
+\textbf{Guard~1: the $n>25$ threshold does not exist.}
+Despite being mentioned in a comment inside \texttt{build\_axiom\_factor}
+(``\emph{The existing $n>25$ fast-path threshold catches large state spaces
+driven by many primary variables\ldots}''), no such check appears anywhere in
+the executable code path.  The comment is stale --- the threshold was never
+implemented (or was removed without updating the comment).
+
+\textbf{Guards~2 and~3: two guards exist, and the unified formula is already
+in use.}
+The pre-BFS work-estimate guard already computes exactly the formula proposed
+by Improvement~4:
+\[
+W = \min\!\bigl(\text{product\_domain},\;
+               \texttt{max\_axiom\_states}\bigr)
+  \times \lvert\text{relevant\_ops}\rvert.
+\]
+$\texttt{max\_axiom\_states}$ is \texttt{100\,000} and the limit
+$W_{\max}$ is \texttt{500\,000\,000}.  A second, complementary guard fires
+\emph{during} the BFS if more than \texttt{max\_axiom\_states} states are
+discovered, aborting exploration and returning~$-1$.  Together these two
+guards implement the proposed unified check; the only element missing is
+exposing the two hardcoded constants as user-configurable parameters.
+
+\textbf{What remains.}
+The sole practical improvement is replacing the two magic numbers with
+named, configurable options on \texttt{build\_axiom\_factor} (or on the
+enclosing heuristic class):
+\begin{itemize}
+  \item \texttt{max\_axiom\_factor\_states} (default 100\,000) --- controls
+    both the pre-BFS state-count cap and the mid-BFS abort threshold.
+  \item \texttt{max\_axiom\_bfs\_work} (default $5\times10^8$) --- controls
+    the pre-BFS work-estimate threshold.
 \end{itemize}
-These address the same underlying phenomenon (BFS infeasibility) from three
-different angles.  Replacing all three with a single configurable work-estimate
-guard would be more principled: $W = \min(\text{product\_domain},
-\texttt{max\_axiom\_factor\_states}) \times \lvert\text{relevant\_ops}\rvert
-> W_{\max}$, where $W_{\max}$ defaults to $5\times 10^8$ and
-\texttt{max\_axiom\_factor\_states} defaults to 100\,000.  This unification
-would also expose both limits as user-configurable parameters rather than
-hardcoded constants.
+This is a low-risk mechanical change: pass the values through the call stack
+from the heuristic options to \texttt{build\_axiom\_factor}, replace the two
+\texttt{const int} / \texttt{const long long} initialisers with the parameters,
+and register the options in the plugin feature class.  Priority downgraded
+from Medium to Low: the hardcoded defaults work well across all tested
+domains and the formula is already correct.
 
 \paragraph{Improvement~5: heuristic-initialization fallback (Priority: Low).}
 
@@ -7842,7 +7879,15 @@ SCCS philosophers anomaly? & Improvement~3: the inter-SCC global merge phase
   candidate restriction so the merge selector can consider cross-SCC pairs
   during each SCC's processing phase.  A conservative variant: run one global
   DFP step after each SCC product is formed, before processing the next SCC.
-  This is a structural change to \texttt{merge\_strategy\_sccs.cc}. \\
+  This is a structural change to \texttt{merge\_strategy\_sccs.cc}. \\[3pt]
+Unified BFS guard? & Improvement~4 (priority downgraded to Low): the
+  $n>25$ threshold is a ghost --- it appears in a code comment but does not
+  exist in any executable code path.  The unified formula
+  $\min(\text{product\_domain}, \texttt{max\_axiom\_states})
+   \times \lvert\text{relevant\_ops}\rvert$ is already implemented as the
+  pre-BFS work-estimate guard.  The only remaining step is exposing
+  \texttt{max\_axiom\_states} (100\,000) and \texttt{max\_bfs\_work}
+  ($5\times10^8$) as named, user-configurable options. \\
 \bottomrule
 \end{tabular}
 \end{center}

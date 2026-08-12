@@ -7685,24 +7685,47 @@ Precondition-derived variables
 \end{tabular}
 \end{center}
 
-\paragraph{Improvement~2: bounded MIASM scoring (Priority: Medium).}
+\paragraph{Improvement~2: bounded MIASM scoring
+(both mitigations already available; no code change required).}
 
 MIASM's $O(k^2)$ per-step scoring is the dominant cost on any domain with
-$k \geq 50$ live factors after axiom prepending.  Two complementary mitigations:
+$k \geq 50$ live factors after axiom prepending.  Two complementary mitigations
+were originally proposed; both turn out to be addressed by the existing
+infrastructure.
 
 \begin{enumerate}
-\item \textbf{DFP pre-filter.}  At each step, compute the DFP score for all
-  candidate pairs first (cheap: $O(k)$ per pair, cache-friendly).  Submit
-  only the top-$K$ DFP candidates to the full MIASM scoring (currently
-  $O(k^2)$ per candidate pair).  For $K = 10$ and $k = 200$, this reduces
-  scoring work by 20$\times$ while preserving MIASM quality on the pairs
-  that matter.
+\item \textbf{DFP pre-filter (achievable via configuration).}
+  The \texttt{score\_based\_filtering} selector applies scoring functions
+  sequentially, discarding candidates that are not tied for the current best
+  score before calling the next function.  Placing \texttt{dfp} before
+  \texttt{sf\_miasm} in the scoring list therefore provides the pre-filter
+  automatically: DFP evaluates all $O(k^2)$ pairs cheaply ($O(k)$ per pair,
+  cache-friendly) and passes only the DFP-optimal candidates to the expensive
+  MIASM product computation.  No code change is needed --- this is a
+  configuration choice.  The standard MIASM configuration puts \texttt{sf\_miasm}
+  first; swapping to \texttt{[dfp, sf\_miasm(\ldots), total\_order(\ldots)]}
+  activates the pre-filter.
 
-\item \textbf{Score invalidation tracking.}  MIASM re-evaluates all pairs
-  after each merge, even pairs involving factors that did not participate.
-  Tracking which factors changed and only re-evaluating pairs containing at
-  least one changed factor reduces amortized cost from $O(k^2)$ to $O(k \cdot
-  \Delta)$ where $\Delta$ is the fan-out of each merge step.
+  \emph{Limitation}: \texttt{score\_based\_filtering} keeps all candidates tied
+  at the minimum DFP score, not a fixed top-$K$.  On domains where many pairs
+  share the minimum DFP weight, the filter may not reduce the MIASM workload
+  significantly.  A configurable top-$K$ cut-off would require a small addition
+  to the selector.
+
+\item \textbf{Score caching (implemented; covers score re-evaluation).}
+  \texttt{MergeScoringFunctionMIASM} has a \texttt{use\_caching} option
+  (default: \texttt{true}).  Under the standard configuration (exact label
+  reduction only, no non-exact shrinking of factors outside the active merge),
+  the MIASM score for any pair $(i,\,j)$ is constant throughout the merge
+  loop.  Once computed, the score is stored in
+  \texttt{cached\_scores\_by\_merge\_candidate\_indices[i][j]} and reused
+  without recomputation.  This eliminates re-evaluation of unchanged pairs,
+  achieving the same asymptotic benefit as the proposed invalidation tracking
+  scheme at zero additional implementation cost.
+
+  The cache is sized at initialization based on the maximum possible factor
+  index ($2(n + n_d) - 1$, where $n_d$ counts derived variables), so it covers
+  all axiom-factor indices that can arise during the merge loop.
 \end{enumerate}
 
 \paragraph{Improvement~3: within-SCC merge lookahead for SCCS (Priority:
@@ -7770,9 +7793,12 @@ Best strategy? & Stateless DFP as default.  SCCS when the causal graph has
 Most critical improvement? & Pre-emptive skip of axiom factors with no relevant
   goal facts or with cap-exceeded-without-goal BFS (Improvement~1): converts
   the ``M\&S worse than blind'' cases to neutral at near-zero cost. \\[3pt]
-Second priority? & Bounded MIASM scoring (Improvement~2): a DFP pre-filter
-  with score-invalidation tracking could reduce MIASM build time from 30--80$\times$
-  overhead to 2--5$\times$ without sacrificing quality. \\
+Second priority? & Bounded MIASM scoring (Improvement~2): already addressed
+  by existing infrastructure.  Score caching (\texttt{use\_caching=true}) avoids
+  re-evaluating unchanged pairs.  A DFP pre-filter is achievable today by
+  placing \texttt{dfp} before \texttt{sf\_miasm} in the
+  \texttt{score\_based\_filtering} list; only a configurable top-$K$ cut-off
+  would require a small code addition. \\
 \bottomrule
 \end{tabular}
 \end{center}

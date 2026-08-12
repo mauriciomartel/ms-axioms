@@ -42,17 +42,23 @@ MergeAndShrinkHeuristic::MergeAndShrinkHeuristic(
 
     // Warn if the heuristic provides no advantage over blind A* on the
     // initial state: the entire build cost is overhead with no search benefit.
-    if (!mas_representations.empty()) {
-        State init_state = task_proxy.get_initial_state();
+    // When mas_representations is empty all factors were trivial and
+    // compute_heuristic returns 0 for every state, so h_init = 0.
+    // When it contains a DEAD_END representation the task is unsolvable and
+    // no comparison makes sense; that case is excluded via init_is_dead_end.
+    {
         int h_init = 0;
         bool init_is_dead_end = false;
-        for (const auto &rep : mas_representations) {
-            int cost = rep->get_value(init_state);
-            if (cost == PRUNED_STATE || cost == INF) {
-                init_is_dead_end = true;
-                break;
+        if (!mas_representations.empty()) {
+            State init_state = task_proxy.get_initial_state();
+            for (const auto &rep : mas_representations) {
+                int cost = rep->get_value(init_state);
+                if (cost == PRUNED_STATE || cost == INF) {
+                    init_is_dead_end = true;
+                    break;
+                }
+                h_init = max(h_init, cost);
             }
-            h_init = max(h_init, cost);
         }
         int h_blind = task_properties::get_min_operator_cost(task_proxy);
         if (!init_is_dead_end && h_blind < INF && h_init <= h_blind) {

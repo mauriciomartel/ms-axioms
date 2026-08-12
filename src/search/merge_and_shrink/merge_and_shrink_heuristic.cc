@@ -39,6 +39,35 @@ MergeAndShrinkHeuristic::MergeAndShrinkHeuristic(
         algorithm.build_factored_transition_system(task_proxy);
     extract_factors(fts);
     log << "Done initializing merge-and-shrink heuristic." << endl << endl;
+
+    // Warn if the heuristic provides no advantage over blind A* on the
+    // initial state: the entire build cost is overhead with no search benefit.
+    if (!mas_representations.empty()) {
+        State init_state = task_proxy.get_initial_state();
+        int h_init = 0;
+        bool init_is_dead_end = false;
+        for (const auto &rep : mas_representations) {
+            int cost = rep->get_value(init_state);
+            if (cost == PRUNED_STATE || cost == INF) {
+                init_is_dead_end = true;
+                break;
+            }
+            h_init = max(h_init, cost);
+        }
+        int h_blind = task_properties::get_min_operator_cost(task_proxy);
+        if (!init_is_dead_end && h_blind < INF && h_init <= h_blind) {
+            string dashes(79, '=');
+            log << dashes << endl
+                << "WARNING! Merge-and-shrink heuristic value at the initial "
+                   "state (h=" << h_init << ") is no better than blind A* "
+                   "(h_blind=" << h_blind << ")." << endl
+                << "The entire M&S build cost is overhead with no search "
+                   "benefit on this instance." << endl
+                << "Consider using blind search or a different heuristic "
+                   "configuration." << endl
+                << dashes << endl;
+        }
+    }
 }
 
 void MergeAndShrinkHeuristic::extract_factor(

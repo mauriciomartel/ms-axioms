@@ -7495,7 +7495,7 @@ The analogous guard does not yet exist for label-reduction in the main loop.
 \subsubsection{Suggested Improvements}
 
 \paragraph{Improvement~1: pre-emptive detection of useless axiom factors
-(Check~2 implemented; Checks~1 and~3 pending).}
+(Checks~2 and~3 implemented; Check~1 superseded by Fix~C).}
 
 Currently the implementation builds an axiom factor, runs the BFS, and only
 then discovers whether the factor contributes any information.  Three categories
@@ -7506,9 +7506,18 @@ after} the BFS:
 \item \textbf{No goal fact references any derived variable in the group.}
   If the planning task's goal conditions contain no derived-variable fact from
   this union-find group, the factor's $h$ value will be zero for every concrete
-  state and the factor can be skipped immediately.  This would eliminate the
-  \texttt{muddy-child} and \texttt{optical-telegraphs} cases preemptively.
-  \emph{(Not yet implemented.)}
+  state.
+  \emph{(Superseded by Fix~C --- no longer safe to implement as stated.)}
+  Before Fix~C, the only factors built were for goal-derived variables, so this
+  check would never have fired (every group member appeared in the goal by
+  construction).  After Fix~C, the only groups for which Check~1 would fire are
+  purely precondition-derived groups --- and those \emph{must} be kept for
+  correct operator applicability modelling.  Skipping them would be unsound.
+  For groups that contain at least one goal-derived variable, Check~1 trivially
+  never fires because that variable appears in the planning goal by definition.
+  The \texttt{muddy-child} and \texttt{optical-telegraphs} cases are already
+  handled correctly by Check~2 (all-goal BFS result) and Fix~A
+  (no reachable goal state).
 
 \item \textbf{Every abstract state is a goal state (implemented).}
   If the axiom semantics are such that the derived predicate is always satisfied
@@ -7520,13 +7529,30 @@ after} the BFS:
   returns $-1$ immediately, before calling \texttt{add\_factor}.  See the
   detailed analysis below.
 
-\item \textbf{BFS cap exceeded but goal was not reached.}
-  If the BFS is aborted at the cap and no goal state was found, the current
-  code continues and produces $h = 0$ on all derived goal conditions.  A
-  simpler policy: treat cap-exceeded-without-goal as Fix~A (skip the factor).
-  This is already the safe conservative choice and avoids confusing partial-BFS
-  states polluting the abstract lookup table.
-  \emph{(Not yet implemented.)}
+\item \textbf{BFS cap exceeded but goal was not reached (implemented).}
+  When the BFS discovery count exceeds \texttt{max\_axiom\_states} (100\,000),
+  the factor is skipped immediately --- regardless of whether any goal state
+  was found in the explored portion.  This is strictly more conservative than
+  the original proposal (skip only when no goal was found): it avoids building
+  a factor from an incomplete BFS, which could yield incorrect $h$-values
+  for unexplored states.
+  Two complementary guards implement this:
+  \begin{itemize}
+    \item \emph{Pre-BFS work estimate}: if
+      $\min(\text{product\_domain},\, \texttt{max\_axiom\_states})
+       \times |\text{relevant\_ops}| > 5\times10^8$, the function returns
+      $-1$ before the BFS begins.
+    \item \emph{During-BFS cap}: inside the BFS loop,
+\begin{lstlisting}[language=C++]
+if (static_cast<int>(dense_to_full.size()) > max_axiom_states) {
+    log << "  Axiom factor BFS reached " << max_axiom_states
+        << " states; skipping factor (heuristic remains admissible)." << endl;
+    return -1;
+}
+\end{lstlisting}
+      fires as soon as more than 100\,000 states have been discovered,
+      aborting the BFS and skipping the factor.
+  \end{itemize}
 \end{enumerate}
 
 Implementing all three checks would convert the five ``M\&S worse than blind''
@@ -7628,12 +7654,13 @@ derived goal regardless of the path taken.
     be needed to address this case.
 
   \item[Precondition-derived variables.]
-    The current implementation only builds axiom factors for goal-derived
-    variables.  Variables that appear only in operator preconditions do not get
-    axiom factors at all — not because of Check~2, but because
-    \texttt{build\_factored\_transition\_system} only calls
-    \texttt{build\_axiom\_factor} inside the \texttt{if (has\_derived\_goals)}
-    block.  Check~2 operates within that existing scope.
+    Fix~C extended the implementation to build axiom factors for \emph{all}
+    relevant derived variables — including those that appear only in operator
+    preconditions or when-clause conditions.  For such groups,
+    \texttt{all\_are\_goal\_vars} is \texttt{false}, so Check~2 (Improvement~1)
+    does not fire: the factor is kept unconditionally, because it is required for
+    correct operator applicability.  Check~2 therefore never incorrectly skips a
+    precondition-derived factor.
 \end{description}
 
 \begin{center}
@@ -7653,7 +7680,7 @@ Axiom BFS exceeds 100\,k states
 Axiom BFS partially goal
   & Check does not fire; factor proceeds normally \\
 Precondition-derived variables
-  & Out of scope; no axiom factor built regardless \\
+  & Fix~C builds factor; \texttt{all\_are\_goal\_vars=false} prevents Check~2 \\
 \bottomrule
 \end{tabular}
 \end{center}

@@ -2411,7 +2411,7 @@ pruning.  The implementation is currently working correctly on all Philosophers
 instances tested.
 
 \paragraph{Safety analysis: \texttt{is\_factor\_solvable} in the initial pruning loop.}
-During initial pruning (the loop at lines~\textasciitilde{}523--540 of
+During initial pruning (the loop in
 \texttt{merge\_and\_shrink\_algorithm.cc}), after calling \texttt{prune\_step}
 for each factor, the algorithm checks
 \begin{verbatim}
@@ -2420,7 +2420,7 @@ if (!fts.is_factor_solvable(index))
 and sets \texttt{unsolvable = true} if the factor is unsolvable.  This check is
 applied uniformly to all factors, including axiom factors (indices $\geq$
 \texttt{num\_variables}), without the \texttt{!is\_axiom\_factor} guard that
-was added for Fix~1 in the main merge loop (line~395).
+was added for Fix~1 in the main merge loop.
 
 For solvable tasks, this check never triggers spuriously on axiom factors.  The
 reasons are:
@@ -2463,7 +2463,7 @@ specific to a merge strategy, but both had to be fixed before the deeper,
 merge-order-dependent bug could even be isolated.
 
 \paragraph{Fix A --- \texttt{is\_axiom\_factor} guard in the initial pruning loop.}
-At the point where the initial (atomic) factors are pruned, line~535
+At the point where the initial (atomic) factors are pruned, the check
 originally read
 \begin{lstlisting}
 if (!fts.is_factor_solvable(index)) { ... }
@@ -6378,7 +6378,7 @@ int build_axiom_factor(
     pruned, yielding $h = \infty$ for concrete states that map to them.
     The fix introduces an \texttt{is\_axiom\_factor} flag and disables
     \texttt{prune\_irrelevant\_states} for those factors.
-    A companion guard on the solvability check (line~840) prevents the
+    A companion guard on the solvability check prevents the
     algorithm from declaring the whole problem unsolvable if an axiom
     factor appears unsolvable after its (legitimately constrained) pruning
     pass.
@@ -6447,13 +6447,13 @@ for (int d : derived_var_ids) {
     The BFS in \texttt{build\_axiom\_factor} enqueues only operators with
     \texttt{has\_derived\_pre = false}; operators whose only connection to the
     axiom factor is a precondition on the target derived variable are skipped
-    during exploration (lines~890--891 of \texttt{fts\_factory.cc}):
+    during exploration (in \texttt{fts\_factory.cc}):
 \begin{lstlisting}[language=C++]
 if (rop.has_derived_pre)
     continue; // applicability depends on d'; deferred to after goal states
 \end{lstlisting}
     After the BFS completes, those operators receive self-loops \emph{only} at
-    goal states (lines~1002--1008):
+    goal states:
 \begin{lstlisting}[language=C++]
 for (const RelevantOperator &rop : relevant_ops) {
     if (!rop.has_derived_pre) continue;

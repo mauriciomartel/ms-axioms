@@ -7791,11 +7791,11 @@ from Medium to Low: the hardcoded defaults work well across all tested
 domains and the formula is already correct.
 
 \paragraph{Improvement~4: heuristic-initialization fallback
-(not yet implemented; Priority: Low).}
+(warning variant implemented).}
 
-After M\&S initialization there is no check on $h_{\mathrm{init}}$.  If the
-resulting heuristic is no better than blind search on the initial state, the
-entire M\&S build cost is wasted.  This affects three tested domains:
+After M\&S initialization, if the resulting heuristic is no better than blind
+search on the initial state, the entire M\&S build cost is wasted.
+This affects three tested domains:
 
 \begin{center}
 \small
@@ -7813,32 +7813,35 @@ entire M\&S build cost is wasted.  This affects three tested domains:
 In all three cases M\&S expands \emph{more} states than blind A* while taking
 orders of magnitude longer to build.
 
-\textbf{What is missing.}
-\texttt{MergeAndShrinkHeuristic}'s constructor calls \texttt{extract\_factors}
-and then returns.  No code evaluates the heuristic on the initial state or
-compares it to the minimum operator cost.  Two variants could be added:
+\textbf{Implementation (warning variant).}
+After \texttt{extract\_factors(fts)}, the constructor now evaluates the
+heuristic on the initial state by iterating \texttt{mas\_representations}
+directly:
+\begin{lstlisting}[language=C++]
+State init_state = task_proxy.get_initial_state();
+int h_init = 0;
+bool init_is_dead_end = false;
+for (const auto &rep : mas_representations) {
+    int cost = rep->get_value(init_state);
+    if (cost == PRUNED_STATE || cost == INF) { init_is_dead_end = true; break; }
+    h_init = max(h_init, cost);
+}
+int h_blind = task_properties::get_min_operator_cost(task_proxy);
+if (!init_is_dead_end && h_blind < INF && h_init <= h_blind) {
+    log << "WARNING! ..." << endl;
+}
+\end{lstlisting}
+The check fires when \texttt{mas\_representations} is non-empty (i.e.\ the
+task was not detected unsolvable during construction) and
+$h_{\mathrm{init}} \leq h_{\mathrm{blind}}$.  For zero-cost domains,
+$h_{\mathrm{blind}} = 0 = h_{\mathrm{init}}$, so the warning also fires
+there --- correctly, since neither heuristic provides useful guidance.
 
-\begin{enumerate}
-\item \emph{Warning only.}  After \texttt{extract\_factors(fts)}, call
-  \texttt{compute\_heuristic(task\_proxy.get\_initial\_state())} and
-  compare the result against
-  $h_{\mathrm{blind}} = \min_{\,a \in \mathcal{A}} \mathrm{cost}(a)$
-  (one pass over the operator list).  If $h_{\mathrm{init}} \leq
-  h_{\mathrm{blind}}$, emit a warning suggesting blind A* instead.
-  The condition naturally handles zero-cost domains: if all operator costs
-  are~0 then $h_{\mathrm{blind}} = 0 = h_{\mathrm{init}}$, so the warning
-  fires but is correct (neither heuristic gives useful guidance).
-
-\item \emph{Automatic fallback.}  Replace \texttt{mas\_representations} with a
-  single trivial representation that always returns $h_{\mathrm{blind}}$.  This
-  is more invasive and requires either a new \texttt{MergeAndShrinkRepresentation}
-  subclass or exposing a ``constant'' representation in the existing hierarchy.
-\end{enumerate}
-
-The warning variant is a 10-line addition and carries no risk of unsoundness.
-The auto-fallback requires more design but would make these domains behave
-identically to blind without requiring the user to choose a different planner
-configuration.
+\textbf{Possible extension: automatic fallback.}
+Replacing \texttt{mas\_representations} with a constant-$h_{\mathrm{blind}}$
+representation would make these domains behave identically to blind A* without
+requiring a configuration change.  This requires a new
+\texttt{MergeAndShrinkRepresentation} subclass and is left as future work.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsubsection{Summary}
@@ -7879,13 +7882,14 @@ Unified BFS guard? & Improvement~3 (priority downgraded to Low): the
   pre-BFS work-estimate guard.  The only remaining step is exposing
   \texttt{max\_axiom\_states} (100\,000) and \texttt{max\_bfs\_work}
   ($5\times10^8$) as named, user-configurable options. \\[3pt]
-$h_{\mathrm{init}}=0$ on non-zero-cost domain? & Improvement~4 (not yet
-  implemented, Priority: Low): after \texttt{extract\_factors}, compare
-  $h_{\mathrm{init}}$ to $h_{\mathrm{blind}} = \min_a \mathrm{cost}(a)$.
-  If $h_{\mathrm{init}} \leq h_{\mathrm{blind}}$, emit a warning (10-line
-  addition) or auto-switch to a constant-$h_{\mathrm{blind}}$ representation.
-  Affected domains: \texttt{optical-telegraphs}, \texttt{muddy-child},
-  \texttt{blocker}. \\
+$h_{\mathrm{init}}=0$ on non-zero-cost domain? & Improvement~4 (warning
+  variant implemented): after \texttt{extract\_factors}, the constructor
+  evaluates $h_{\mathrm{init}}$ on the initial state and compares it to
+  $h_{\mathrm{blind}} = \min_a \mathrm{cost}(a)$.  If
+  $h_{\mathrm{init}} \leq h_{\mathrm{blind}}$, a warning is emitted.
+  Fires on \texttt{optical-telegraphs}, \texttt{muddy-child}, \texttt{blocker}.
+  Auto-fallback (replace representations with constant-$h_{\mathrm{blind}}$)
+  is left as future work. \\
 \bottomrule
 \end{tabular}
 \end{center}

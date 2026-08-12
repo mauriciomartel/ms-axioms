@@ -7685,56 +7685,45 @@ Precondition-derived variables
 \end{tabular}
 \end{center}
 
-\paragraph{Improvement~2: within-SCC merge lookahead for SCCS
-(inter-SCC global phase already implemented; intra-SCC cross-SCC candidates
-not yet implemented).}
+\paragraph{Improvement~2: within-SCC merge lookahead for SCCS (implemented).}
 
 The philosophers anomaly (SCCS $h = 10$ vs.\ DFP $h = 18 = h^*$) shows that
-the intra-SCC candidate restriction can be strictly suboptimal.
+restricting merge candidates to a single SCC can be strictly suboptimal.
+The root cause: while SCCS was processing SCC$_i$, only factors belonging to
+SCC$_i$ were presented to the merge selector.  Singletons and products of
+previously-completed SCCs were invisible, so globally-optimal cross-SCC merges
+were impossible.
 
-\textbf{What is already implemented.}
-\texttt{MergeStrategySCCS::get\_next} has two branches when
-\texttt{current\_ts\_indices} is empty:
+\textbf{Implementation.}
+\texttt{get\_next} in \texttt{merge\_strategy\_sccs.cc} is extended to augment
+the candidate set with \emph{available external factors} --- active factors not
+belonging to any SCC that has not yet been started --- during each SCC's
+processing phase.  The SCC-tracking invariant is preserved via a boolean flag
+\texttt{last\_merge\_involved\_scc\_member}:
+
 \begin{itemize}
-  \item If more SCCs remain: load the next SCC's variable indices.
-  \item If all SCCs are exhausted (\texttt{non\_singleton\_cg\_sccs.empty()}):
-    load \emph{all} currently-active factor indices into
-    \texttt{current\_ts\_indices} and apply \texttt{merge\_selector} globally.
+  \item If the previous merge involved at least one SCC-tracked factor, the
+    product is added to \texttt{current\_ts\_indices} (same as before).
+  \item If the previous merge was between two external factors, the product
+    is \emph{not} added to \texttt{current\_ts\_indices}; it is active in the
+    FTS and surfaces naturally as an external candidate on the next call.
 \end{itemize}
-The final inter-SCC merge phase is therefore already fully global — after all
-SCCs are processed, SCCS hands every remaining live factor (composite and
-singleton alike) to the configured merge selector.  The original
-formulation of Improvement~2 (``switch to DFP over all remaining live factors
-after the last intra-SCC iteration'') describes exactly this existing behaviour.
 
-\textbf{Why the philosophers anomaly persists.}
-The root cause is not the inter-SCC phase but the \emph{intra-SCC candidate
-restriction}: while SCCS is processing SCC$_i$, only factors whose index
-belongs to SCC$_i$ are presented to the merge selector as candidates.  Factors
-from other SCCs (or products already merged from earlier SCCs) are invisible.
-DFP has no such restriction — it considers every active pair at every step,
-including cross-SCC pairs.  In philosophers, the globally optimal merge
-sequence requires interleaving factors from different SCCs; SCCS's isolation
-of each SCC prevents this.
-
-\textbf{What would be needed.}
-Fixing the anomaly requires relaxing the intra-SCC restriction: at each step
-within SCC$_i$'s processing, allow the merge selector to also consider
-cross-SCC candidates (e.g.\ already-merged products from earlier SCCs or
-singleton factors).  This is a more invasive structural change:
+On each call, two index sets are computed:
 \begin{itemize}
-  \item It would require \texttt{get\_next} to pass a globally-expanded
-    candidate set during intra-SCC merging, not just the SCC's own indices.
-  \item It risks degrading SCCS's advantage on well-separated SCC domains
-    (e.g.\ \texttt{trucks}: SCCS $h = 13 = h^*$, DFP $h = 9$) if the
-    merge selector pulls cross-SCC factors prematurely.
-  \item A conservative variant: after each SCC product is formed, run one
-    global DFP selection step before processing the next SCC.
-    This preserves most of the intra-SCC isolation while allowing the
-    product to be positioned relative to the remaining factor graph.
+  \item \texttt{in\_current}: the SCC-tracked factors (used to route products).
+  \item \texttt{in\_future\_sccs}: all variable indices belonging to SCCs not
+    yet started (off-limits so they are not prematurely merged in).
 \end{itemize}
-Priority remains Medium: the anomaly is real but isolated (philosophers is the
-only tested domain where SCCS is strictly dominated by DFP).
+The candidate set is \texttt{current\_ts\_indices} $\cup$ $\{$active factors
+$\notin$ \texttt{in\_current} $\cup$ \texttt{in\_future\_sccs}$\}$.
+With a quality-aware selector such as DFP, cross-SCC merges are chosen exactly
+when they score higher than within-SCC alternatives, and are not forced on
+well-separated domains (where DFP would score cross-SCC pairs low).
+
+The final inter-SCC global phase (\texttt{non\_singleton\_cg\_sccs.empty()})
+is unchanged: all remaining active factors are loaded into
+\texttt{current\_ts\_indices} and the merge selector is applied globally.
 
 \paragraph{Improvement~3: unified work-estimate guard
 (formula already implemented; $n>25$ threshold is a ghost; exposing constants
@@ -7881,12 +7870,11 @@ Best strategy? & Stateless DFP as default.  SCCS when the causal graph has
 Most critical improvement? & Pre-emptive skip of axiom factors with no relevant
   goal facts or with cap-exceeded-without-goal BFS (Improvement~1): converts
   the ``M\&S worse than blind'' cases to neutral at near-zero cost. \\[3pt]
-SCCS philosophers anomaly? & Improvement~2: the inter-SCC global merge phase
-  is already implemented.  Fixing the anomaly requires relaxing the intra-SCC
-  candidate restriction so the merge selector can consider cross-SCC pairs
-  during each SCC's processing phase.  A conservative variant: run one global
-  DFP step after each SCC product is formed, before processing the next SCC.
-  This is a structural change to \texttt{merge\_strategy\_sccs.cc}. \\[3pt]
+SCCS philosophers anomaly? & Improvement~2 (implemented): the candidate set
+  during each SCC's processing phase is now augmented with active singletons
+  and completed-SCC products.  With DFP as selector, cross-SCC merges are
+  chosen only when they score higher than within-SCC alternatives, preserving
+  SCCS's advantage on well-separated domains. \\[3pt]
 Unified BFS guard? & Improvement~3 (priority downgraded to Low): the
   $n>25$ threshold is a ghost --- it appears in a code comment but does not
   exist in any executable code path.  The unified formula

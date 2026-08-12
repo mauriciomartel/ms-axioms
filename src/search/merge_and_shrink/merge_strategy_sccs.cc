@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <unordered_set>
 
 using namespace std;
 
@@ -32,6 +33,7 @@ pair<int, int> MergeStrategySCCs::get_next() {
           we need to either get the next one or allow merging any existing
           factors of the FTS if there is no SCC left.
         */
+        last_merge_involved_scc_member = false;
         if (non_singleton_cg_sccs.empty()) {
             // We are done dealing with all SCCs, allow merging any factors.
             current_ts_indices.reserve(fts.get_num_active_entries());
@@ -48,31 +50,68 @@ pair<int, int> MergeStrategySCCs::get_next() {
             current_ts_indices = move(current_scc);
             non_singleton_cg_sccs.erase(non_singleton_cg_sccs.begin());
         }
-    } else {
-        // Add the most recent product to the current index set.
+    } else if (last_merge_involved_scc_member) {
+        /*
+          The previous merge involved at least one SCC-tracked factor, so the
+          product belongs to the current SCC and must be tracked here.
+        */
         current_ts_indices.push_back(fts.get_size() - 1);
     }
+    /*
+      If last_merge_involved_scc_member is false the previous merge was between
+      two external factors.  Their product is active in the FTS and will be
+      picked up naturally in the external-factor scan below.
+    */
 
-    // Compute all merge candidates for the current set of indices.
+    /*
+      Build the set of factor indices that are off-limits: those belonging to
+      SCCs not yet started.  Any active factor NOT in this set and NOT already
+      in current_ts_indices is a singleton or a completed-SCC product that the
+      merge selector is allowed to consider as a cross-SCC candidate.
+    */
+    unordered_set<int> in_current(current_ts_indices.begin(), current_ts_indices.end());
+    unordered_set<int> in_future_sccs;
+    for (const auto &scc : non_singleton_cg_sccs) {
+        for (int idx : scc) {
+            in_future_sccs.insert(idx);
+        }
+    }
+
+    vector<int> candidate_indices = current_ts_indices;
+    for (int ts_index : fts) {
+        if (!in_current.count(ts_index) && !in_future_sccs.count(ts_index)) {
+            candidate_indices.push_back(ts_index);
+        }
+    }
+
+    // Compute all merge candidates for the augmented set of indices.
     vector<pair<int, int>> merge_candidates;
     merge_candidates.reserve(
-        (current_ts_indices.size() * (current_ts_indices.size() - 1)) / 2);
-    assert(current_ts_indices.size() > 1);
-    for (size_t i = 0; i < current_ts_indices.size(); ++i) {
-        int ts_index1 = current_ts_indices[i];
+        (candidate_indices.size() * (candidate_indices.size() - 1)) / 2);
+    assert(candidate_indices.size() > 1);
+    for (size_t i = 0; i < candidate_indices.size(); ++i) {
+        int ts_index1 = candidate_indices[i];
         assert(fts.is_active(ts_index1));
-        for (size_t j = i + 1; j < current_ts_indices.size(); ++j) {
-            int ts_index2 = current_ts_indices[j];
+        for (size_t j = i + 1; j < candidate_indices.size(); ++j) {
+            int ts_index2 = candidate_indices[j];
             assert(fts.is_active(ts_index2));
             merge_candidates.emplace_back(ts_index1, ts_index2);
         }
     }
 
-    // Select the next merge for the current set of indices.
+    // Select the next merge for the augmented set of indices.
     pair<int, int> next_pair = merge_selector->select_merge_from_candidates(
         fts, move(merge_candidates));
 
-    // Remove the two merged indices from the current index set.
+    /*
+      Record whether the selected merge involves a factor tracked as part of
+      the current SCC.  The product is added to current_ts_indices on the next
+      call only when this is true.
+    */
+    last_merge_involved_scc_member =
+        in_current.count(next_pair.first) || in_current.count(next_pair.second);
+
+    // Remove the two merged indices from the SCC-tracking set.
     for (vector<int>::iterator it = current_ts_indices.begin();
          it != current_ts_indices.end();) {
         if (*it == next_pair.first || *it == next_pair.second) {

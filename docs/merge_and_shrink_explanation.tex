@@ -3652,6 +3652,56 @@ reported as provably unsolvable, and after Fix~A alone
 \texttt{muddy-child} was solvable but returned a non-optimal plan of
 cost~5.
 
+\paragraph{Fix~C and Improvement~1: observed axiom factor behaviour.}
+The table below shows how axiom factor building proceeds for each domain after
+all fixes are applied (stateless DFP selector, \texttt{max\_states=50k},
+\texttt{shrink\_bisimulation(greedy=false)}).
+
+\begin{center}
+\begin{tabular}{lcccp{5.8cm}}
+\toprule
+\textbf{Domain} & \textbf{Groups} & \textbf{Kept} & $h_{\text{init}}$ & \textbf{Summary} \\
+\midrule
+\texttt{blocker}
+  & 1 & 0 & 0
+  & 8 vars, all goal-derived; 160 states, all goal $\to$ Impr.~1 skips \\[3pt]
+\texttt{sum\_3}
+  & 3 & 1 & 2
+  & 2 groups all-goal $\to$ Impr.~1; 1 mixed group (18 vars, 28 states, 1 goal state, $d_{\text{init}}=2$) $\to$ kept \\[3pt]
+\texttt{muddy-child}
+  & 9 & 0 & 0
+  & 8 groups all-goal $\to$ Impr.~1; 1 group (12 primary vars) $\to$ Fix~A (no reachable goal states) \\[3pt]
+\texttt{muddy-children}
+  & 5 & 1 & 2
+  & 4 pairs $\to$ Fix~A; 1 large mixed group (28 vars, 10 states, 1 goal state, $d_{\text{init}}=2$) $\to$ kept \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The ``mixed'' groups (one in \texttt{sum\_3}, one in
+\texttt{muddy-children}) are the direct product of Fix~C:
+\texttt{collect\_relevant\_derived\_variables} now includes
+precondition-only derived variables, which enter the union-find grouping and
+enlarge the primary-variable closure.
+For these groups
+$|\texttt{goal\_value\_for\_derived\_var}| < |\texttt{derived\_var\_ids}|$,
+so \texttt{all\_are\_goal\_vars} is \texttt{false} and Improvement~1 is
+correctly suppressed even though every non-goal subcomponent has all states
+trivially marked as goal states.
+Both mixed factors have exactly one non-trivial goal state out of 28
+(\texttt{sum\_3}) and 10 (\texttt{muddy-children}) reachable states,
+giving $h_{\text{init}}=2$ and guiding A$^*$ to the optimal plan in
+4 and 54 expansions respectively.
+
+For \texttt{blocker} all 8 derived variables are goal-derived
+(\texttt{all\_are\_goal\_vars} $=$ \texttt{true}); all 160 reachable
+primary states satisfy the goal, so Improvement~1 fires and the factor is
+skipped.
+For \texttt{muddy-child} all nine axiom factors are eliminated ---
+eight by Improvement~1 (trivially all-goal) and one by Fix~A (no
+reachable goal state) --- leaving $h_{\text{init}}=0$; the search remains
+correct but receives no axiom-factor guidance.
+
 \subsubsection{Theoretical Grounding: All Three Fixes and the Reconstruction
 Property}
 \label{sec:when-clause-theory}

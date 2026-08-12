@@ -7685,45 +7685,57 @@ Precondition-derived variables
 \end{tabular}
 \end{center}
 
-\paragraph{Improvement~2: within-SCC merge lookahead for SCCS (implemented).}
-
-The philosophers anomaly (SCCS $h = 10$ vs.\ DFP $h = 18 = h^*$) shows that
-restricting merge candidates to a single SCC can be strictly suboptimal.
-The root cause: while SCCS was processing SCC$_i$, only factors belonging to
-SCC$_i$ were presented to the merge selector.  Singletons and products of
-previously-completed SCCs were invisible, so globally-optimal cross-SCC merges
-were impossible.
+\paragraph{Improvement~2: within-SCC merge lookahead for SCCS (implemented;
+anomaly root cause revised).}
 
 \textbf{Implementation.}
 \texttt{get\_next} in \texttt{merge\_strategy\_sccs.cc} is extended to augment
-the candidate set with \emph{available external factors} --- active factors not
-belonging to any SCC that has not yet been started --- during each SCC's
-processing phase.  The SCC-tracking invariant is preserved via a boolean flag
+the candidate set during each SCC's processing phase with
+\emph{available external factors} --- active factors not belonging to any SCC
+that has not yet been started (singletons and products of already-completed
+SCCs).  The SCC-tracking invariant is preserved via a boolean flag
 \texttt{last\_merge\_involved\_scc\_member}:
 
 \begin{itemize}
   \item If the previous merge involved at least one SCC-tracked factor, the
-    product is added to \texttt{current\_ts\_indices} (same as before).
+    product is added back to \texttt{current\_ts\_indices} (same as before).
   \item If the previous merge was between two external factors, the product
     is \emph{not} added to \texttt{current\_ts\_indices}; it is active in the
-    FTS and surfaces naturally as an external candidate on the next call.
+    FTS and surfaces as an external candidate on the next call.
 \end{itemize}
 
 On each call, two index sets are computed:
 \begin{itemize}
-  \item \texttt{in\_current}: the SCC-tracked factors (used to route products).
-  \item \texttt{in\_future\_sccs}: all variable indices belonging to SCCs not
-    yet started (off-limits so they are not prematurely merged in).
+  \item \texttt{in\_current}: SCC-tracked factors (routes products correctly).
+  \item \texttt{in\_future\_sccs}: variable indices belonging to unstarted SCCs
+    (off-limits to prevent premature cross-SCC merges).
 \end{itemize}
-The candidate set is \texttt{current\_ts\_indices} $\cup$ $\{$active factors
+The candidate set becomes \texttt{current\_ts\_indices} $\cup$ $\{$active factors
 $\notin$ \texttt{in\_current} $\cup$ \texttt{in\_future\_sccs}$\}$.
-With a quality-aware selector such as DFP, cross-SCC merges are chosen exactly
-when they score higher than within-SCC alternatives, and are not forced on
-well-separated domains (where DFP would score cross-SCC pairs low).
 
-The final inter-SCC global phase (\texttt{non\_singleton\_cg\_sccs.empty()})
-is unchanged: all remaining active factors are loaded into
-\texttt{current\_ts\_indices} and the merge selector is applied globally.
+\textbf{Revised root-cause analysis.}
+Testing on the philosophers domain (axiom-extended version) reveals that
+$h_{\mathrm{init}} = 10$ both before and after the fix, so the anomaly
+persists.  Inspection of the SCCs printed at runtime shows why: this instance
+has \emph{one large SCC} containing all 17 philosopher/fork state variables,
+plus 20 singleton variables and one axiom factor.  The fix does cause a
+cross-SCC merge immediately (first pair selected is the big-SCC variable 0
+merged with the axiom factor, an external), but once that external is
+incorporated, there are no further meaningful external candidates to
+interleave.  The remaining 16 SCC variables are added in a chain, producing
+the same coarse abstraction as before.
+
+The original diagnosis --- ``philosophers has multiple SCCs whose isolation
+forces suboptimal merges'' --- was incorrect for the axiom-extended version.
+The true cause of the $h = 10$ vs.\ DFP $h = 18$ gap is likely the
+\emph{within-SCC chain merge order}: DFP globally may produce a tree-like
+pairing (e.g.\ philosopher$_i$ $\times$ fork$_i$ composites merged pairwise)
+that retains more information before bisimulation shrinking hits the size
+limit.  Fixing this would require changing the merge selector's behaviour
+\emph{inside} the large SCC, not just adding external candidates.
+
+The implementation is correct and beneficial for instances with multiple
+non-trivial SCCs; it is a no-regression change for the single-large-SCC case.
 
 \paragraph{Improvement~3: unified work-estimate guard
 (formula already implemented; $n>25$ threshold is a ghost; exposing constants
@@ -7870,11 +7882,14 @@ Best strategy? & Stateless DFP as default.  SCCS when the causal graph has
 Most critical improvement? & Pre-emptive skip of axiom factors with no relevant
   goal facts or with cap-exceeded-without-goal BFS (Improvement~1): converts
   the ``M\&S worse than blind'' cases to neutral at near-zero cost. \\[3pt]
-SCCS philosophers anomaly? & Improvement~2 (implemented): the candidate set
-  during each SCC's processing phase is now augmented with active singletons
-  and completed-SCC products.  With DFP as selector, cross-SCC merges are
-  chosen only when they score higher than within-SCC alternatives, preserving
-  SCCS's advantage on well-separated domains. \\[3pt]
+SCCS philosophers anomaly? & Improvement~2 (implemented; anomaly persists):
+  the candidate set during each SCC phase is now augmented with available
+  external factors (singletons, completed-SCC products).  However, the
+  axiom-extended philosophers instance has \emph{one large SCC} with all
+  state variables, so no meaningful cross-SCC candidates exist.  The anomaly
+  ($h=10$ vs.\ DFP $h=18$) is caused by the within-SCC chain merge order,
+  not the inter-SCC isolation; fixing it requires a different intra-SCC
+  merge strategy. \\[3pt]
 Unified BFS guard? & Improvement~3 (priority downgraded to Low): the
   $n>25$ threshold is a ghost --- it appears in a code comment but does not
   exist in any executable code path.  The unified formula

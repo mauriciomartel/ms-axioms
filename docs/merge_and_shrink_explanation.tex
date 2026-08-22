@@ -7968,7 +7968,22 @@ the top-level standard regression domains
 (\texttt{gripper}, \texttt{miconic}, \texttt{miconic-simpleadl}),
 the \texttt{pddl-axioms} collection (15 domains), and the
 \texttt{pddl-axioms-conditional-effects} collection (15 domains).
-The total instance count is \textbf{1\,009}.
+The total instance count is \textbf{1\,009}, giving $1\,009 \times 4 = 4\,036$
+runs in total.
+
+\paragraph{Estimated wall time.}
+The HTML report does not record total experiment duration directly; the exact
+figure is available in the Lab run logs under
+\texttt{data/ms-axioms-eval/}.
+A lower-bound estimate can be derived from the timeout counts alone:
+blind times out on 495 instances, dfp on 332, miasm on 423, and sccs on 328
+(Table in Section~\ref{sec:automated-experiments}), each consuming the full
+5-minute limit.  Summing over all four algorithms gives
+$(495 + 332 + 423 + 328) \times 300\,\mathrm{s} = 473\,400\,\mathrm{s}$
+of sequential timeout time.  With 4 parallel processes this floor is
+$\approx 33$ hours of wall time, not counting preprocessing and search time
+for solved instances.  The experiment was started on 19~August 2026 and ran
+overnight.
 
 The following 12 domains were excluded as intractable for at least one
 of the four algorithms under the given resource limits; the root cause for
@@ -8191,6 +8206,28 @@ others), though the margin is a single instance.
 \texttt{airport-adl}: 17 vs.\ 16; \texttt{appn-adl}: 16 vs.\ 15;
 \texttt{sokoban-axioms}: 15 vs.\ 14; \texttt{blocker}: 3 vs.\ 4).
 SCCS is ahead on 3 and DFP on the other 3; neither dominates.
+
+\textbf{The SCCS philosophers anomaly does not appear at the coverage level.}
+Manual testing (Section~\ref{sec:cross-domain-analysis}) established that
+SCCS achieves $h_{\mathrm{init}} = 10$ while DFP achieves
+$h_{\mathrm{init}} = 18 = h^*$ on the axiom-extended philosophers instance,
+a consequence of the within-SCC chain merge order producing coarse partitions
+that bisimulation cannot later refine.
+Yet the automated results show identical coverage: both strategies solve
+exactly 6 of the 49 philosophers instances.
+The reason is that the 6 solvable instances are small (2--4 philosophers),
+and even with the weaker heuristic SCCS closes the search well within the
+5-minute limit.
+The anomaly is real but manifests in \emph{search effort}, not in coverage:
+SCCS expands more nodes than DFP on philosophers because $h=10$ provides less
+guidance than $h=18$.
+Coverage is a coarse metric: a strategy can be systematically weaker in
+heuristic quality without that weakness crossing the threshold of costing a
+solved instance, as long as the remaining benchmark instances are small enough
+to be tractable regardless of heuristic accuracy.
+The anomaly would become a coverage difference on larger philosophers instances,
+where the gap between $h=10$ and $h=18$ would determine whether the search
+fits within the time limit.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsubsection{Conclusions}

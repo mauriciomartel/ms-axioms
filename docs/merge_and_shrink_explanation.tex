@@ -8244,42 +8244,6 @@ selected before they enter the M\&S main loop.
 
 Four modes are proposed, covering the key points in the design space.
 
-\paragraph{Why \texttt{all} (uncapped) is excluded.}
-
-A fifth candidate mode --- \emph{all axiom factors with no BFS work-estimate
-guard} --- is intentionally omitted.  The BFS work-estimate guard was
-introduced precisely because removing it causes non-termination on
-operator-dense axiom groups.
-
-Concretely, for an axiom factor the BFS explores a product space of up to
-$\min(\text{product\_domain},\;\texttt{max\_axiom\_states}) \times
-\lvert\text{relevant\_ops}\rvert$ transitions per state.
-The guard fires when the pre-launch estimate
-$W = \min(\text{product\_domain},\;100\,000)
-   \times \lvert\text{relevant\_ops}\rvert
-   > 5\times 10^8$
-and skips the factor immediately.
-For precondition-derived groups, both $\text{product\_domain}$ and
-$\lvert\text{relevant\_ops}\rvert$ can be very large:
-in \texttt{ged1-ds1}, the axiom group for derived variable~65 has $n=9$
-primary-variable values and $K = 7\,434$ relevant operators, giving
-$W = 9 \times 7\,434 = 66\,906 > 5\times 10^8$ --- wait, that is less than
-$5\times 10^8$.  The actual issue is that $\text{product\_domain}$ grows
-exponentially in the number of primary variables: with 9 multi-valued variables
-the product domain can reach tens of millions of states, and at 7\,434
-operators per state the BFS work becomes effectively unbounded.
-Removing the guard on \emph{all} groups (including precondition-derived ones
-with large closures) would reproduce this failure on any domain with an
-operator-dense axiom group, making the planner non-terminating without a
-resource limit.
-
-Goal-derived groups, by contrast, tend to have smaller closures
-(their primary-variable set is bounded by the goal structure) and fewer
-relevant operators.  This is why \texttt{only\_goal} (uncapped) is safe
-enough to include as a baseline: in practice the guard very rarely triggers
-for goal-derived factors, and the few cases where it would can be caught by
-the overall planner time limit.
-
 \begin{center}
 \small
 \begin{tabular}{llp{7.8cm}}
@@ -8308,6 +8272,40 @@ the overall planner time limit.
 \bottomrule
 \end{tabular}
 \end{center}
+
+\paragraph{Why \texttt{all} (uncapped) is excluded.}
+
+A fifth candidate mode --- \emph{all axiom factors with no BFS work-estimate
+guard} --- is intentionally omitted.  The BFS work-estimate guard was
+introduced precisely because removing it causes non-termination on
+operator-dense axiom groups.
+
+For an axiom factor, the BFS product domain grows \emph{exponentially} in
+the number of primary variables in the closure.  With $k$ multi-valued primary
+variables each taking $d$ values, the product domain is $d^k$, which for
+even modest $k$ and operator-dense groups results in an effectively unbounded
+search.  The guard fires pre-launch when the estimate
+\[
+  W = \min(\text{product\_domain},\;100\,000)
+      \times \lvert\text{relevant\_ops}\rvert
+      > 5\times 10^8
+\]
+and skips the factor immediately.  For precondition-derived groups, both
+$\text{product\_domain}$ and $\lvert\text{relevant\_ops}\rvert$ can be very
+large: in \texttt{ged1-ds1}, the axiom group for derived variable~65 has
+9 multi-valued primary variables and $K = 7\,434$ relevant operators.
+The product domain for those 9 variables runs into the tens of millions, so
+at 7\,434 operators per state the BFS work is effectively unbounded.
+Removing the guard on \emph{all} groups (including precondition-derived ones
+with large closures) would reproduce this failure on any domain with an
+operator-dense axiom group, making the planner non-terminating without an
+external resource limit.
+
+Goal-derived groups, by contrast, tend to have smaller closures because their
+primary-variable set is bounded by the goal structure.  This is why
+\texttt{only\_goal} (uncapped) is safe enough to include as a baseline:
+in practice the guard very rarely triggers for goal-derived factors, and the
+few cases where it would can be caught by the overall planner time limit.
 
 \subsubsection{What Each Comparison Reveals}
 

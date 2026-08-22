@@ -8242,35 +8242,39 @@ selected before they enter the M\&S main loop.
 
 \subsubsection{Proposed Baselines}
 
-Four modes are proposed, in order of increasing aggressiveness:
+Five modes are proposed.  They form a $2\times 2$ grid over two independent
+dimensions --- \emph{which groups are included} (all derived variables vs.\
+goal-derived only) and \emph{whether the BFS work-estimate guard is applied}
+--- plus \texttt{none} as the lower bound.
 
 \begin{center}
 \small
-\begin{tabular}{llp{8cm}}
+\begin{tabular}{llp{7.8cm}}
 \toprule
 \textbf{Mode} & \textbf{Short name} & \textbf{Description} \\
 \midrule
 \texttt{none}        & No axiom factors
-  & Skip axiom-factor construction entirely.  The M\&S loop runs only over the
-    atomic transition systems for ordinary planning variables.  This is the
-    closest baseline to the standard (non-axiom) M\&S algorithm and isolates
-    whether any part of the axiom extension is beneficial. \\[4pt]
-\texttt{only\_goal}  & Goal-derived only
+  & Skip axiom-factor construction entirely.  The M\&S loop runs only over
+    atomic transition systems for ordinary planning variables.  Closest
+    baseline to standard (non-axiom) M\&S; isolates whether the axiom
+    extension contributes at all. \\[4pt]
+\texttt{only\_goal}  & Goal-derived, uncapped
   & Build axiom factors only for derived variables that appear in the planning
-    goal.  Purely precondition-derived variables (those needed only for operator
-    applicability, not for the goal itself) are excluded.  This tests the
-    hypothesis that the benefit comes entirely from axiom-factor coverage of
-    goal conditions. \\[4pt]
-\texttt{only\_goal\_capped} & Goal-derived with BFS cap
-  & Same as \texttt{only\_goal} but additionally applies the existing BFS
+    goal; no BFS work-estimate guard.  Purely precondition-derived groups are
+    excluded.  Tests whether goal-relevance alone explains the benefit. \\[4pt]
+\texttt{only\_goal\_capped} & Goal-derived, capped
+  & Same as \texttt{only\_goal} but additionally applies the BFS
     work-estimate guard ($W > 5\times10^8$): a goal-derived factor whose
-    construction would exceed the work limit is skipped.  This isolates whether
-    the tractable goal-derived factors alone suffice. \\[4pt]
-\texttt{all} (current) & All axiom factors
-  & Current behaviour: build one factor per union-find group of derived
-    variables, including purely precondition-derived groups, subject only to
-    the BFS work-estimate guard and the mid-BFS state-count cap.  Serves as
-    the upper bound for axiom-factor coverage. \\
+    construction would exceed the work limit is skipped.  Isolates whether
+    tractable goal-derived factors alone suffice. \\[4pt]
+\texttt{all\_capped} (current) & All factors, capped
+  & \textbf{Current default behaviour}: build one factor per union-find group
+    of derived variables, including purely precondition-derived groups, subject
+    to the BFS work-estimate guard and the mid-BFS state-count cap. \\[4pt]
+\texttt{all}         & All factors, uncapped
+  & Same as \texttt{all\_capped} but with the BFS work-estimate guard
+    disabled.  Upper bound for axiom-factor coverage; may be non-terminating
+    on operator-dense groups (e.g.\ \texttt{ged1-ds1}). \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -8278,25 +8282,34 @@ Four modes are proposed, in order of increasing aggressiveness:
 \subsubsection{What Each Comparison Reveals}
 
 \begin{description}
-  \item[\texttt{all} vs.\ \texttt{none}]
-    Isolates the total contribution of axiom factors.  If coverage under
-    \texttt{none} equals or exceeds \texttt{all} on a domain, axiom factors
-    provide no net benefit there.
+  \item[\texttt{all\_capped} vs.\ \texttt{none}]
+    Isolates the total contribution of the current axiom extension.
+    If \texttt{none} matches or exceeds \texttt{all\_capped} on a domain,
+    the axiom factors provide no net benefit there under default settings.
 
-  \item[\texttt{only\_goal} vs.\ \texttt{none}]
-    Tests whether restricting to goal-derived variables is sufficient to
-    recover the benefit of \texttt{all}.  On most domains the hypothesis
-    is that this comparison closes the gap almost entirely.
+  \item[\texttt{only\_goal\_capped} vs.\ \texttt{none}]
+    Tests whether restricting to goal-derived factors (with cap) is
+    sufficient to recover the benefit of \texttt{all\_capped}.
 
-  \item[\texttt{all} vs.\ \texttt{only\_goal}]
-    Measures the marginal value of precondition-derived axiom factors.
-    If the two are equivalent in coverage, precondition-derived factors
-    can be dropped without loss.
+  \item[\texttt{all\_capped} vs.\ \texttt{only\_goal\_capped}]
+    Measures the marginal value of precondition-derived axiom factors when
+    both use the same BFS cap.  If the two are equivalent, precondition-derived
+    factors can be dropped without loss.
 
-  \item[\texttt{only\_goal\_capped} vs.\ \texttt{only\_goal}]
-    Measures the cost of the BFS work limit.  A large gap here would
-    indicate that many beneficial goal-derived factors are being discarded
-    by the guard, motivating a looser cap or a smarter selection criterion.
+  \item[\texttt{all} vs.\ \texttt{all\_capped}]
+    Measures the cost of the BFS work-estimate guard across all axiom groups.
+    A large gap would indicate that the guard discards many beneficial factors,
+    motivating a looser cap or an alternative selection criterion.
+
+  \item[\texttt{only\_goal} vs.\ \texttt{only\_goal\_capped}]
+    Same question restricted to goal-derived factors: how many beneficial
+    goal-derived factors does the current guard skip?
+
+  \item[\texttt{only\_goal} vs.\ \texttt{all}]
+    Measures the marginal value of uncapped precondition-derived factors.
+    Together with the \texttt{all\_capped} vs.\ \texttt{only\_goal\_capped}
+    comparison, this disentangles the cap effect from the group-selection
+    effect.
 \end{description}
 
 \subsubsection{Implementation Plan}
@@ -8308,7 +8321,7 @@ The \texttt{axiom\_factor\_mode} parameter maps cleanly to the existing
 \begin{enumerate}
   \item Add an enum option \texttt{axiom\_factor\_mode} with values
     \texttt{none}, \texttt{only\_goal}, \texttt{only\_goal\_capped},
-    \texttt{all} (default).
+    \texttt{all\_capped} (default), \texttt{all}.
 
   \item In the axiom-factor loop, gate each union-find group against the
     selected mode:
@@ -8317,15 +8330,16 @@ The \texttt{axiom\_factor\_mode} parameter maps cleanly to the existing
       \item \texttt{only\_goal} / \texttt{only\_goal\_capped}: check whether
         any derived variable in the group appears in the goal fact list;
         skip groups that do not.
-      \item \texttt{only\_goal\_capped}: additionally apply the existing
-        pre-BFS work-estimate guard $W > 5\times10^8$.
-      \item \texttt{all}: current behaviour (no additional filter).
+      \item \texttt{only\_goal\_capped} / \texttt{all\_capped}: apply the
+        existing pre-BFS work-estimate guard $W > 5\times10^8$.
+      \item \texttt{all}: no additional filter beyond what
+        \texttt{build\_axiom\_factor} already does internally.
     \end{itemize}
 
   \item Register the option in the plugin feature class so that it can be
     set from the command line, e.g.:
     \begin{lstlisting}
-merge_and_shrink(..., axiom_factor_mode=only_goal)
+merge_and_shrink(..., axiom_factor_mode=only_goal_capped)
     \end{lstlisting}
 \end{enumerate}
 
@@ -8337,20 +8351,19 @@ the shrink strategy, or the merge loop are needed.
 
 \subsubsection{Expected Experimental Design}
 
-The baseline experiment would run the five configurations
-(blind as reference, plus the four modes) with stateless DFP
-(\texttt{merge\_stateless} + DFP scoring) only --- MIASM is excluded as
-it is too slow at scale and does not add diagnostic information.
-The same 33 domains and 1\,009 instances would be used, with the same
-resource limits (5 minutes, 8\,GB).
+The baseline experiment would run six configurations (blind as reference,
+plus the five modes) with stateless DFP (\texttt{merge\_stateless} + DFP
+scoring) only --- MIASM is excluded as it is too slow at scale and does not
+add diagnostic information.  The same 33 domains and 1\,009 instances would
+be used, with the same resource limits (5 minutes, 8\,GB).
 
 The key question the experiment answers:
 \emph{on the domains where M\&S currently hurts (e.g.\
 \texttt{taskassign-horndl}), does the damage disappear when
-precondition-derived axiom factors are excluded?}  If \texttt{only\_goal}
+precondition-derived axiom factors are excluded?}  If \texttt{only\_goal\_capped}
 matches or beats blind on those domains while preserving the gains on
-\texttt{miconic-axioms}, then \texttt{only\_goal} becomes the recommended
-default mode.
+\texttt{miconic-axioms}, then \texttt{only\_goal\_capped} becomes the
+recommended default mode, replacing \texttt{all\_capped}.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsection{Summary of Files to Modify}

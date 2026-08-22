@@ -8058,48 +8058,97 @@ confirming that the heuristic guidance is effective on the instances where
 construction completes.
 The single MIASM SIGKILL occurred on a large \texttt{appn-adl} instance.
 
-\paragraph{Per-domain coverage highlights.}
+\paragraph{Coverage by domain (all 33 tested domains).}
+
+The table below reports coverage for all 33 domains grouped by collection.
+Bold entries indicate the best result in each row among the three M\&S
+configurations; an asterisk (*) marks rows where blind strictly outperforms
+all M\&S strategies.
 
 \begin{center}
 \small
-\begin{tabular}{lrrrrrp{3cm}}
+\setlength{\tabcolsep}{5pt}
+\begin{longtable}{lrrrrr}
 \toprule
-\textbf{Domain} & \textbf{Total} & \textbf{blind} & \textbf{dfp} & \textbf{sccs} & \textbf{miasm} & \textbf{Observation} \\
+\textbf{Domain} & \textbf{Total} & \textbf{blind} & \textbf{dfp} & \textbf{sccs} & \textbf{miasm} \\
 \midrule
-miconic-axioms      & 151 &  56 & 151 & 151 &  79 & M\&S dominant \\
-blocks-axioms       &  36 &  19 &  29 &  29 &  29 & M\&S dominant \\
-grid-axioms         &   6 &   2 &   4 &   4 &   4 & M\&S dominant \\
-appn-adl            &  34 &  11 &  16 &  15 &  11 & DFP/SCCS win \\
-elevator-horndl     &  21 &  21 &  21 &  21 &  19 & MIASM weaker \\
-philosophers        &  49 &   6 &   6 &   6 &   5 & Tied (anomaly known) \\
+\endhead
+\multicolumn{6}{l}{\textit{Regression / top-level}} \\
+gripper             &   2 &  2 &  2 &  2 &  2 \\
+miconic             &   2 &  2 &  2 &  2 &  2 \\
+miconic-simpleadl   &   2 &  2 &  2 &  2 &  2 \\
 \midrule
-robot-horndl        &  57 &  44 &  15 &  15 &  15 & Blind dominant \\
-robotConj-horndl    &  57 &  44 &  15 &  15 &  15 & Blind dominant \\
-taskassign-horndl   &  21 &  21 &   3 &   3 &   3 & Blind dominant \\
-miconic-fulladl     & 151 &  73 &  53 &  53 &  52 & Blind dominant \\
-sokoban-axioms      &  31 &  23 &  15 &  14 &  12 & Blind dominant \\
-psr-large           &  51 &  15 &   9 &  13 &   9 & Blind dominant \\
+\multicolumn{6}{l}{\textit{pddl-axioms-conditional-effects}} \\
+cats-horndl         &  21 & 21 & 21 & 21 & 21 \\
+collab-and-comm     &   2 &  2 &  2 &  2 &  2 \\
+elevator-horndl     &  21 & 21 & \textbf{21} & \textbf{21} & 19 \\
+ged1-ds2nd          &  13 & \textbf{13}* &  7 &  7 &  5 \\
+miconic-fulladl     & 151 & \textbf{73}* & 53 & 53 & 52 \\
+muddy-child         &   2 &  2 &  2 &  2 &  2 \\
+muddy-children      &   2 &  2 &  2 &  2 &  2 \\
+psr-large           &  51 & \textbf{15}* &  9 & 13 &  9 \\
+psr-middle          &  37 & \textbf{25}* & 18 & 19 & 17 \\
+robot-horndl        &  57 & \textbf{44}* & 15 & 15 & 15 \\
+robotConj-horndl    &  57 & \textbf{44}* & 15 & 15 & 15 \\
+sum                 &   2 &  2 &  2 &  2 &  2 \\
+taskassign-horndl   &  21 & \textbf{21}* &  3 &  3 &  3 \\
+word-rooms          &   4 &  4 & \textbf{3} & \textbf{3} &  2 \\
+\midrule
+\multicolumn{6}{l}{\textit{pddl-axioms}} \\
+airport-adl         &  51 & \textbf{19}* & \textbf{17} & 16 & 16 \\
+appn-adl            &  34 & 11 & \textbf{16} & 15 & 11 \\
+blocker             &   8 &  8 &  3 &  \textbf{4} &  \textbf{4} \\
+blocks-axioms       &  36 & 19 & \textbf{29} & \textbf{29} & \textbf{29} \\
+ghosh-etal-JAR-acc-cc2 &  9 &  8 &  8 &  8 &  8 \\
+grid-axioms         &   6 &  2 &  \textbf{4} &  \textbf{4} &  \textbf{4} \\
+miconic-axioms      & 151 & 56 & \textbf{151} & \textbf{151} & 79 \\
+openstacks          &  31 &  8 &  8 &  8 &  8 \\
+openstacks-opt08-adl &  31 &  \textbf{23}* & 22 & 22 & 22 \\
+openstacks-sat08-adl &  26 &  \textbf{10}* &  9 &  9 &  9 \\
+optical-telegraphs  &  49 &  3 &  \textbf{3} &  \textbf{3} &  2 \\
+philosophers        &  49 &  6 &  \textbf{6} &  \textbf{6} &  5 \\
+social-planning     &   3 &  3 &  3 &  3 &  3 \\
+sokoban-axioms      &  31 & \textbf{23}* & 15 & 14 & 12 \\
+tpsa-horndl         &  16 &  \textbf{5}* &  4 &  4 &  4 \\
+trucks              &  31 &  7 &  7 &  7 &  \textbf{8} \\
+\midrule
+\textbf{Total}      & \textbf{1009} & \textbf{506} & \textbf{484} & \textbf{487} & \textbf{396} \\
 \bottomrule
-\end{tabular}
+\end{longtable}
 \end{center}
 
-\textbf{M\&S dominates.}
+\textbf{Tied rows} (all algorithms equal, shown in grey in the HTML report):
+\texttt{gripper}, \texttt{miconic}, \texttt{miconic-simpleadl},
+\texttt{cats-horndl}, \texttt{collab-and-comm}, \texttt{muddy-child},
+\texttt{muddy-children}, \texttt{sum}, \texttt{ghosh-etal-JAR-acc-cc2},
+\texttt{openstacks}, and \texttt{social-planning} (11 of 33 domains).
+
+\textbf{M\&S dominates blind}:
+\texttt{miconic-axioms} (56 vs.\ 151), \texttt{blocks-axioms} (19 vs.\ 29),
+\texttt{grid-axioms} (2 vs.\ 4), \texttt{appn-adl} (11 vs.\ 16).
 The clearest win is \texttt{miconic-axioms}: DFP and SCCS solve all 151
-instances while blind solves only 56.  The highly axiomatised elevator-style
-structure gives M\&S near-perfect bisimulation, collapsing the search space
-dramatically.
+instances while blind solves only 56.
 
-\textbf{Blind dominates.}
-Domains where blind wins share a common trait: M\&S build time dominates the
-5-minute limit before meaningful search can begin.  \texttt{taskassign-horndl}
-is the most extreme case: blind solves all 21 instances while all three M\&S
-strategies solve only~3.  \texttt{robot-horndl} and \texttt{robotConj-horndl}
-drop from 44 instances under blind to 15 under M\&S.
+\textbf{Blind dominates M\&S}:
+\texttt{taskassign-horndl} (21 vs.\ 3), \texttt{robot-horndl} (44 vs.\ 15),
+\texttt{robotConj-horndl} (44 vs.\ 15), \texttt{miconic-fulladl} (73 vs.\ 53),
+\texttt{sokoban-axioms} (23 vs.\ 15), \texttt{psr-middle} (25 vs.\ 19),
+\texttt{psr-large} (15 vs.\ 13), \texttt{ged1-ds2nd} (13 vs.\ 7).
+These domains share a common trait: M\&S build time dominates the 5-minute
+limit before meaningful search can begin.
 
-\textbf{MIASM notably weaker on axiom-heavy domains.}
-In \texttt{miconic-axioms}, MIASM solves only 79 instances (52\%) against
-DFP/SCCS's 100\%.  In \texttt{sokoban-axioms}, MIASM solves 12 vs.\ blind's
-23.
+\textbf{MIASM notably weaker}:
+\texttt{miconic-axioms} (79 vs.\ 151 for DFP/SCCS),
+\texttt{sokoban-axioms} (12 vs.\ 15 for DFP),
+\texttt{elevator-horndl} (19 vs.\ 21 for DFP/SCCS).
+Curiously, MIASM is the sole winner in \texttt{trucks} (8 vs.\ 7 for all
+others), though the margin is a single instance.
+
+\textbf{DFP vs.\ SCCS}: the two strategies differ on only 6 domains
+(\texttt{psr-large}: 9 vs.\ 13; \texttt{psr-middle}: 18 vs.\ 19;
+\texttt{airport-adl}: 17 vs.\ 16; \texttt{appn-adl}: 16 vs.\ 15;
+\texttt{sokoban-axioms}: 15 vs.\ 14; \texttt{blocker}: 3 vs.\ 4).
+SCCS is ahead on 3 and DFP on the other 3; neither dominates.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \subsubsection{Conclusions}

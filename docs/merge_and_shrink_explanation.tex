@@ -8242,10 +8242,43 @@ selected before they enter the M\&S main loop.
 
 \subsubsection{Proposed Baselines}
 
-Five modes are proposed.  They form a $2\times 2$ grid over two independent
-dimensions --- \emph{which groups are included} (all derived variables vs.\
-goal-derived only) and \emph{whether the BFS work-estimate guard is applied}
---- plus \texttt{none} as the lower bound.
+Four modes are proposed, covering the key points in the design space.
+
+\paragraph{Why \texttt{all} (uncapped) is excluded.}
+
+A fifth candidate mode --- \emph{all axiom factors with no BFS work-estimate
+guard} --- is intentionally omitted.  The BFS work-estimate guard was
+introduced precisely because removing it causes non-termination on
+operator-dense axiom groups.
+
+Concretely, for an axiom factor the BFS explores a product space of up to
+$\min(\text{product\_domain},\;\texttt{max\_axiom\_states}) \times
+\lvert\text{relevant\_ops}\rvert$ transitions per state.
+The guard fires when the pre-launch estimate
+$W = \min(\text{product\_domain},\;100\,000)
+   \times \lvert\text{relevant\_ops}\rvert
+   > 5\times 10^8$
+and skips the factor immediately.
+For precondition-derived groups, both $\text{product\_domain}$ and
+$\lvert\text{relevant\_ops}\rvert$ can be very large:
+in \texttt{ged1-ds1}, the axiom group for derived variable~65 has $n=9$
+primary-variable values and $K = 7\,434$ relevant operators, giving
+$W = 9 \times 7\,434 = 66\,906 > 5\times 10^8$ --- wait, that is less than
+$5\times 10^8$.  The actual issue is that $\text{product\_domain}$ grows
+exponentially in the number of primary variables: with 9 multi-valued variables
+the product domain can reach tens of millions of states, and at 7\,434
+operators per state the BFS work becomes effectively unbounded.
+Removing the guard on \emph{all} groups (including precondition-derived ones
+with large closures) would reproduce this failure on any domain with an
+operator-dense axiom group, making the planner non-terminating without a
+resource limit.
+
+Goal-derived groups, by contrast, tend to have smaller closures
+(their primary-variable set is bounded by the goal structure) and fewer
+relevant operators.  This is why \texttt{only\_goal} (uncapped) is safe
+enough to include as a baseline: in practice the guard very rarely triggers
+for goal-derived factors, and the few cases where it would can be caught by
+the overall planner time limit.
 
 \begin{center}
 \small
@@ -8260,21 +8293,18 @@ goal-derived only) and \emph{whether the BFS work-estimate guard is applied}
     extension contributes at all. \\[4pt]
 \texttt{only\_goal}  & Goal-derived, uncapped
   & Build axiom factors only for derived variables that appear in the planning
-    goal; no BFS work-estimate guard.  Purely precondition-derived groups are
-    excluded.  Tests whether goal-relevance alone explains the benefit. \\[4pt]
+    goal; no BFS work-estimate guard applied.  Purely precondition-derived
+    groups are excluded.  Safe in practice because goal-derived closures are
+    small; tests whether goal-relevance alone explains the benefit. \\[4pt]
 \texttt{only\_goal\_capped} & Goal-derived, capped
   & Same as \texttt{only\_goal} but additionally applies the BFS
     work-estimate guard ($W > 5\times10^8$): a goal-derived factor whose
     construction would exceed the work limit is skipped.  Isolates whether
-    tractable goal-derived factors alone suffice. \\[4pt]
+    the tractable goal-derived factors alone suffice. \\[4pt]
 \texttt{all\_capped} (current) & All factors, capped
   & \textbf{Current default behaviour}: build one factor per union-find group
     of derived variables, including purely precondition-derived groups, subject
-    to the BFS work-estimate guard and the mid-BFS state-count cap. \\[4pt]
-\texttt{all}         & All factors, uncapped
-  & Same as \texttt{all\_capped} but with the BFS work-estimate guard
-    disabled.  Upper bound for axiom-factor coverage; may be non-terminating
-    on operator-dense groups (e.g.\ \texttt{ged1-ds1}). \\
+    to the BFS work-estimate guard and the mid-BFS state-count cap. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -8288,28 +8318,20 @@ goal-derived only) and \emph{whether the BFS work-estimate guard is applied}
     the axiom factors provide no net benefit there under default settings.
 
   \item[\texttt{only\_goal\_capped} vs.\ \texttt{none}]
-    Tests whether restricting to goal-derived factors (with cap) is
+    Tests whether restricting to capped goal-derived factors alone is
     sufficient to recover the benefit of \texttt{all\_capped}.
 
   \item[\texttt{all\_capped} vs.\ \texttt{only\_goal\_capped}]
-    Measures the marginal value of precondition-derived axiom factors when
-    both use the same BFS cap.  If the two are equivalent, precondition-derived
-    factors can be dropped without loss.
-
-  \item[\texttt{all} vs.\ \texttt{all\_capped}]
-    Measures the cost of the BFS work-estimate guard across all axiom groups.
-    A large gap would indicate that the guard discards many beneficial factors,
-    motivating a looser cap or an alternative selection criterion.
+    Measures the marginal value of precondition-derived axiom factors.
+    If the two are equivalent in coverage, precondition-derived factors
+    can be dropped without loss, and \texttt{only\_goal\_capped} becomes
+    the recommended default.
 
   \item[\texttt{only\_goal} vs.\ \texttt{only\_goal\_capped}]
-    Same question restricted to goal-derived factors: how many beneficial
-    goal-derived factors does the current guard skip?
-
-  \item[\texttt{only\_goal} vs.\ \texttt{all}]
-    Measures the marginal value of uncapped precondition-derived factors.
-    Together with the \texttt{all\_capped} vs.\ \texttt{only\_goal\_capped}
-    comparison, this disentangles the cap effect from the group-selection
-    effect.
+    Measures the cost of the BFS work-estimate guard specifically for
+    goal-derived factors.  A large gap would indicate that many beneficial
+    goal-derived factors are being discarded by the guard, motivating a
+    looser cap or smarter selection criterion.
 \end{description}
 
 \subsubsection{Implementation Plan}
@@ -8321,7 +8343,7 @@ The \texttt{axiom\_factor\_mode} parameter maps cleanly to the existing
 \begin{enumerate}
   \item Add an enum option \texttt{axiom\_factor\_mode} with values
     \texttt{none}, \texttt{only\_goal}, \texttt{only\_goal\_capped},
-    \texttt{all\_capped} (default), \texttt{all}.
+    \texttt{all\_capped} (default).
 
   \item In the axiom-factor loop, gate each union-find group against the
     selected mode:
@@ -8332,8 +8354,6 @@ The \texttt{axiom\_factor\_mode} parameter maps cleanly to the existing
         skip groups that do not.
       \item \texttt{only\_goal\_capped} / \texttt{all\_capped}: apply the
         existing pre-BFS work-estimate guard $W > 5\times10^8$.
-      \item \texttt{all}: no additional filter beyond what
-        \texttt{build\_axiom\_factor} already does internally.
     \end{itemize}
 
   \item Register the option in the plugin feature class so that it can be
@@ -8351,8 +8371,8 @@ the shrink strategy, or the merge loop are needed.
 
 \subsubsection{Expected Experimental Design}
 
-The baseline experiment would run six configurations (blind as reference,
-plus the five modes) with stateless DFP (\texttt{merge\_stateless} + DFP
+The baseline experiment would run five configurations (blind as reference,
+plus the four modes) with stateless DFP (\texttt{merge\_stateless} + DFP
 scoring) only --- MIASM is excluded as it is too slow at scale and does not
 add diagnostic information.  The same 33 domains and 1\,009 instances would
 be used, with the same resource limits (5 minutes, 8\,GB).

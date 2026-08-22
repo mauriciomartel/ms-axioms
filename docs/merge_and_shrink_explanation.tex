@@ -7962,14 +7962,56 @@ All three M\&S configurations use exact label reduction before shrinking,
 greedy-off bisimulation shrinking, and a 50\,000-state cap.
 
 \paragraph{Benchmark suite.}
-The 33 domains confirmed as tractable in the manual campaign were included
-(see Section~\ref{sec:cross-domain-analysis} for the per-domain results and
-the 12 skipped domains).  These span three benchmark directories:
+The 33 domains confirmed as tractable in the manual campaign were included.
+These span three benchmark directories:
 the top-level standard regression domains
 (\texttt{gripper}, \texttt{miconic}, \texttt{miconic-simpleadl}),
 the \texttt{pddl-axioms} collection (15 domains), and the
 \texttt{pddl-axioms-conditional-effects} collection (15 domains).
 The total instance count is \textbf{1\,009}.
+
+The following 12 domains were excluded as intractable for at least one
+of the four algorithms under the given resource limits; the root cause for
+each is noted:
+
+\begin{center}
+\small
+\begin{tabular}{llp{7cm}}
+\toprule
+\textbf{Domain} & \textbf{Collection} & \textbf{Reason for exclusion} \\
+\midrule
+\texttt{ghosh-etal-JAR-grid-cc2} & pddl-axioms
+  & 94\,772 variables --- M\&S $O(n^2)$ label reduction completely intractable. \\
+\texttt{queens-horndl}           & pddl-axioms-ce
+  & 3\,358 variables; $\sim$100\,s per merge step. \\
+\texttt{vta-horndl}              & pddl-axioms-ce
+  & 372 variables; 200-variable SCC. \\
+\texttt{vta-roles-horndl}        & pddl-axioms-ce
+  & 373 variables; 200-variable SCC. \\
+\texttt{drones-horndl}           & pddl-axioms-ce
+  & 1\,128 variables --- M\&S intractable. \\
+\texttt{snowman-reachability}    & pddl-axioms-ce
+  & 1\,288 variables --- M\&S intractable; most axiom factors skipped
+    by the BFS work-estimate guard. \\
+\texttt{snowman-basic}           & pddl-axioms-ce
+  & 663 variables; zero-cost operators ($h_{\mathrm{blind}}=0$);
+    blind A* equally intractable. \\
+\texttt{snowman-cheating}        & pddl-axioms-ce
+  & 458 variables; zero-cost operators ($h_{\mathrm{blind}}=0$);
+    blind A* equally intractable. \\
+\texttt{ged1-ds1}                & pddl-axioms-ce
+  & Axiom BFS now guarded, but the main loop has a giant
+    $\sim$150-variable SCC that makes M\&S intractable. \\
+\texttt{fridge}                  & pddl-axioms-ce
+  & 105 variables; blind A* already intractable. \\
+\texttt{assembly}                & pddl-axioms-ce
+  & 120 variables; dominant 75-variable SCC yields
+    $h_{\mathrm{init}}=1$, indistinguishable from blind. \\
+\texttt{satellite}               & pddl-axioms-ce
+  & 110 variables; blind A* already intractable. \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 \paragraph{Metrics.}
 A custom Lab parser extracted \texttt{search\_start\_time},

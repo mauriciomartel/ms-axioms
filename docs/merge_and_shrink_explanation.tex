@@ -8372,38 +8372,51 @@ few cases where it would can be caught by the overall planner time limit.
 
 \subsubsection{Implementation Plan}
 
-The \texttt{axiom\_factor\_mode} parameter maps cleanly to the existing
-\texttt{build\_axiom\_factor} call site in
-\texttt{merge\_and\_shrink\_algorithm.cc}.  The changes required are:
+The \texttt{axiom\_factor\_mode} parameter is implemented across four files.
+The key design decision is that variable selection and the BFS work cap are
+separated: \texttt{only\_goal} builds uncapped axiom factors for goal-derived
+variables, while \texttt{only\_goal\_capped} and \texttt{all\_capped} apply the
+existing pre-BFS work-estimate guard $W > 5\times10^8$.
 
 \begin{enumerate}
-  \item Add an enum option \texttt{axiom\_factor\_mode} with values
-    \texttt{none}, \texttt{only\_goal}, \texttt{only\_goal\_capped},
-    \texttt{all\_capped} (default).
+  \item \textbf{\texttt{merge\_and\_shrink\_algorithm.h}}: Declare the
+    \texttt{AxiomFactorMode} enum with values \texttt{NONE},
+    \texttt{ONLY\_GOAL}, \texttt{ONLY\_GOAL\_CAPPED}, \texttt{ALL\_CAPPED};
+    add the field \texttt{axiom\_factor\_mode} to the class; extend the
+    constructor signature; and update the return type of
+    \texttt{get\_merge\_and\_shrink\_algorithm\_arguments\_from\_options} to
+    include \texttt{AxiomFactorMode} as its tenth element.
 
-  \item In the axiom-factor loop, gate each union-find group against the
-    selected mode:
-    \begin{itemize}
-      \item \texttt{none}: skip the loop entirely.
-      \item \texttt{only\_goal} / \texttt{only\_goal\_capped}: check whether
-        any derived variable in the group appears in the goal fact list;
-        skip groups that do not.
-      \item \texttt{only\_goal\_capped} / \texttt{all\_capped}: apply the
-        existing pre-BFS work-estimate guard $W > 5\times10^8$.
-    \end{itemize}
-
-  \item Register the option in the plugin feature class so that it can be
-    set from the command line, e.g.:
+  \item \textbf{\texttt{merge\_and\_shrink\_algorithm.cc}}: Replace the
+    fixed \texttt{collect\_relevant\_derived\_variables} helper with a
+    mode-aware version: \texttt{NONE} returns an empty list; \texttt{ONLY\_GOAL}
+    and \texttt{ONLY\_GOAL\_CAPPED} collect only goal-derived variables;
+    \texttt{ALL\_CAPPED} additionally collects variables that appear in
+    operator preconditions or effect conditions.  Before calling
+    \texttt{build\_axiom\_factor}, compute a boolean \texttt{apply\_cap} that
+    is true iff the mode is \texttt{ONLY\_GOAL\_CAPPED} or \texttt{ALL\_CAPPED},
+    and pass it through.  Register the option in the plugin feature class
+    (\texttt{axiom\_factor\_mode}, integer $0$--$3$, default $3$):
     \begin{lstlisting}
-merge_and_shrink(..., axiom_factor_mode=only_goal_capped)
+merge_and_shrink(..., axiom_factor_mode=2)  # only_goal_capped
     \end{lstlisting}
+    Also update \texttt{get\_merge\_and\_shrink\_algorithm\_arguments\_from\_options}
+    to append the cast \texttt{AxiomFactorMode} to the returned tuple.
+
+  \item \textbf{\texttt{fts\_factory.h}}: Add a \texttt{bool apply\_work\_cap = true}
+    parameter to \texttt{build\_axiom\_factor}.
+
+  \item \textbf{\texttt{fts\_factory.cc}}: Guard the pre-BFS size check with
+    \texttt{if (apply\_work\_cap \&\& ...)}, so that \texttt{ONLY\_GOAL} can
+    build axiom factors unconditionally while the capped modes retain the
+    existing $W > 5\times10^8$ guard.
 \end{enumerate}
 
-The only files that need to change are
-\texttt{merge\_and\_shrink\_algorithm.cc} (the gate logic) and
-\texttt{merge\_and\_shrink\_algorithm.h} (the enum declaration and
-feature-class registration).  No changes to the factor construction itself,
-the shrink strategy, or the merge loop are needed.
+The changes are self-contained: no modifications to the shrink strategy, the
+merge loop, or the transition-system data structures are required.
+\texttt{merge\_and\_shrink\_heuristic.h/.cc} receive only the mechanical
+parameter threading needed to pass \texttt{axiom\_factor\_mode} through to
+\texttt{MergeAndShrinkAlgorithm}.
 
 \subsubsection{Expected Experimental Design}
 
@@ -8428,6 +8441,15 @@ recommended default mode, replacing \texttt{all\_capped}.
 \begin{tabular}{ll}
 \toprule
 \textbf{Change} & \textbf{File} \\
+\midrule
+\texttt{axiom\_factor\_mode} enum \& option registration &
+  \texttt{merge\_and\_shrink\_algorithm.h/.cc} \\
+Mode-aware variable selection \& \texttt{apply\_cap} flag &
+  \texttt{merge\_and\_shrink\_algorithm.cc} \\
+\texttt{apply\_work\_cap} parameter \& conditional guard &
+  \texttt{fts\_factory.h/.cc} \\
+Parameter threading to \texttt{MergeAndShrinkAlgorithm} &
+  \texttt{merge\_and\_shrink\_heuristic.h/.cc} \\
 \midrule
 Compute $S_d$ (primary representations) &
   new \texttt{merge\_and\_shrink/primary\_representation.h/.cc} \\

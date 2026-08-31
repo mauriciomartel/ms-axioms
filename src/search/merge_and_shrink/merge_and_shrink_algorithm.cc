@@ -516,6 +516,15 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
         collect_relevant_derived_variables(task_proxy, axiom_factor_mode);
     bool has_relevant_derived_vars = !derived_vars_needing_axiom_factor.empty();
 
+    if (log.is_at_least_normal()) {
+        log << "axiom_factor_mode=" << static_cast<int>(axiom_factor_mode)
+            << ": selected " << derived_vars_needing_axiom_factor.size()
+            << " derived variable(s) for axiom factors";
+        for (int v : derived_vars_needing_axiom_factor)
+            log << " var" << v;
+        log << "." << endl;
+    }
+
     const bool compute_init_distances =
         shrink_strategy->requires_init_distances() ||
         merge_strategy_factory->requires_init_distances() ||

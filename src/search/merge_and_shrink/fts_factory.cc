@@ -549,7 +549,8 @@ int build_axiom_factor(
     FactoredTransitionSystem &fts,
     utils::LogProxy &log,
     vector<int> *out_pending_var_order,
-    vector<vector<int>> *out_state_pending_values) {
+    vector<vector<int>> *out_state_pending_values,
+    bool apply_work_cap) {
 
     const Labels &labels = fts.get_labels();
     VariablesProxy variables = task_proxy.get_variables();
@@ -814,7 +815,7 @@ int build_axiom_factor(
     // Returning -1 is always safe: no factor is added, the heuristic simply
     // loses information about this derived goal variable but stays admissible.
     // -----------------------------------------------------------------------
-    if (n > 0 && !relevant_ops.empty()) {
+    if (apply_work_cap && n > 0 && !relevant_ops.empty()) {
         long long product_domain = 1;
         for (int i = 0; i < n; ++i) {
             if (product_domain > max_axiom_states) break;

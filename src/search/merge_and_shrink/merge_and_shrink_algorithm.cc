@@ -46,7 +46,8 @@ MergeAndShrinkAlgorithm::MergeAndShrinkAlgorithm(
     const shared_ptr<LabelReduction> &label_reduction,
     bool prune_unreachable_states, bool prune_irrelevant_states, int max_states,
     int max_states_before_merge, int threshold_before_merge,
-    double main_loop_max_time, utils::Verbosity verbosity)
+    double main_loop_max_time, utils::Verbosity verbosity,
+    AxiomFactorMode axiom_factor_mode)
     : merge_strategy_factory(merge_strategy),
       shrink_strategy(shrink_strategy),
       label_reduction(label_reduction),
@@ -57,7 +58,8 @@ MergeAndShrinkAlgorithm::MergeAndShrinkAlgorithm(
       prune_irrelevant_states(prune_irrelevant_states),
       log(utils::get_log_for_verbosity(verbosity)),
       main_loop_max_time(main_loop_max_time),
-      starting_peak_memory(0) {
+      starting_peak_memory(0),
+      axiom_factor_mode(axiom_factor_mode) {
     tie(this->max_states, this->max_states_before_merge,
         this->shrink_threshold_before_merge) =
         handle_shrink_limit_defaults(
@@ -424,32 +426,38 @@ void MergeAndShrinkAlgorithm::main_loop(
 }
 
 /*
-  Collect every derived variable that needs a real axiom-induced abstract
-  factor Theta_{S,d}: goal-derived variables, plus any derived variable that
-  is read directly by an operator, either as a precondition or as a
-  condition of one of the operator's conditional effects. Derived variables
-  that are referenced only inside the bodies of other axioms do not need
-  their own factor here: build_axiom_factor resolves those transitively when
-  it evaluates the axiom closure of the variable it is building.
+  Collect derived variables that need a real axiom-induced abstract factor,
+  filtered by the chosen axiom_factor_mode.
 
-  Without this, any operator whose applicability or conditional effects
-  depend on a non-goal derived variable is unsound in the abstraction: that
-  variable's plain atomic factor never changes (axioms, not operators, are
-  what give it a value), so the operator looks permanently inapplicable (or
-  its conditional effects look like they never fire), which can make a
+  NONE: returns an empty list — no axiom factors are built.
+
+  ONLY_GOAL / ONLY_GOAL_CAPPED: includes only derived variables that appear
+  directly in the planning goal. Purely precondition-derived variables are
+  excluded. Goal-derived closures are small in practice, so ONLY_GOAL runs
+  without a BFS work-estimate guard; ONLY_GOAL_CAPPED additionally applies
+  the guard inside build_axiom_factor.
+
+  ALL_CAPPED (default): includes goal-derived variables plus any derived
+  variable read by an operator — either as a precondition or as a condition
+  of a conditional effect — subject to the BFS work-estimate guard. Without
+  this, operators whose applicability or conditional effects depend on a
+  non-goal derived variable are unsound in the abstraction: that variable's
+  plain atomic factor never changes (axioms, not operators, set derived
+  values), so the operator looks permanently inapplicable, which can make a
   solvable task appear unsolvable even under exact bisimulation shrinking.
 
-  Derived variables with zero axiom rules are excluded even if they pass the
-  checks above: such a variable is a translator-introduced constant that
-  never changes from its initial value (no axiom ever fires for it, and
-  operators cannot set derived variables directly), so its existing atomic
-  factor -- pinned at the initial value forever -- is already correct.
-  build_axiom_factor assumes its target variable has at least one axiom
-  rule (that's how it discovers S_d's primary-variable closure), so calling
-  it on a rule-less variable would yield a degenerate empty closure.
+  In all modes, derived variables with zero axiom rules are excluded even if
+  they pass the checks above: such a variable is a translator-introduced
+  constant that never changes from its initial value, so its existing atomic
+  factor is already correct. build_axiom_factor assumes its target variable
+  has at least one axiom rule, so calling it on a rule-less variable would
+  yield a degenerate empty closure.
 */
 static vector<int> collect_relevant_derived_variables(
-    const TaskProxy &task_proxy) {
+    const TaskProxy &task_proxy, AxiomFactorMode mode) {
+    if (mode == AxiomFactorMode::NONE)
+        return {};
+
     int num_variables = task_proxy.get_variables().size();
     vector<bool> needs_axiom_factor(num_variables, false);
 
@@ -457,14 +465,16 @@ static vector<int> collect_relevant_derived_variables(
         if (goal.get_variable().is_derived())
             needs_axiom_factor[goal.get_variable().get_id()] = true;
 
-    for (OperatorProxy op : task_proxy.get_operators()) {
-        for (FactProxy precondition : op.get_preconditions())
-            if (precondition.get_variable().is_derived())
-                needs_axiom_factor[precondition.get_variable().get_id()] = true;
-        for (EffectProxy effect : op.get_effects())
-            for (FactProxy condition : effect.get_conditions())
-                if (condition.get_variable().is_derived())
-                    needs_axiom_factor[condition.get_variable().get_id()] = true;
+    if (mode == AxiomFactorMode::ALL_CAPPED) {
+        for (OperatorProxy op : task_proxy.get_operators()) {
+            for (FactProxy pre : op.get_preconditions())
+                if (pre.get_variable().is_derived())
+                    needs_axiom_factor[pre.get_variable().get_id()] = true;
+            for (EffectProxy eff : op.get_effects())
+                for (FactProxy cond : eff.get_conditions())
+                    if (cond.get_variable().is_derived())
+                        needs_axiom_factor[cond.get_variable().get_id()] = true;
+        }
     }
 
     vector<bool> has_axiom_rule(num_variables, false);
@@ -495,11 +505,15 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
     warn_on_unusual_options();
     log << endl;
 
-    // ShrinkQuasiBisimulation needs goal distances for axiom factors,
-    // so force them on whenever any derived variable needs a real axiom
-    // factor (see collect_relevant_derived_variables below).
+    // Collect derived variables that need explicit axiom factors, filtered
+    // by axiom_factor_mode. NONE returns an empty list (no factors built).
+    // ONLY_GOAL / ONLY_GOAL_CAPPED include only goal-derived variables.
+    // ALL_CAPPED (default) also includes precondition- and effect-condition-
+    // derived variables. ShrinkQuasiBisimulation needs goal distances for
+    // axiom factors, so goal-distance computation is forced on whenever the
+    // list is non-empty.
     vector<int> derived_vars_needing_axiom_factor =
-        collect_relevant_derived_variables(task_proxy);
+        collect_relevant_derived_variables(task_proxy, axiom_factor_mode);
     bool has_relevant_derived_vars = !derived_vars_needing_axiom_factor.empty();
 
     const bool compute_init_distances =
@@ -573,11 +587,17 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
             // gives the corresponding value tuple per state). This information
             // is used below to prevent unsound shrinking while those primary
             // variables are still dually represented (see below).
+            // apply_cap controls whether the pre-BFS work-estimate guard is
+            // applied: true for ONLY_GOAL_CAPPED and ALL_CAPPED; false for
+            // ONLY_GOAL, where goal-derived closures are small enough that
+            // the guard is not needed.
             vector<int> pending_var_order;
             vector<vector<int>> pending_state_values;
+            bool apply_cap = (axiom_factor_mode == AxiomFactorMode::ONLY_GOAL_CAPPED ||
+                              axiom_factor_mode == AxiomFactorMode::ALL_CAPPED);
             int axiom_index = build_axiom_factor(
                 task_proxy, derived_var_ids, fts, log,
-                &pending_var_order, &pending_state_values);
+                &pending_var_order, &pending_state_values, apply_cap);
 
             // Collapse dead-end axiom factor states (goal_dist=INF) into the
             // goal state. Task states mapping to dead-end axiom factor states
@@ -797,22 +817,31 @@ void add_merge_and_shrink_algorithm_options_to_feature(
         "of the main loop, but not during, so it can be exceeded if a "
         "transformation is runtime-intense.",
         "infinity", Bounds("0.0", "infinity"));
+
+    feature.add_option<int>(
+    "axiom_factor_mode",
+    "Controls which derived variables receive explicit axiom factors. "
+    "0=none, 1=only_goal (no BFS cap), 2=only_goal_capped, 3=all_capped (default).",
+    "3",
+    Bounds("0", "3"));
 }
 
 tuple<
     shared_ptr<MergeStrategyFactory>, shared_ptr<ShrinkStrategy>,
-    shared_ptr<LabelReduction>, bool, bool, int, int, int, double>
+    shared_ptr<LabelReduction>, bool, bool, int, int, int, double,
+    AxiomFactorMode>
 get_merge_and_shrink_algorithm_arguments_from_options(
     const plugins::Options &opts) {
     return tuple_cat(
-        make_tuple(
-            opts.get<shared_ptr<MergeStrategyFactory>>("merge_strategy"),
-            opts.get<shared_ptr<ShrinkStrategy>>("shrink_strategy"),
-            opts.get<shared_ptr<LabelReduction>>("label_reduction", nullptr),
-            opts.get<bool>("prune_unreachable_states"),
-            opts.get<bool>("prune_irrelevant_states")),
-        get_transition_system_size_limit_arguments_from_options(opts),
-        make_tuple(opts.get<double>("main_loop_max_time")));
+    make_tuple(
+        opts.get<shared_ptr<MergeStrategyFactory>>("merge_strategy"),
+        opts.get<shared_ptr<ShrinkStrategy>>("shrink_strategy"),
+        opts.get<shared_ptr<LabelReduction>>("label_reduction", nullptr),
+        opts.get<bool>("prune_unreachable_states"),
+        opts.get<bool>("prune_irrelevant_states")),
+    get_transition_system_size_limit_arguments_from_options(opts),
+    make_tuple(opts.get<double>("main_loop_max_time"),
+               static_cast<AxiomFactorMode>(opts.get<int>("axiom_factor_mode"))));
 }
 
 void add_transition_system_size_limit_options_to_feature(

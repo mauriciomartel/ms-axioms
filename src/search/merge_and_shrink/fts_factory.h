@@ -60,7 +60,8 @@ extern int build_axiom_factor(
     FactoredTransitionSystem &fts,
     utils::LogProxy &log,
     std::vector<int> *out_pending_var_order = nullptr,
-    std::vector<std::vector<int>> *out_state_pending_values = nullptr);
+    std::vector<std::vector<int>> *out_state_pending_values = nullptr,
+    bool apply_work_cap = true);
 }
 
 #endif

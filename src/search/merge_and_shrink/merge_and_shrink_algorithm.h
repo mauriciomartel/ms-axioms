@@ -25,6 +25,13 @@ class LabelReduction;
 class MergeStrategyFactory;
 class ShrinkStrategy;
 
+enum class AxiomFactorMode {
+    NONE,
+    ONLY_GOAL,
+    ONLY_GOAL_CAPPED,
+    ALL_CAPPED
+};
+
 class MergeAndShrinkAlgorithm {
     // TODO: when the option parser supports it, the following should become
     // unique pointers.
@@ -49,6 +56,7 @@ class MergeAndShrinkAlgorithm {
     const double main_loop_max_time;
 
     long starting_peak_memory;
+    AxiomFactorMode axiom_factor_mode;
 
     std::unordered_map<int, std::unordered_set<int>> axiom_factor_pending_vars;
     std::unordered_map<int, std::vector<int>> axiom_factor_pending_var_order;
@@ -67,7 +75,9 @@ public:
         const std::shared_ptr<LabelReduction> &label_reduction,
         bool prune_unreachable_states, bool prune_irrelevant_states,
         int max_states, int max_states_before_merge, int threshold_before_merge,
-        double main_loop_max_time, utils::Verbosity verbosity);
+        double main_loop_max_time, utils::Verbosity verbosity,
+        AxiomFactorMode axiom_factor_mode);
+
     FactoredTransitionSystem build_factored_transition_system(
         const TaskProxy &task_proxy);
 };
@@ -79,7 +89,8 @@ extern void add_merge_and_shrink_algorithm_options_to_feature(
     plugins::Feature &feature);
 std::tuple<
     std::shared_ptr<MergeStrategyFactory>, std::shared_ptr<ShrinkStrategy>,
-    std::shared_ptr<LabelReduction>, bool, bool, int, int, int, double>
+    std::shared_ptr<LabelReduction>, bool, bool, int, int, int, double,
+    AxiomFactorMode>
 get_merge_and_shrink_algorithm_arguments_from_options(
     const plugins::Options &opts);
 extern void add_transition_system_size_limit_options_to_feature(

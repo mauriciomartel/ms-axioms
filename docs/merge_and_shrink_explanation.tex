@@ -8285,26 +8285,26 @@ Four modes cover the key points in the design space.
 
 \begin{center}
 \small
-\begin{tabular}{llp{7.8cm}}
+\begin{tabular}{cllp{6.5cm}}
 \toprule
-\textbf{Mode} & \textbf{Short name} & \textbf{Description} \\
+\textbf{Value} & \textbf{Mode} & \textbf{Short name} & \textbf{Description} \\
 \midrule
-\texttt{none}        & No axiom factors
+0 & \texttt{none}        & No axiom factors
   & Skip axiom-factor construction entirely.  The M\&S loop runs only over
     atomic transition systems for ordinary planning variables.  Closest
     baseline to standard (non-axiom) M\&S; isolates whether the axiom
     extension contributes at all. \\[4pt]
-\texttt{only\_goal}  & Goal-derived, uncapped
+1 & \texttt{only\_goal}  & Goal-derived, uncapped
   & Build axiom factors only for derived variables that appear in the planning
     goal; no BFS work-estimate guard applied.  Purely precondition-derived
     groups are excluded.  Safe in practice because goal-derived closures are
     small; tests whether goal-relevance alone explains the benefit. \\[4pt]
-\texttt{only\_goal\_capped} & Goal-derived, capped
+2 & \texttt{only\_goal\_capped} & Goal-derived, capped
   & Same as \texttt{only\_goal} but additionally applies the BFS
     work-estimate guard ($W > 5\times10^8$): a goal-derived factor whose
     construction would exceed the work limit is skipped.  Isolates whether
     the tractable goal-derived factors alone suffice. \\[4pt]
-\texttt{all\_capped} (current) & All factors, capped
+3 & \texttt{all\_capped} (default) & All factors, capped
   & \textbf{Current default behaviour}: build one factor per union-find group
     of derived variables, including purely precondition-derived groups, subject
     to the BFS work-estimate guard and the mid-BFS state-count cap. \\

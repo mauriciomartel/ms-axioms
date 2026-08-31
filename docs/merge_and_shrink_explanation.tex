@@ -8263,24 +8263,25 @@ conclusions drawn from the manual campaign:
 \end{enumerate}
 
 % ─────────────────────────────────────────────────────────────────────────────
-\subsection{Next Steps: Configurable Axiom-Factor Baselines}
+\subsection{Implemented: Configurable Axiom-Factor Baselines}
 \label{sec:next-steps-baselines}
 
 The automated results show a clear but domain-dependent tradeoff: M\&S
 axiom handling is strongly beneficial on some domains
 (\texttt{miconic-axioms}: 56 $\to$ 151) and actively harmful on others
 (\texttt{taskassign-horndl}: 21 $\to$ 3) compared to blind search.
-What remains unknown is \emph{which aspect} of the axiom-factor construction
+What remained unknown was \emph{which aspect} of the axiom-factor construction
 drives the benefit.  Is it the axiom factors themselves?  Only the goal-derived
 ones?  Or does the BFS cap (which discards expensive factors early) matter most?
 
-To answer these questions, the planned next step is to implement an
-\texttt{axiom\_factor\_mode} parameter that controls how axiom factors are
-selected before they enter the M\&S main loop.
+To answer these questions, an \texttt{axiom\_factor\_mode} parameter has been
+implemented that controls how axiom factors are selected before they enter the
+M\&S main loop.  The parameter is an integer $0$--$3$ registered with the
+Fast Downward plugin system, with default value~$3$ (\texttt{all\_capped}).
 
-\subsubsection{Proposed Baselines}
+\subsubsection{Implemented Modes}
 
-Four modes are proposed, covering the key points in the design space.
+Four modes cover the key points in the design space.
 
 \begin{center}
 \small
@@ -8345,7 +8346,7 @@ primary-variable set is bounded by the goal structure.  This is why
 in practice the guard very rarely triggers for goal-derived factors, and the
 few cases where it would can be caught by the overall planner time limit.
 
-\subsubsection{What Each Comparison Reveals}
+\subsubsection{Diagnostic Value of Each Comparison}
 
 \begin{description}
   \item[\texttt{all\_capped} vs.\ \texttt{none}]
@@ -8370,61 +8371,150 @@ few cases where it would can be caught by the overall planner time limit.
     looser cap or smarter selection criterion.
 \end{description}
 
-\subsubsection{Implementation Plan}
+\subsubsection{Implementation Details}
 
-The \texttt{axiom\_factor\_mode} parameter is implemented across four files.
-The key design decision is that variable selection and the BFS work cap are
-separated: \texttt{only\_goal} builds uncapped axiom factors for goal-derived
-variables, while \texttt{only\_goal\_capped} and \texttt{all\_capped} apply the
-existing pre-BFS work-estimate guard $W > 5\times10^8$.
+The implementation spans four files.  The central design decision is to
+separate \emph{variable selection} from the \emph{BFS work cap}: which derived
+variables deserve an axiom factor is decided by \texttt{collect\_relevant\_derived\_variables},
+and whether the per-factor BFS is capped is decided by a separate boolean
+\texttt{apply\_cap} passed to \texttt{build\_axiom\_factor}.
+
+\paragraph{\texttt{merge\_and\_shrink\_algorithm.h}}
+
+Declares the \texttt{AxiomFactorMode} enum before the class:
+\begin{lstlisting}
+enum class AxiomFactorMode { NONE, ONLY_GOAL, ONLY_GOAL_CAPPED, ALL_CAPPED };
+\end{lstlisting}
+Adds an \texttt{axiom\_factor\_mode} field to \texttt{MergeAndShrinkAlgorithm},
+extends the constructor signature accordingly, and updates the return type of
+\texttt{get\_merge\_and\_shrink\_algorithm\_arguments\_from\_options} to a
+10-element tuple whose last element is \texttt{AxiomFactorMode}.
+
+\paragraph{\texttt{merge\_and\_shrink\_algorithm.cc}}
+
+Replaces the earlier fixed variable-collection logic with a static helper:
+\begin{lstlisting}
+static vector<int> collect_relevant_derived_variables(
+    const TaskProxy &task_proxy, AxiomFactorMode mode) {
+    if (mode == AxiomFactorMode::NONE)
+        return {};
+    // Mark goal-derived variables.
+    vector<bool> needs_axiom_factor(num_variables, false);
+    for (FactProxy goal : task_proxy.get_goals())
+        if (goal.get_variable().is_derived())
+            needs_axiom_factor[goal.get_variable().get_id()] = true;
+    // For ALL_CAPPED, also mark precondition- and effect-condition-derived.
+    if (mode == AxiomFactorMode::ALL_CAPPED) {
+        for (OperatorProxy op : task_proxy.get_operators()) {
+            for (FactProxy pre : op.get_preconditions())
+                if (pre.get_variable().is_derived()) ...
+            for (EffectProxy eff : op.get_effects())
+                for (FactProxy cond : eff.get_conditions())
+                    if (cond.get_variable().is_derived()) ...
+        }
+    }
+    // Only include variables that actually have axiom rules.
+    ...
+    return result;
+}
+\end{lstlisting}
+
+The rationale for the \texttt{has\_axiom\_rule} filter: some derived variables
+are translator-introduced constants that are always set to their initial value
+and never changed by any axiom rule.  Their existing atomic factor is already
+correct, and \texttt{build\_axiom\_factor} assumes its target has at least one
+axiom rule, so calling it on a rule-less variable would produce a degenerate
+empty closure.
+
+Just before the \texttt{build\_axiom\_factor} call, the cap flag is computed:
+\begin{lstlisting}
+bool apply_cap = (axiom_factor_mode == AxiomFactorMode::ONLY_GOAL_CAPPED ||
+                  axiom_factor_mode == AxiomFactorMode::ALL_CAPPED);
+int axiom_index = build_axiom_factor(
+    task_proxy, derived_var_ids, fts, log,
+    &pending_var_order, &pending_state_values, apply_cap);
+\end{lstlisting}
+
+Two additional soundness steps are performed after each factor is built:
 
 \begin{enumerate}
-  \item \textbf{\texttt{merge\_and\_shrink\_algorithm.h}}: Declare the
-    \texttt{AxiomFactorMode} enum with values \texttt{NONE},
-    \texttt{ONLY\_GOAL}, \texttt{ONLY\_GOAL\_CAPPED}, \texttt{ALL\_CAPPED};
-    add the field \texttt{axiom\_factor\_mode} to the class; extend the
-    constructor signature; and update the return type of
-    \texttt{get\_merge\_and\_shrink\_algorithm\_arguments\_from\_options} to
-    include \texttt{AxiomFactorMode} as its tenth element.
+  \item \textbf{Dead-end merging.}  Any axiom-factor state whose goal distance
+    is $\infty$ is merged into the nearest goal state.  Without this, the
+    abstract heuristic would return $h = \infty$ for concrete task states that
+    map to those abstract dead-ends --- which may be spurious (the concrete
+    state might still reach the goal via operators not captured in the factor's
+    partial subspace) --- violating admissibility.  Merging such states into the
+    goal state gives $h = 0$, which is admissible since $0 \le h^*$.
 
-  \item \textbf{\texttt{merge\_and\_shrink\_algorithm.cc}}: Replace the
-    fixed \texttt{collect\_relevant\_derived\_variables} helper with a
-    mode-aware version: \texttt{NONE} returns an empty list; \texttt{ONLY\_GOAL}
-    and \texttt{ONLY\_GOAL\_CAPPED} collect only goal-derived variables;
-    \texttt{ALL\_CAPPED} additionally collects variables that appear in
-    operator preconditions or effect conditions.  Before calling
-    \texttt{build\_axiom\_factor}, compute a boolean \texttt{apply\_cap} that
-    is true iff the mode is \texttt{ONLY\_GOAL\_CAPPED} or \texttt{ALL\_CAPPED},
-    and pass it through.  Register the option in the plugin feature class
-    (\texttt{axiom\_factor\_mode}, integer $0$--$3$, default $3$):
-    \begin{lstlisting}
-merge_and_shrink(..., axiom_factor_mode=2)  # only_goal_capped
-    \end{lstlisting}
-    Also update \texttt{get\_merge\_and\_shrink\_algorithm\_arguments\_from\_options}
-    to append the cast \texttt{AxiomFactorMode} to the returned tuple.
-
-  \item \textbf{\texttt{fts\_factory.h}}: Add a \texttt{bool apply\_work\_cap = true}
-    parameter to \texttt{build\_axiom\_factor}.
-
-  \item \textbf{\texttt{fts\_factory.cc}}: Guard the pre-BFS size check with
-    \texttt{if (apply\_work\_cap \&\& ...)}, so that \texttt{ONLY\_GOAL} can
-    build axiom factors unconditionally while the capped modes retain the
-    existing $W > 5\times10^8$ guard.
+  \item \textbf{Derived-variable atomic factor collapsing.}  After the axiom
+    factor is built, each atomic factor for a derived variable in the group is
+    collapsed to a single abstract state.  Operators cannot set derived
+    variables (only axioms can), so the atomic transition systems for derived
+    variables have no operator transitions.  Without collapsing, irrelevance
+    pruning would mark the initial state (value = \texttt{false}) as
+    goal-irrelevant and return $h = \infty$ --- again spuriously inadmissible.
+    Collapsing all states of such a factor into one prevents this while still
+    allowing the main loop to merge the collapsed factor into the axiom factor
+    later.
 \end{enumerate}
 
-The changes are self-contained: no modifications to the shrink strategy, the
-merge loop, or the transition-system data structures are required.
-\texttt{merge\_and\_shrink\_heuristic.h/.cc} receive only the mechanical
-parameter threading needed to pass \texttt{axiom\_factor\_mode} through to
-\texttt{MergeAndShrinkAlgorithm}.
+The option is registered in the plugin feature class:
+\begin{lstlisting}
+feature.add_option<int>("axiom_factor_mode",
+    "0=none, 1=only_goal, 2=only_goal_capped, 3=all_capped (default)",
+    "3", Bounds("0", "3"));
+\end{lstlisting}
 
-\subsubsection{Expected Experimental Design}
+\paragraph{\texttt{fts\_factory.h} and \texttt{fts\_factory.cc}}
 
-The baseline experiment would run five configurations (blind as reference,
-plus the four modes) with stateless DFP (\texttt{merge\_stateless} + DFP
-scoring) only --- MIASM is excluded as it is too slow at scale and does not
-add diagnostic information.  The same 33 domains and 1\,009 instances would
-be used, with the same resource limits (5 minutes, 8\,GB).
+\texttt{build\_axiom\_factor} receives a new trailing parameter:
+\begin{lstlisting}
+extern int build_axiom_factor(..., bool apply_work_cap = true);
+\end{lstlisting}
+Inside, the pre-BFS size guard is wrapped:
+\begin{lstlisting}
+if (apply_work_cap && n > 0 && !relevant_ops.empty()) {
+    // guard: if W = min(product_domain, 100000) * |relevant_ops| > 5e8, skip
+}
+\end{lstlisting}
+When \texttt{apply\_work\_cap = false} (mode \texttt{ONLY\_GOAL}), the guard is
+bypassed and the BFS proceeds unconditionally.
+
+\paragraph{\texttt{merge\_and\_shrink\_heuristic.h/.cc}}
+
+These files receive only mechanical parameter threading: the
+\texttt{AxiomFactorMode} value flows through the constructor and is forwarded
+to \texttt{MergeAndShrinkAlgorithm}.  The \texttt{make\_shared\_from\_arg\_tuples}
+call in \texttt{create\_component} unpacks the 10-element algorithm tuple
+automatically, requiring no further changes.
+
+\paragraph{Diagnostic logging}
+
+A log line is emitted at the start of \texttt{build\_factored\_transition\_system}
+to make the mode's effect immediately visible:
+\begin{lstlisting}
+axiom_factor_mode=3: selected 2 derived variable(s) for axiom factors var1 var2.
+\end{lstlisting}
+This is followed by \texttt{build\_axiom\_factor}'s own per-factor log lines:
+\begin{lstlisting}
+Building axiom factor for derived variable(s) 1 2.
+  Axiom factor BFS: 1 primary vars, 2 relevant ops
+  all 2 reachable state(s) are goal states (h=0 everywhere); skipping factor.
+\end{lstlisting}
+The ``skipping factor'' message above illustrates a case --- observed on
+\texttt{miconic-axioms} --- where the entire reachable product state space
+consists of goal states, making the axiom factor uniformly $h = 0$ and
+therefore useless.  The code detects this and discards the factor, which is
+correct: a factor contributing only $h = 0$ adds no information to the
+heuristic and can be safely omitted.
+
+\subsubsection{Experimental Design}
+
+The experiment runs five configurations (blind search as reference, plus the
+four modes) using stateless DFP (\texttt{merge\_stateless} + DFP scoring
+functions) only.  MIASM is excluded: it is too slow at scale and does not add
+diagnostic information.  The same 33 domains and 1\,009 instances are used,
+with the same resource limits (5 minutes, 8\,GB).
 
 The key question the experiment answers:
 \emph{on the domains where M\&S currently hurts (e.g.\

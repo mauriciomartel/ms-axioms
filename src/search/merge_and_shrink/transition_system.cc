@@ -127,26 +127,26 @@ TransitionSystem::TransitionSystem(
     vector<bool> &&goal_states, int init_state, bool axiom_derived)
     : num_variables(num_variables),
       incorporated_variables(move(incorporated_variables)),
+      axiom_derived(axiom_derived),
       labels(move(labels)),
       label_to_local_label(move(label_to_local_label)),
       local_label_infos(move(local_label_infos)),
       num_states(num_states),
       goal_states(move(goal_states)),
-      init_state(init_state),
-      axiom_derived(axiom_derived) {
+      init_state(init_state) {
     assert(is_valid());
 }
 
 TransitionSystem::TransitionSystem(const TransitionSystem &other)
     : num_variables(other.num_variables),
       incorporated_variables(other.incorporated_variables),
+      axiom_derived(other.axiom_derived),
       labels(other.labels),
       label_to_local_label(other.label_to_local_label),
       local_label_infos(other.local_label_infos),
       num_states(other.num_states),
       goal_states(other.goal_states),
-      init_state(other.init_state),
-      axiom_derived(other.axiom_derived) {
+      init_state(other.init_state) {
 }
 
 TransitionSystem::~TransitionSystem() {

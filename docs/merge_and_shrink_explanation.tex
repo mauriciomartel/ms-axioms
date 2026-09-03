@@ -8665,49 +8665,31 @@ the admissibility bug is resolved.
 \subsubsection{Action Plan}
 \label{sec:action-plan}
 
-The following steps are ordered by priority.
-
 \begin{enumerate}
 
-  \item \textbf{Fix mode~3 admissibility (correctness, high priority).}
-    Change the goal definition used by \texttt{build\_axiom\_factor} for
-    non-goal derived variables: instead of using $V = v_{\text{pre}}$ as
-    the BFS target, project the actual planning goal onto the primary
-    variables in $V$'s closure.  If the actual goal does not constrain any
-    of those primary variables, every BFS state becomes a goal state and
-    the factor is automatically discarded.  The fix is localised to
-    \texttt{build\_axiom\_factor} and
-    \texttt{collect\_relevant\_derived\_variables}, and is verifiable in a
-    single run on \texttt{miconic-fulladl}.
+  \item \textbf{Fix mode~3 admissibility.}
+    Implement the goal projection fix described above.
+    Verifiable in a single run on \texttt{miconic-fulladl}.
 
-  \item \textbf{Change the default from mode~3 to mode~2 (trivial, high
-    priority).}  Independent of the bug fix: mode~2 (\texttt{only\_goal\_capped})
-    is already implemented, admissible, and outperforms mode~3 in both
-    coverage and correctness.  This is a one-line change to the option
-    registration default value in \texttt{merge\_and\_shrink\_algorithm.cc}
-    and should be applied immediately.
+  \item \textbf{Change the default to mode~2.}
+    Mode~2 (\texttt{only\_goal\_capped}) is admissible and already outperforms
+    mode~3.  One-line change to the option registration default in
+    \texttt{merge\_and\_shrink\_algorithm.cc}.
 
-  \item \textbf{Re-run the experiment with fixed mode~3 (medium priority).}
-    After step~1, re-run the five-configuration experiment to determine
-    whether the corrected mode~3 recovers any coverage over mode~2, or
-    whether it remains equivalent.  This determines whether mode~3 retains
-    any scientific justification once the admissibility bug is removed.
+  \item \textbf{Re-run the experiment with fixed mode~3.}
+    Determine whether corrected mode~3 recovers any coverage over mode~2, or
+    whether the two remain equivalent.
 
-  \item \textbf{Investigate why mode~0 marginally outperforms blind (medium
-    priority).}  Mode~0 adds no axiom factors yet covers one more instance
-    than blind.  This is unexpected: without axiom factors the M\&S
-    abstraction differs from blind only through label reduction and
-    bisimulation shrinking.  Identifying the domain and instance responsible
-    for the gap clarifies whether standard M\&S already provides a useful
-    baseline independently of the axiom extension.
+  \item \textbf{Investigate why mode~0 marginally outperforms blind.}
+    Mode~0 adds no axiom factors yet covers one more instance than blind.
+    Identifying the responsible domain/instance will clarify whether standard
+    M\&S provides a useful baseline independently of the axiom extension.
 
-  \item \textbf{Investigate why modes~1 and~2 lose 7 instances vs.\ mode~0
-    (medium priority).}  Goal-derived axiom factors should improve heuristic
-    quality; losing 7 instances relative to no axiom factors suggests that
-    the build cost (time or memory) of those factors causes timeouts or
-    out-of-memory exits that mode~0 avoids.  Profiling which domains and
-    instances are affected will guide whether a tighter work-estimate guard
-    or a size cap on goal-derived factors could close the gap.
+  \item \textbf{Investigate why modes~1 and~2 lose 7 instances vs.\ mode~0.}
+    Goal-derived axiom factors should improve heuristic quality; the 7-instance
+    gap suggests their build cost causes timeouts or out-of-memory exits that
+    mode~0 avoids.  Profiling will guide whether a tighter work-estimate guard
+    or a factor size cap could close the gap.
 
 \end{enumerate}
 

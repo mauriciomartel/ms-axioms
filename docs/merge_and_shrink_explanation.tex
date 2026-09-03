@@ -8633,49 +8633,34 @@ Since these states may be reachable with finite true cost (the actual goal does
 not constrain~$V$), the heuristic overestimates and A* can return a suboptimal
 plan.
 
-\paragraph{Next steps to fix mode~3 admissibility.}
+\paragraph{Fix: correct goal projection for non-goal factors.}
 
-Three candidate approaches are listed in increasing implementation complexity.
+The root cause is that \texttt{build\_axiom\_factor} uses $V = v_{\text{pre}}$ as the
+BFS target for non-goal derived variables.  The fix is to replace this artificial goal
+with a projection of the actual planning goal onto the primary variables in $V$'s
+closure:
 
-\begin{description}
+\begin{itemize}
 
-  \item[Option A --- Correct goal projection for non-goal factors.]
-    Change the goal definition used by \texttt{build\_axiom\_factor} for
-    non-goal derived variables.  Instead of using $V = v_{\text{pre}}$ as the
-    BFS target, project the actual planning goal onto the primary variables in
-    $V$'s closure.  If the actual goal does not constrain any of those primary
-    variables, every BFS state becomes a goal state, the factor is uniformly
-    $h = 0$, and it is automatically discarded.  This fix is principled and
-    localised to \texttt{build\_axiom\_factor} and
-    \texttt{collect\_relevant\_derived\_variables}.
+  \item If the actual planning goal constrains at least one primary variable in $V$'s
+    closure, use those goal assignments as the BFS target.  The resulting factor is
+    admissible by construction: goal states in the factor correspond exactly to
+    concrete states where the planning goal, restricted to those primary variables,
+    is satisfied.
 
-  \item[Option B --- Skip dead-end merging for non-goal factors.]
-    Retain the existing BFS goal ($V = v_{\text{pre}}$) but suppress the
-    dead-end merging step for axiom factors of non-goal derived variables.
-    Without merging, dead-end states keep $h = \infty$.  To prevent a
-    symmetric inadmissibility problem (spuriously infinite heuristic for
-    concrete states that reach the goal without ever satisfying
-    $V = v_{\text{pre}}$), the derived-variable atomic factor collapsing step
-    must be verified to cover all such states.  This option requires careful
-    correctness analysis.
+  \item If the actual planning goal constrains none of the primary variables in $V$'s
+    closure, every BFS state is a goal state, the factor is uniformly $h = 0$, and
+    it is automatically discarded.
 
-  \item[Option C --- Collapse non-goal axiom factors after building.]
-    After \texttt{build\_axiom\_factor} succeeds for a non-goal derived
-    variable, collapse all states of the resulting factor into a single
-    abstract state, giving $h = 0$ from that factor everywhere.  The factor
-    still enters the M\&S main loop and absorbs the corresponding atomic
-    factors, preventing spurious $h = \infty$ from irrelevance pruning, but
-    contributes no positive heuristic information.  This is the safest and
-    simplest fix (a few lines of code), but it makes mode~3 equivalent to
-    modes~1/2 for non-goal variables, reducing its motivation over mode~2.
+\end{itemize}
 
-\end{description}
-
-Pending this fix, \textbf{mode~2 (\texttt{only\_goal\_capped})} is the
-recommended safe default: admissible, equal coverage to mode~1, and protected
-against non-termination on operator-dense axiom groups by the BFS work-estimate
-guard.  Mode~3 remains available as an experimental option but must not be used
-as the default until the admissibility bug is resolved.
+The change is localised to \texttt{build\_axiom\_factor} and
+\texttt{collect\_relevant\_derived\_variables}.  Pending this fix,
+\textbf{mode~2 (\texttt{only\_goal\_capped})} is the recommended safe default:
+admissible, equal coverage to mode~1, and protected against non-termination on
+operator-dense axiom groups by the BFS work-estimate guard.  Mode~3 remains
+available as an experimental option but must not be used as the default until
+the admissibility bug is resolved.
 
 \subsubsection{Action Plan}
 \label{sec:action-plan}
@@ -8685,13 +8670,15 @@ The following steps are ordered by priority.
 \begin{enumerate}
 
   \item \textbf{Fix mode~3 admissibility (correctness, high priority).}
-    Apply Option~C (collapse non-goal axiom factors to a single abstract
-    state after building) as an immediate safe fix.  This is verifiable in
-    a single run on \texttt{miconic-fulladl} and requires only a few lines
-    of code in \texttt{merge\_and\_shrink\_algorithm.cc}.  Once mode~3 is
-    admissible, investigate Option~A (project the actual planning goal onto
-    the non-goal factor's closure) as a more principled replacement that may
-    recover heuristic value from non-goal derived variables.
+    Change the goal definition used by \texttt{build\_axiom\_factor} for
+    non-goal derived variables: instead of using $V = v_{\text{pre}}$ as
+    the BFS target, project the actual planning goal onto the primary
+    variables in $V$'s closure.  If the actual goal does not constrain any
+    of those primary variables, every BFS state becomes a goal state and
+    the factor is automatically discarded.  The fix is localised to
+    \texttt{build\_axiom\_factor} and
+    \texttt{collect\_relevant\_derived\_variables}, and is verifiable in a
+    single run on \texttt{miconic-fulladl}.
 
   \item \textbf{Change the default from mode~3 to mode~2 (trivial, high
     priority).}  Independent of the bug fix: mode~2 (\texttt{only\_goal\_capped})
@@ -8721,14 +8708,6 @@ The following steps are ordered by priority.
     out-of-memory exits that mode~0 avoids.  Profiling which domains and
     instances are affected will guide whether a tighter work-estimate guard
     or a size cap on goal-derived factors could close the gap.
-
-  \item \textbf{Implement Option~A if mode~3 remains relevant (high effort,
-    lower priority).}  If the re-run in step~3 shows that corrected mode~3
-    still provides no benefit over mode~2, Option~A need not be implemented.
-    If it does provide a benefit, Option~A --- projecting the actual planning
-    goal onto the non-goal factor's primary-variable closure --- is the
-    principled path to recovering admissible heuristic information from
-    precondition-derived variables.
 
 \end{enumerate}
 

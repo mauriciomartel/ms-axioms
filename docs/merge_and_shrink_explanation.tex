@@ -8347,6 +8347,7 @@ in practice the guard very rarely triggers for goal-derived factors, and the
 few cases where it would can be caught by the overall planner time limit.
 
 \subsubsection{Diagnostic Value of Each Comparison}
+\label{sec:diagnostic-value}
 
 \begin{description}
   \item[\texttt{all\_capped} vs.\ \texttt{none}]
@@ -8579,6 +8580,42 @@ strictly higher cost than blind on 10 instances of \texttt{miconic-fulladl}
 structural pattern that triggers the bug (derived variables appearing in
 operator preconditions or effect conditions but not in the planning goal),
 but the defect is general: any domain with that pattern can exhibit it.
+
+\paragraph{Findings per diagnostic comparison.}
+
+The comparisons defined in Section~\ref{sec:diagnostic-value} are answered
+as follows.
+
+\begin{description}
+
+  \item[\texttt{all\_capped} vs.\ \texttt{none}]
+    Mode~3 (451) falls 35 instances \emph{below} mode~0 (486).  The axiom
+    extension as currently implemented in \texttt{all\_capped} is a net
+    \emph{negative}: the memory overhead of building precondition-derived
+    axiom factors eliminates more runs than the heuristic guidance recovers.
+
+  \item[\texttt{only\_goal\_capped} vs.\ \texttt{none}]
+    Mode~2 (478) falls 8 instances below mode~0 (486).  Restricting to
+    goal-derived factors reduces the memory cost substantially, but does not
+    fully close the gap to mode~0.  Goal-derived axiom factors improve
+    heuristic quality on some domains, but the M\&S build overhead still
+    causes more timeouts than the improved guidance prevents.
+
+  \item[\texttt{only\_goal} vs.\ \texttt{only\_goal\_capped}]
+    Coverage is identical (478 each), confirming that the BFS work-estimate
+    guard rarely fires for goal-derived variable groups: their primary-variable
+    closures are small enough that the guard threshold ($W > 5 \times 10^8$)
+    is almost never exceeded.  The cap adds no cost and can be retained
+    as a safety net without affecting results.
+
+  \item[\texttt{all\_capped} vs.\ \texttt{only\_goal\_capped}]
+    Mode~3 (451) is 27 instances worse than mode~2 (478) and is additionally
+    inadmissible.  Precondition-derived axiom factors provide no coverage
+    benefit --- they consume memory, trigger out-of-memory exits, and
+    introduce an admissibility bug.  There is currently no case for including
+    them as a default.
+
+\end{description}
 
 \paragraph{Root cause of mode~3 inadmissibility.}
 

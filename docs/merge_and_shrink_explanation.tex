@@ -8671,14 +8671,10 @@ the admissibility bug is resolved.
     Implement the goal projection fix described above.
     Verifiable in a single run on \texttt{miconic-fulladl}.
 
-  \item \textbf{Change the default to mode~2.}
-    Mode~2 (\texttt{only\_goal\_capped}) is admissible and already outperforms
-    mode~3.  One-line change to the option registration default in
-    \texttt{merge\_and\_shrink\_algorithm.cc}.
-
   \item \textbf{Re-run the experiment with fixed mode~3.}
-    Determine whether corrected mode~3 recovers any coverage over mode~2, or
-    whether the two remain equivalent.
+    Determine whether corrected mode~3 recovers any coverage over mode~2.
+    Use the result to decide the default: if mode~3 provides no benefit,
+    set the default to mode~2; otherwise mode~3 becomes the candidate default.
 
   \item \textbf{Investigate why mode~0 marginally outperforms blind.}
     Mode~0 adds no axiom factors yet covers one more instance than blind.

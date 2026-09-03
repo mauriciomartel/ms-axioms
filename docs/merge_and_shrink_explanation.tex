@@ -8508,21 +8508,14 @@ therefore useless.  The code detects this and discards the factor, which is
 correct: a factor contributing only $h = 0$ adds no information to the
 heuristic and can be safely omitted.
 
-\subsubsection{Experimental Design}
+\subsubsection{Experimental Setup}
 
 The experiment runs five configurations (blind search as reference, plus the
 four modes) using stateless DFP (\texttt{merge\_stateless} + DFP scoring
 functions) only.  MIASM is excluded: it is too slow at scale and does not add
 diagnostic information.  The same 33 domains and 1\,009 instances are used,
 with the same resource limits (5 minutes, 8\,GB).
-
-The key question the experiment answers:
-\emph{on the domains where M\&S currently hurts (e.g.\
-\texttt{taskassign-horndl}), does the damage disappear when
-precondition-derived axiom factors are excluded?}  If \texttt{only\_goal\_capped}
-matches or beats blind on those domains while preserving the gains on
-\texttt{miconic-axioms}, then \texttt{only\_goal\_capped} becomes the
-recommended default mode, replacing \texttt{all\_capped}.
+Results are reported in Section~\ref{sec:modes-results}.
 
 % ─────────────────────────────────────────────────────────────────────────────
 % ─────────────────────────────────────────────────────────────────────────────

@@ -8525,6 +8525,128 @@ matches or beats blind on those domains while preserving the gains on
 recommended default mode, replacing \texttt{all\_capped}.
 
 % ─────────────────────────────────────────────────────────────────────────────
+% ─────────────────────────────────────────────────────────────────────────────
+\subsubsection{Experimental Results}
+\label{sec:modes-results}
+
+The five-configuration experiment (blind plus modes 0--3) was run on
+2026-09-03 using Downward Lab~8.10, 16 parallel processes,
+5-minute wall-time limit, and 8\,GB memory per run over the full 33-domain,
+1\,009-instance suite.
+
+\paragraph{Coverage.}
+
+\begin{center}
+\small
+\begin{tabular}{clr}
+\toprule
+\textbf{Mode} & \textbf{Config} & \textbf{Coverage} \\
+\midrule
+ --  & \texttt{blind}                & 485 \\
+  0  & \texttt{dfp-none}             & \textbf{486} \\
+  1  & \texttt{dfp-only-goal}        & 478 \\
+  2  & \texttt{dfp-only-goal-capped} & 478 \\
+  3  & \texttt{dfp-all-capped}       & 451 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Mode~0 (\texttt{none}) marginally outperforms blind ($+1$ instance).
+Modes~1 and~2 are equal ($-7$ vs.\ blind).  Mode~3 is the weakest ($-34$):
+it produces 163 out-of-memory exits during M\&S construction because building
+axiom factors for all derived variables --- including precondition-derived
+groups with large primary-variable closures --- frequently exhausts the 8\,GB
+limit before search begins.
+
+\paragraph{Admissibility.}
+
+Total plan cost summed over all jointly solved instances:
+
+\begin{center}
+\small
+\begin{tabular}{clrr}
+\toprule
+\textbf{Mode} & \textbf{Config} & \textbf{Total cost} &
+  \textbf{$\Delta$ vs.\ blind} \\
+\midrule
+ --  & \texttt{blind}                & 4852 & --- \\
+  0  & \texttt{dfp-none}             & 4852 & $0$ \\
+  1  & \texttt{dfp-only-goal}        & 4852 & $0$ \\
+  2  & \texttt{dfp-only-goal-capped} & 4852 & $0$ \\
+  3  & \texttt{dfp-all-capped}       & 4876 & $\mathbf{+24}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Modes~0, 1, and~2 never exceed blind's cost on any instance across all
+33 domains --- they are admissible in practice.  Mode~3 returns plans of
+strictly higher cost than blind on 10 instances of \texttt{miconic-fulladl}
+(excess $+1$ to $+4$ steps per instance, total $+24$), violating admissibility.
+\texttt{miconic-fulladl} is the only domain in the current suite with the
+structural pattern that triggers the bug (derived variables appearing in
+operator preconditions or effect conditions but not in the planning goal),
+but the defect is general: any domain with that pattern can exhibit it.
+
+\paragraph{Root cause of mode~3 inadmissibility.}
+
+When \texttt{build\_axiom\_factor} is called for a non-goal derived variable~$V$,
+the BFS treats ``$V$ has value $v_{\text{pre}}$'' --- the value required by some
+operator precondition --- as the goal of the factor.  States from which
+$v_{\text{pre}}$ is unreachable are identified as dead ends and, by the
+dead-end merging step, folded into the goal-absorbing state.  When this axiom
+factor is subsequently merged with the rest of the M\&S abstraction, the
+product abstraction requires \emph{both} the actual planning goal \emph{and}
+$V = v_{\text{pre}}$ to hold for a merged abstract state to be a goal state.
+Concrete states in which $V \ne v_{\text{pre}}$ but the actual planning goal
+\emph{is} satisfied therefore receive $h = \infty$ in the merged abstraction.
+Since these states may be reachable with finite true cost (the actual goal does
+not constrain~$V$), the heuristic overestimates and A* can return a suboptimal
+plan.
+
+\paragraph{Next steps to fix mode~3 admissibility.}
+
+Three candidate approaches are listed in increasing implementation complexity.
+
+\begin{description}
+
+  \item[Option A --- Correct goal projection for non-goal factors.]
+    Change the goal definition used by \texttt{build\_axiom\_factor} for
+    non-goal derived variables.  Instead of using $V = v_{\text{pre}}$ as the
+    BFS target, project the actual planning goal onto the primary variables in
+    $V$'s closure.  If the actual goal does not constrain any of those primary
+    variables, every BFS state becomes a goal state, the factor is uniformly
+    $h = 0$, and it is automatically discarded.  This fix is principled and
+    localised to \texttt{build\_axiom\_factor} and
+    \texttt{collect\_relevant\_derived\_variables}.
+
+  \item[Option B --- Skip dead-end merging for non-goal factors.]
+    Retain the existing BFS goal ($V = v_{\text{pre}}$) but suppress the
+    dead-end merging step for axiom factors of non-goal derived variables.
+    Without merging, dead-end states keep $h = \infty$.  To prevent a
+    symmetric inadmissibility problem (spuriously infinite heuristic for
+    concrete states that reach the goal without ever satisfying
+    $V = v_{\text{pre}}$), the derived-variable atomic factor collapsing step
+    must be verified to cover all such states.  This option requires careful
+    correctness analysis.
+
+  \item[Option C --- Collapse non-goal axiom factors after building.]
+    After \texttt{build\_axiom\_factor} succeeds for a non-goal derived
+    variable, collapse all states of the resulting factor into a single
+    abstract state, giving $h = 0$ from that factor everywhere.  The factor
+    still enters the M\&S main loop and absorbs the corresponding atomic
+    factors, preventing spurious $h = \infty$ from irrelevance pruning, but
+    contributes no positive heuristic information.  This is the safest and
+    simplest fix (a few lines of code), but it makes mode~3 equivalent to
+    modes~1/2 for non-goal variables, reducing its motivation over mode~2.
+
+\end{description}
+
+Pending this fix, \textbf{mode~2 (\texttt{only\_goal\_capped})} is the
+recommended safe default: admissible, equal coverage to mode~1, and protected
+against non-termination on operator-dense axiom groups by the BFS work-estimate
+guard.  Mode~3 remains available as an experimental option but must not be used
+as the default until the admissibility bug is resolved.
+
 \subsection{Summary of Files to Modify}
 
 \begin{center}

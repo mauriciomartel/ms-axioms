@@ -566,8 +566,20 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
                 x = uf_parent[x] = uf_parent[uf_parent[x]];
             return x;
         };
+
+        unordered_set<int> task_goal_derived;
+        for (FactProxy g : task_proxy.get_goals())
+            if (g.get_variable().is_derived())
+                task_goal_derived.insert(g.get_variable().get_id());
+
         for (size_t i = 0; i < goal_derived_vars.size(); ++i)
             for (size_t j = i + 1; j < goal_derived_vars.size(); ++j) {
+                // Never group a goal-derived variable with a non-goal-derived
+                // variable: doing so adds N's operator constraints to G's
+                // factor, which can make abstract distances exceed h* (inadmissible).
+                bool i_goal = task_goal_derived.count(goal_derived_vars[i]);
+                bool j_goal = task_goal_derived.count(goal_derived_vars[j]);
+                if (i_goal != j_goal) continue;
                 bool overlap = false;
                 for (int v : primary_sets[j])
                     if (primary_sets[i].count(v)) { overlap = true; break; }

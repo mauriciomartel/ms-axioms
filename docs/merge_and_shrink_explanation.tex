@@ -8545,12 +8545,16 @@ The five-configuration experiment (blind plus modes 0--3) was run on
 \end{tabular}
 \end{center}
 
-Mode~0 (\texttt{none}) marginally outperforms blind ($+1$ instance).
-Modes~1 and~2 are equal ($-7$ vs.\ blind).  Mode~3 is the weakest ($-34$):
-it produces 163 out-of-memory exits during M\&S construction because building
-axiom factors for all derived variables --- including precondition-derived
-groups with large primary-variable closures --- frequently exhausts the 8\,GB
-limit before search begins.
+Mode~0 (\texttt{none}) marginally outperforms blind ($+1$ instance): the sole
+extra instance is \texttt{miconic-fulladl/f13-2.pddl}, where standard M\&S
+provides a non-trivial heuristic that guides A* within the time limit,
+while blind degenerates to BFS and times out.
+Modes~1 and~2 are equal ($-7$ vs.\ blind, $-8$ vs.\ mode~0).  Mode~3 is
+the weakest ($-35$ vs.\ mode~0, $-34$ vs.\ blind): it produces
+out-of-memory exits during M\&S construction because building axiom factors
+for all derived variables --- including precondition-derived groups with
+large primary-variable closures --- frequently exhausts the 8\,GB limit
+before search begins.
 
 \paragraph{Admissibility.}
 
@@ -8595,11 +8599,23 @@ as follows.
     axiom factors eliminates more runs than the heuristic guidance recovers.
 
   \item[\texttt{only\_goal\_capped} vs.\ \texttt{none}]
-    Mode~2 (478) falls 8 instances below mode~0 (486).  Restricting to
-    goal-derived factors reduces the memory cost substantially, but does not
-    fully close the gap to mode~0.  Goal-derived axiom factors improve
-    heuristic quality on some domains, but the M\&S build overhead still
-    causes more timeouts than the improved guidance prevents.
+    Mode~2 (478) falls 8 instances below mode~0 (486).  The gap decomposes
+    into two opposing effects.
+    \emph{Where mode~2 loses} (25 instances): 21 are OOM (\texttt{exitcode-248})
+    during M\&S construction on \texttt{robot-horndl} (15) and
+    \texttt{robotConj-horndl} (6) --- the goal-derived axiom factor closures
+    for these domains are large enough to exhaust 8\,GB before search starts,
+    while mode~0 stays within the limit by skipping factor construction entirely.
+    The remaining 4 losses are boundary cases on \texttt{miconic-fulladl} (2),
+    \texttt{openstacks-opt08-adl} (1), and \texttt{airport-adl} (1).
+    \emph{Where mode~2 wins} (17 instances): \texttt{sokoban-axioms} (10)
+    is the dominant gain, where goal-derived factors provide enough heuristic
+    guidance to solve instances that mode~0 misses; \texttt{tpsa-horndl} (3),
+    \texttt{psr-large}, \texttt{psr-middle}, \texttt{elevator-horndl}, and
+    \texttt{robot-horndl} (one each) provide the rest.
+    Without the 21 OOM losses, mode~2 would \emph{outperform} mode~0 by
+    13 instances.  A memory-based factor-size cap (analogous to the existing
+    work-estimate guard) would likely close or reverse the gap.
 
   \item[\texttt{only\_goal} vs.\ \texttt{only\_goal\_capped}]
     Coverage is identical (478 each), confirming that the BFS work-estimate

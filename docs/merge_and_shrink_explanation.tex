@@ -8695,11 +8695,39 @@ goal-derived group whose factor correctly encodes the goal constraint.
     that search cannot finish.  The +1 coverage is therefore a baseline M\&S
     win, not an effect of the axiom extension.
 
-  \item \textbf{Investigate why modes~1 and~2 lose 7 instances vs.\ mode~0.}
-    Goal-derived axiom factors should improve heuristic quality; the 7-instance
-    gap suggests their build cost causes timeouts or out-of-memory exits that
-    mode~0 avoids.  Profiling will guide whether a tighter work-estimate guard
-    or a factor size cap could close the gap.
+  \item \textbf{Investigate why modes~1 and~2 lose 8 instances vs.\ mode~0.}
+    \emph{(Done.)}
+    The gap decomposes into two opposing effects:
+
+    \textit{Where modes~1/2 lose (26/25 instances):}
+    21 of these are pure OOM during M\&S construction on \texttt{robot-horndl}
+    (15) and \texttt{robotConj-horndl} (6).  Modes~1 and~2 attempt to build
+    goal-derived axiom factors for these domains; the factors' primary-variable
+    closures are large enough that construction exhausts the 8\,GB memory limit
+    before search begins (\texttt{search\_start\_time = None},
+    \texttt{exitcode-248}).  Mode~0 skips factor construction entirely and
+    finishes within the limit (build takes 16--247\,s on those instances).
+    The remaining 5/4 losses are on \texttt{miconic-fulladl} (2),
+    \texttt{openstacks-opt08-adl} (2/1), and \texttt{airport-adl} (1), where
+    the same OOM pattern does not apply (errors are not exitcode-248), likely
+    resource-boundary cases.
+
+    \textit{Where modes~1/2 win (18/17 instances):}
+    The dominant gain is \texttt{sokoban-axioms} (10 instances for both), where
+    the goal-derived axiom factors provide enough heuristic guidance to close
+    solutions that mode~0 cannot find in time.
+    \texttt{tpsa-horndl} (3 each) and several single-instance domains
+    (\texttt{appn-adl}, \texttt{psr-large}, \texttt{robot-horndl},
+    \texttt{optical-telegraphs}, \texttt{word-rooms} for mode~1;
+    \texttt{elevator-horndl}, \texttt{psr-middle} for mode~2) provide the rest.
+
+    \textit{Net:} mode-0 wins 26 and loses 18 vs.\ mode-1 ($+8$ net);
+    wins 25 and loses 17 vs.\ mode-2 ($+8$ net).
+    The gap is driven by OOM on \texttt{robot-horndl}/\texttt{robotConj-horndl}:
+    removing those 21 OOM losses, modes~1 and~2 would \emph{outperform} mode~0
+    by 13/13 instances.  A per-domain axiom-factor size cap (or disabling axiom
+    factors on domains where the closure exceeds a memory estimate) would likely
+    recover this gap.
 
 \end{enumerate}
 

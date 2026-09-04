@@ -8619,57 +8619,63 @@ as follows.
 
 \paragraph{Root cause of mode~3 inadmissibility.}
 
-When \texttt{build\_axiom\_factor} is called for a non-goal derived variable~$V$,
-the BFS treats ``$V$ has value $v_{\text{pre}}$'' --- the value required by some
-operator precondition --- as the goal of the factor.  States from which
-$v_{\text{pre}}$ is unreachable are identified as dead ends and, by the
-dead-end merging step, folded into the goal-absorbing state.  When this axiom
-factor is subsequently merged with the rest of the M\&S abstraction, the
-product abstraction requires \emph{both} the actual planning goal \emph{and}
-$V = v_{\text{pre}}$ to hold for a merged abstract state to be a goal state.
-Concrete states in which $V \ne v_{\text{pre}}$ but the actual planning goal
-\emph{is} satisfied therefore receive $h = \infty$ in the merged abstraction.
-Since these states may be reachable with finite true cost (the actual goal does
-not constrain~$V$), the heuristic overestimates and A* can return a suboptimal
-plan.
+The bug is in the union-find grouping in \texttt{merge\_and\_shrink\_algorithm.cc}.
+\texttt{collect\_relevant\_derived\_variables} returns both goal-derived variables
+and non-goal derived variables (those appearing only in operator
+preconditions/effect conditions) to the same union-find loop.  When a
+goal-derived variable~$G$ and a non-goal-derived variable~$N$ have overlapping
+$S_d$ sets, they are merged into the same union-find group.  The combined axiom
+factor then includes operators from $N$'s closure, which impose preconditions on
+the primary variables shared between $G$ and $N$.  These extra preconditions
+restrict which abstract states are reachable in the factor, making abstract
+distances to $G$'s goal value longer than what the real task requires.  When
+the real task can reach $G$'s goal without satisfying $N$'s preconditions, the
+factor overestimates $h^*$ and A* can return a suboptimal plan.
 
-\paragraph{Fix: correct goal projection for non-goal factors.}
+\paragraph{Fix: segregate goal-derived from non-goal-derived variables in union-find.}
 
-The root cause is that \texttt{build\_axiom\_factor} uses $V = v_{\text{pre}}$ as the
-BFS target for non-goal derived variables.  The fix is to replace this artificial goal
-with a projection of the actual planning goal onto the primary variables in $V$'s
-closure:
+Before the union-find double loop in \texttt{merge\_and\_shrink\_algorithm.cc},
+compute the set \texttt{task\_goal\_derived} of derived variables that appear
+directly in the task goal.  Inside the double loop, skip any pair where exactly
+one variable is goal-derived:
+
+\begin{verbatim}
+if (i_goal != j_goal) continue;
+\end{verbatim}
+
+This ensures goal-derived and non-goal-derived variables are never merged into
+the same axiom factor.  After the fix:
 
 \begin{itemize}
 
-  \item If the actual planning goal constrains at least one primary variable in $V$'s
-    closure, use those goal assignments as the BFS target.  The resulting factor is
-    admissible by construction: goal states in the factor correspond exactly to
-    concrete states where the planning goal, restricted to those primary variables,
-    is satisfied.
+  \item Non-goal-derived variables form standalone groups.  For each such
+    variable, \texttt{goal\_value\_for\_derived\_var} is empty in
+    \texttt{build\_axiom\_factor}, so all states are goal states and the
+    early-exit check skips the factor (zero $h$ contribution, no spurious
+    dead ends introduced).
 
-  \item If the actual planning goal constrains none of the primary variables in $V$'s
-    closure, every BFS state is a goal state, the factor is uniformly $h = 0$, and
-    it is automatically discarded.
+  \item Goal-derived variable factors are built without spurious constraints
+    from non-goal-derived variable operators, restoring admissibility.
 
 \end{itemize}
 
-The change is localised to \texttt{build\_axiom\_factor} and
-\texttt{collect\_relevant\_derived\_variables}.  Pending this fix,
-\textbf{mode~2 (\texttt{only\_goal\_capped})} is the recommended safe default:
-admissible, equal coverage to mode~1, and protected against non-termination on
-operator-dense axiom groups by the BFS work-estimate guard.  Mode~3 remains
-available as an experimental option but must not be used as the default until
-the admissibility bug is resolved.
+\textbf{Verification.}  On \texttt{miconic-fulladl/f5-2.pddl}, the planner
+with \texttt{axiom\_factor\_mode=3} previously returned cost~16 (optimal
+is~13, matching blind).  After the fix it returns cost~13.  The three axiom
+groups produced are: two groups whose closure primary variables are all
+goal-irrelevant (all states are goal states, both skipped), and one single
+goal-derived group whose factor correctly encodes the goal constraint.
 
 \subsubsection{Action Plan}
 \label{sec:action-plan}
 
 \begin{enumerate}
 
-  \item \textbf{Fix mode~3 admissibility.}
-    Implement the goal projection fix described above.
-    Verifiable in a single run on \texttt{miconic-fulladl}.
+  \item \textbf{Fix mode~3 admissibility.} \emph{(Done.)}
+    In \texttt{merge\_and\_shrink\_algorithm.cc}, compute \texttt{task\_goal\_derived}
+    before the union-find double loop and skip pairs where exactly one variable is
+    goal-derived (\texttt{if (i\_goal != j\_goal) continue;}).
+    Verified on \texttt{miconic-fulladl/f5-2.pddl}: cost drops from~16 to~13 (optimal).
 
   \item \textbf{Re-run the experiment with fixed mode~3.}
     Determine whether corrected mode~3 recovers any coverage over mode~2.

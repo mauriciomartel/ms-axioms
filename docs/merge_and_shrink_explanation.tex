@@ -8683,9 +8683,17 @@ goal-derived group whose factor correctly encodes the goal constraint.
     set the default to mode~2; otherwise mode~3 becomes the candidate default.
 
   \item \textbf{Investigate why mode~0 marginally outperforms blind.}
-    Mode~0 adds no axiom factors yet covers one more instance than blind.
-    Identifying the responsible domain/instance will clarify whether standard
-    M\&S provides a useful baseline independently of the axiom extension.
+    \emph{(Done.)}
+    The sole instance is \texttt{miconic-fulladl/f13-2.pddl}, solved only by
+    \texttt{dfp-none}; blind and all axiom-factor modes fail.
+    Blind uses $h = 0$ everywhere, so it degenerates to BFS and exhausts the
+    5-minute limit.  Standard M\&S (no axiom factors) builds quickly on this
+    instance and produces a non-trivial heuristic that guides A* to the
+    solution in time.  Modes~1--3 fail for the same reason as on other
+    \texttt{miconic-fulladl} instances: the axiom-factor build overhead
+    (even for goal-derived variables only) consumes enough of the budget
+    that search cannot finish.  The +1 coverage is therefore a baseline M\&S
+    win, not an effect of the axiom extension.
 
   \item \textbf{Investigate why modes~1 and~2 lose 7 instances vs.\ mode~0.}
     Goal-derived axiom factors should improve heuristic quality; the 7-instance

@@ -557,6 +557,11 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
             primary_sets.push_back(
                 compute_axiom_factor_primary_vars(task_proxy, d));
 
+        // Reverse index: derived var id → position in goal_derived_vars.
+        unordered_map<int, size_t> var_to_idx;
+        for (size_t i = 0; i < goal_derived_vars.size(); ++i)
+            var_to_idx[goal_derived_vars[i]] = i;
+
         // Union-find over goal_derived_vars: merge any two whose S_d sets
         // intersect (transitively), so they end up in the same group.
         vector<int> uf_parent(goal_derived_vars.size());
@@ -616,9 +621,26 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
             vector<vector<int>> pending_state_values;
             bool apply_cap = (axiom_factor_mode == AxiomFactorMode::ONLY_GOAL_CAPPED ||
                               axiom_factor_mode == AxiomFactorMode::ALL_CAPPED);
-            int axiom_index = build_axiom_factor(
-                task_proxy, derived_var_ids, fts, log,
-                &pending_var_order, &pending_state_values, apply_cap);
+
+            // Skip factor if product domain of primary vars exceeds max_states.
+            size_t product_domain = 1;
+            bool factor_too_large = false;
+            for (int d : derived_var_ids) {
+                for (int pv : primary_sets[var_to_idx.at(d)]) {
+                    size_t dom = task_proxy.get_variables()[pv].get_domain_size();
+                    if (product_domain > static_cast<size_t>(max_states) / dom) {
+                        factor_too_large = true;
+                        break;
+                    }
+                    product_domain *= dom;
+                }
+                if (factor_too_large) break;
+            }
+            int axiom_index = factor_too_large
+                ? -1
+                : build_axiom_factor(
+                      task_proxy, derived_var_ids, fts, log,
+                      &pending_var_order, &pending_state_values, apply_cap);
 
             // Collapse dead-end axiom factor states (goal_dist=INF) into the
             // goal state. Task states mapping to dead-end axiom factor states

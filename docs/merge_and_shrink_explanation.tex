@@ -8623,8 +8623,8 @@ as follows.
     \texttt{psr-large}, \texttt{psr-middle}, \texttt{elevator-horndl}, and
     \texttt{robot-horndl} (one each) provide the rest.
     Without the 21 OOM losses, mode~2 would \emph{outperform} mode~0 by
-    13 instances.  A memory-based factor-size cap (analogous to the existing
-    work-estimate guard) would likely close or reverse the gap.
+    13 instances.  A memory-based factor-size cap has since been implemented
+    (see Action Plan step~5); v3 experiment results pending.
 
   \item[\texttt{only\_goal} vs.\ \texttt{only\_goal\_capped}]
     Coverage is identical (479 each in v2), confirming that the BFS
@@ -8754,9 +8754,40 @@ goal-derived group whose factor correctly encodes the goal constraint.
     wins 25 and loses 17 vs.\ mode-2 ($+8$ net).
     The gap is driven by OOM on \texttt{robot-horndl}/\texttt{robotConj-horndl}:
     removing those 21 OOM losses, modes~1 and~2 would \emph{outperform} mode~0
-    by 13/13 instances.  A per-domain axiom-factor size cap (or disabling axiom
-    factors on domains where the closure exceeds a memory estimate) would likely
-    recover this gap.
+    by 13/13 instances.  A memory-based factor-size cap has since been implemented
+    (see Action Plan step~5); v3 experiment results pending.
+
+  \item \textbf{Implement memory-based factor-size cap.} \emph{(Done.)}
+    In \texttt{merge\_and\_shrink\_algorithm.cc}, before calling
+    \texttt{build\_axiom\_factor} for each group, compute the product of domain
+    sizes of the group's primary variables.  If this product exceeds
+    \texttt{max\_states}, set \texttt{axiom\_index = -1} (skip the joint factor)
+    rather than entering BFS.  This prevents the OOM crash on
+    \texttt{robot-horndl} and \texttt{robotConj-horndl}, where
+    \texttt{label\_trans} previously grew to several GB during BFS exploration
+    before the 100\,000-state cap fired.
+
+    Two code changes in \texttt{merge\_and\_shrink\_algorithm.cc}:
+    \begin{enumerate}
+      \item After the \texttt{primary\_sets} construction loop, add a reverse
+        index \texttt{var\_to\_idx} mapping each derived variable id to its
+        position in \texttt{goal\_derived\_vars}.
+      \item In the per-group loop, compute \texttt{product\_domain} over all
+        primary variables in the group; if
+        \texttt{product\_domain > max\_states}, set \texttt{axiom\_index = -1}
+        instead of calling \texttt{build\_axiom\_factor}.
+    \end{enumerate}
+
+    \textbf{Verification.}  On \texttt{robot-horndl/compiledProblem23.pddl}
+    with \texttt{axiom\_factor\_mode=3}: previously OOM (\texttt{exitcode-248});
+    after the fix, solution found in 8\,s with 19\,MB peak memory.
+
+    \textbf{v3 experiment pending.}  The v3 script
+    (\texttt{ms-axioms-modes-v3.py}) uses the same 5 configurations and
+    benchmark suite as v2, running against the updated binary.  Expected outcome:
+    recovery of some or all of the 25 OOM losses on \texttt{robot-horndl} (18)
+    and \texttt{robotConj-horndl} (7) in v2, potentially closing the 4-instance
+    gap between mode~3 and mode~0.
 
 \end{enumerate}
 

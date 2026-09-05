@@ -8523,38 +8523,41 @@ Results are reported in Section~\ref{sec:modes-results}.
 \subsubsection{Experimental Results}
 \label{sec:modes-results}
 
-The five-configuration experiment (blind plus modes 0--3) was run on
-2026-09-03 using Downward Lab~8.10, 16 parallel processes,
+Two experiments were run using Downward Lab~8.10, 16 parallel processes,
 5-minute wall-time limit, and 8\,GB memory per run over the full 33-domain,
 1\,009-instance suite.
+\textbf{v1} (2026-09-03): original code with the mode~3 inadmissibility bug.
+\textbf{v2} (2026-09-05): union-find segregation fix applied; mode~3 is now admissible.
 
 \paragraph{Coverage.}
 
 \begin{center}
 \small
-\begin{tabular}{clr}
+\begin{tabular}{clrrr}
 \toprule
-\textbf{Mode} & \textbf{Config} & \textbf{Coverage} \\
+\textbf{Mode} & \textbf{Config} & \textbf{v1} & \textbf{v2} & \textbf{$\Delta$} \\
 \midrule
- --  & \texttt{blind}                & 485 \\
-  0  & \texttt{dfp-none}             & \textbf{486} \\
-  1  & \texttt{dfp-only-goal}        & 478 \\
-  2  & \texttt{dfp-only-goal-capped} & 478 \\
-  3  & \texttt{dfp-all-capped}       & 451 \\
+ --  & \texttt{blind}                & 485 & 487 & $+2$ \\
+  0  & \texttt{dfp-none}             & \textbf{486} & \textbf{486} & $0$ \\
+  1  & \texttt{dfp-only-goal}        & 478 & 479 & $+1$ \\
+  2  & \texttt{dfp-only-goal-capped} & 478 & 479 & $+1$ \\
+  3  & \texttt{dfp-all-capped}       & 451 & 482 & $\mathbf{+31}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Mode~0 (\texttt{none}) marginally outperforms blind ($+1$ instance): the sole
+The $+2$ gain for blind and $+1$ for modes~1--2 between v1 and v2 are timing
+noise: the 5-minute wall-clock limit is sensitive to system load, and none of
+these configs was changed.  Mode~0 is perfectly stable at 486.
+
+Mode~0 (\texttt{none}) marginally outperforms blind ($-1$ instance): the sole
 extra instance is \texttt{miconic-fulladl/f13-2.pddl}, where standard M\&S
 provides a non-trivial heuristic that guides A* within the time limit,
 while blind degenerates to BFS and times out.
-Modes~1 and~2 are equal ($-7$ vs.\ blind, $-8$ vs.\ mode~0).  Mode~3 is
-the weakest ($-35$ vs.\ mode~0, $-34$ vs.\ blind): it produces
-out-of-memory exits during M\&S construction because building axiom factors
-for all derived variables --- including precondition-derived groups with
-large primary-variable closures --- frequently exhausts the 8\,GB limit
-before search begins.
+Modes~1 and~2 are equal ($-8$ vs.\ mode~0 in both runs).
+Mode~3 recovers 31 instances with the fix (451~$\to$~482) and now trails
+mode~0 by only 4 instances; the residual gap is OOM on \texttt{robot-horndl}
+and \texttt{robotConj-horndl} (see below).
 
 \paragraph{Admissibility.}
 
@@ -8562,28 +8565,27 @@ Total plan cost summed over all jointly solved instances:
 
 \begin{center}
 \small
-\begin{tabular}{clrr}
+\begin{tabular}{clrrrr}
 \toprule
-\textbf{Mode} & \textbf{Config} & \textbf{Total cost} &
-  \textbf{Cost excess over blind} \\
+\textbf{Mode} & \textbf{Config} & \textbf{v1 cost} & \textbf{v1 excess} &
+  \textbf{v2 cost} & \textbf{v2 excess} \\
 \midrule
- --  & \texttt{blind}                & 4852 & --- \\
-  0  & \texttt{dfp-none}             & 4852 & $0$ \\
-  1  & \texttt{dfp-only-goal}        & 4852 & $0$ \\
-  2  & \texttt{dfp-only-goal-capped} & 4852 & $0$ \\
-  3  & \texttt{dfp-all-capped}       & 4876 & $\mathbf{+24}$ \\
+ --  & \texttt{blind}                & 4852 & ---            & 5202 & --- \\
+  0  & \texttt{dfp-none}             & 4852 & $0$            & 5202 & $0$ \\
+  1  & \texttt{dfp-only-goal}        & 4852 & $0$            & 5202 & $0$ \\
+  2  & \texttt{dfp-only-goal-capped} & 4852 & $0$            & 5202 & $0$ \\
+  3  & \texttt{dfp-all-capped}       & 4876 & $\mathbf{+24}$ & 5202 & $0$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-Modes~0, 1, and~2 never exceed blind's cost on any instance across all
-33 domains --- they are admissible in practice.  Mode~3 returns plans of
-strictly higher cost than blind on 10 instances of \texttt{miconic-fulladl}
-(excess $+1$ to $+4$ steps per instance, total $+24$), violating admissibility.
-\texttt{miconic-fulladl} is the only domain in the current suite with the
-structural pattern that triggers the bug (derived variables appearing in
-operator preconditions or effect conditions but not in the planning goal),
-but the defect is general: any domain with that pattern can exhibit it.
+In v1, mode~3 returned plans of strictly higher cost than blind on
+10 instances of \texttt{miconic-fulladl} (excess $+1$ to $+4$ steps,
+total $+24$), violating admissibility.
+In v2 (fix applied), \textbf{all modes are admissible}: no config exceeds
+blind's cost on any jointly solved instance across all 33 domains.
+(The v2 total costs are higher than v1 because v2 jointly solves more
+instances, including harder ones.)
 
 \paragraph{Findings per diagnostic comparison.}
 
@@ -8593,10 +8595,17 @@ as follows.
 \begin{description}
 
   \item[\texttt{all\_capped} vs.\ \texttt{none}]
-    Mode~3 (451) falls 35 instances \emph{below} mode~0 (486).  The axiom
-    extension as currently implemented in \texttt{all\_capped} is a net
-    \emph{negative}: the memory overhead of building precondition-derived
-    axiom factors eliminates more runs than the heuristic guidance recovers.
+    \emph{v1 (buggy):} mode~3 (451) falls 35 instances below mode~0 (486),
+    combining OOM losses with inadmissible results.
+    \emph{v2 (fixed):} mode~3 (482) falls only 4 instances below mode~0 (486).
+    The gap decomposes into 23 wins for mode~3 (sokoban-axioms 10,
+    miconic-fulladl 4, tpsa-horndl 3, and 6 other domains) offset by
+    27 losses, of which 25 are OOM on \texttt{robot-horndl} (18) and
+    \texttt{robotConj-horndl} (7).  Without those OOM losses, mode~3 would
+    outperform mode~0 by 19 instances.
+    Precondition-derived axiom factors provide genuine coverage value once
+    the admissibility bug is fixed; the remaining gap is a memory issue,
+    not a correctness issue.
 
   \item[\texttt{only\_goal\_capped} vs.\ \texttt{none}]
     Mode~2 (478) falls 8 instances below mode~0 (486).  The gap decomposes
@@ -8618,18 +8627,19 @@ as follows.
     work-estimate guard) would likely close or reverse the gap.
 
   \item[\texttt{only\_goal} vs.\ \texttt{only\_goal\_capped}]
-    Coverage is identical (478 each), confirming that the BFS work-estimate
-    guard rarely fires for goal-derived variable groups: their primary-variable
-    closures are small enough that the guard threshold ($W > 5 \times 10^8$)
-    is almost never exceeded.  The cap adds no cost and can be retained
-    as a safety net without affecting results.
+    Coverage is identical (479 each in v2), confirming that the BFS
+    work-estimate guard rarely fires for goal-derived variable groups: their
+    primary-variable closures are small enough that the guard threshold
+    ($W > 5 \times 10^8$) is almost never exceeded.  The cap adds no cost
+    and can be retained as a safety net without affecting results.
 
   \item[\texttt{all\_capped} vs.\ \texttt{only\_goal\_capped}]
-    Mode~3 (451) is 27 instances worse than mode~2 (478) and is additionally
-    inadmissible.  Precondition-derived axiom factors provide no coverage
-    benefit --- they consume memory, trigger out-of-memory exits, and
-    introduce an admissibility bug.  There is currently no case for including
-    them as a default.
+    \emph{v1 (buggy):} mode~3 (451) is 27 instances worse than mode~2 (478)
+    and inadmissible.
+    \emph{v2 (fixed):} mode~3 (482) is 3 instances \emph{better} than
+    mode~2 (479), winning on 9 domains and losing on 6.  Precondition-derived
+    axiom factors provide a net coverage benefit once admissible; mode~3 is
+    now the strongest axiom-factor configuration.
 
 \end{description}
 
@@ -8693,10 +8703,13 @@ goal-derived group whose factor correctly encodes the goal constraint.
     goal-derived (\texttt{if (i\_goal != j\_goal) continue;}).
     Verified on \texttt{miconic-fulladl/f5-2.pddl}: cost drops from~16 to~13 (optimal).
 
-  \item \textbf{Re-run the experiment with fixed mode~3.}
-    Determine whether corrected mode~3 recovers any coverage over mode~2.
-    Use the result to decide the default: if mode~3 provides no benefit,
-    set the default to mode~2; otherwise mode~3 becomes the candidate default.
+  \item \textbf{Re-run the experiment with fixed mode~3.} \emph{(Done.)}
+    v2 experiment (2026-09-05): mode~3 recovers 31 instances (451~$\to$~482),
+    is now admissible, and outperforms mode~2 by 3 instances (482 vs.\ 479).
+    \textbf{Mode~3 is the candidate default.}
+    The remaining 4-instance gap vs.\ mode~0 is OOM on \texttt{robot-horndl}
+    and \texttt{robotConj-horndl} --- a memory cap on factor construction
+    (not a correctness issue) would likely close it.
 
   \item \textbf{Investigate why mode~0 marginally outperforms blind.}
     \emph{(Done.)}

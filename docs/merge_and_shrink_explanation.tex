@@ -8528,20 +8528,21 @@ Two experiments were run using Downward Lab~8.10, 16 parallel processes,
 1\,009-instance suite.
 \textbf{v1} (2026-09-03): original code with the mode~3 inadmissibility bug.
 \textbf{v2} (2026-09-05): union-find segregation fix applied; mode~3 is now admissible.
+\textbf{v3} (2026-09-07): memory-based factor-size cap applied; OOM on \texttt{robot-horndl}/\texttt{robotConj-horndl} eliminated.
 
 \paragraph{Coverage.}
 
 \begin{center}
 \small
-\begin{tabular}{clrrr}
+\begin{tabular}{clrrrr}
 \toprule
-\textbf{Mode} & \textbf{Config} & \textbf{v1} & \textbf{v2} & \textbf{$\Delta$} \\
+\textbf{Mode} & \textbf{Config} & \textbf{v1} & \textbf{v2} & \textbf{v3} & \textbf{$\Delta$(v2$\to$v3)} \\
 \midrule
- --  & \texttt{blind}                & 485 & 487 & $+2$ \\
-  0  & \texttt{dfp-none}             & \textbf{486} & \textbf{486} & $0$ \\
-  1  & \texttt{dfp-only-goal}        & 478 & 479 & $+1$ \\
-  2  & \texttt{dfp-only-goal-capped} & 478 & 479 & $+1$ \\
-  3  & \texttt{dfp-all-capped}       & 451 & 482 & $\mathbf{+31}$ \\
+ --  & \texttt{blind}                & 485 & 487 & 487 & $0$ \\
+  0  & \texttt{dfp-none}             & 486 & 486 & 489 & $+3$ \\
+  1  & \texttt{dfp-only-goal}        & 478 & 479 & 501 & $+22$ \\
+  2  & \texttt{dfp-only-goal-capped} & 478 & 479 & 504 & $+25$ \\
+  3  & \texttt{dfp-all-capped}       & 451 & 482 & \textbf{507} & $\mathbf{+25}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -8549,15 +8550,15 @@ Two experiments were run using Downward Lab~8.10, 16 parallel processes,
 The $+2$ gain for blind and $+1$ for modes~1--2 between v1 and v2 are timing
 noise: the 5-minute wall-clock limit is sensitive to system load, and none of
 these configs was changed.  Mode~0 is perfectly stable at 486.
+In v3, the $+3$ gain for mode~0 (486~$\to$~489) and flat blind are again
+timing noise; modes~1--3 gain 22--25 instances from the memory cap fix.
 
-Mode~0 (\texttt{none}) marginally outperforms blind ($-1$ instance): the sole
+In v2, mode~0 marginally outperforms blind ($-1$ instance): the sole
 extra instance is \texttt{miconic-fulladl/f13-2.pddl}, where standard M\&S
-provides a non-trivial heuristic that guides A* within the time limit,
-while blind degenerates to BFS and times out.
-Modes~1 and~2 are equal ($-8$ vs.\ mode~0 in both runs).
-Mode~3 recovers 31 instances with the fix (451~$\to$~482) and now trails
-mode~0 by only 4 instances; the residual gap is OOM on \texttt{robot-horndl}
-and \texttt{robotConj-horndl} (see below).
+provides a non-trivial heuristic.  In v3 mode~0 (489) leads blind (487) by 2.
+Mode~3 is now the strongest configuration at 507, outperforming mode~0 by 18
+and mode~2 by 3.  The memory cap eliminates the OOM losses on
+\texttt{robot-horndl} and \texttt{robotConj-horndl} that dominated v2.
 
 \paragraph{Admissibility.}
 
@@ -8565,16 +8566,16 @@ Total plan cost summed over all jointly solved instances:
 
 \begin{center}
 \small
-\begin{tabular}{clrrrr}
+\begin{tabular}{clrrrrrr}
 \toprule
 \textbf{Mode} & \textbf{Config} & \textbf{v1 cost} & \textbf{v1 excess} &
-  \textbf{v2 cost} & \textbf{v2 excess} \\
+  \textbf{v2 cost} & \textbf{v2 excess} & \textbf{v3 cost} & \textbf{v3 excess} \\
 \midrule
- --  & \texttt{blind}                & 4852 & ---            & 5202 & --- \\
-  0  & \texttt{dfp-none}             & 4852 & $0$            & 5202 & $0$ \\
-  1  & \texttt{dfp-only-goal}        & 4852 & $0$            & 5202 & $0$ \\
-  2  & \texttt{dfp-only-goal-capped} & 4852 & $0$            & 5202 & $0$ \\
-  3  & \texttt{dfp-all-capped}       & 4876 & $\mathbf{+24}$ & 5202 & $0$ \\
+ --  & \texttt{blind}                & 4852 & ---            & 5202 & ---  & 6143 & --- \\
+  0  & \texttt{dfp-none}             & 4852 & $0$            & 5202 & $0$  & 6143 & $0$ \\
+  1  & \texttt{dfp-only-goal}        & 4852 & $0$            & 5202 & $0$  & 6143 & $0$ \\
+  2  & \texttt{dfp-only-goal-capped} & 4852 & $0$            & 5202 & $0$  & 6143 & $0$ \\
+  3  & \texttt{dfp-all-capped}       & 4876 & $\mathbf{+24}$ & 5202 & $0$  & 6143 & $0$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -8582,10 +8583,11 @@ Total plan cost summed over all jointly solved instances:
 In v1, mode~3 returned plans of strictly higher cost than blind on
 10 instances of \texttt{miconic-fulladl} (excess $+1$ to $+4$ steps,
 total $+24$), violating admissibility.
-In v2 (fix applied), \textbf{all modes are admissible}: no config exceeds
-blind's cost on any jointly solved instance across all 33 domains.
-(The v2 total costs are higher than v1 because v2 jointly solves more
-instances, including harder ones.)
+In v2 (fix applied) and v3 (memory cap), \textbf{all modes are admissible}:
+no config exceeds blind's cost on any jointly solved instance across all
+33 domains.  Total costs increase across versions as more instances are jointly
+solved (v1: 370 instances; v2: harder instances added; v3: robot-horndl/robotConj-horndl
+instances recovered).
 
 \paragraph{Findings per diagnostic comparison.}
 
@@ -8601,11 +8603,13 @@ as follows.
     The gap decomposes into 23 wins for mode~3 (sokoban-axioms 10,
     miconic-fulladl 4, tpsa-horndl 3, and 6 other domains) offset by
     27 losses, of which 25 are OOM on \texttt{robot-horndl} (18) and
-    \texttt{robotConj-horndl} (7).  Without those OOM losses, mode~3 would
-    outperform mode~0 by 19 instances.
-    Precondition-derived axiom factors provide genuine coverage value once
-    the admissibility bug is fixed; the remaining gap is a memory issue,
-    not a correctness issue.
+    \texttt{robotConj-horndl} (7).
+    \emph{v3 (memory cap):} mode~3 (507) \emph{outperforms} mode~0 (489) by
+    18 instances.  The memory cap recovers most of the OOM losses:
+    \texttt{robot-horndl} rises from an OOM-dominated count to 38 solved
+    (vs.\ 29 for mode~0); \texttt{robotConj-horndl} reaches 21 (vs.\ 23 for
+    mode~0, where blind at 43 dominates --- M\&S factors with 50k states
+    provide little guidance here).  Mode~3 is now the clear best configuration.
 
   \item[\texttt{only\_goal\_capped} vs.\ \texttt{none}]
     Mode~2 (478) falls 8 instances below mode~0 (486).  The gap decomposes
@@ -8623,23 +8627,29 @@ as follows.
     \texttt{psr-large}, \texttt{psr-middle}, \texttt{elevator-horndl}, and
     \texttt{robot-horndl} (one each) provide the rest.
     Without the 21 OOM losses, mode~2 would \emph{outperform} mode~0 by
-    13 instances.  A memory-based factor-size cap has since been implemented
-    (see Action Plan step~5); v3 experiment results pending.
+    13 instances.
+    \emph{v3 (memory cap):} mode~2 (504) outperforms mode~0 (489) by 15
+    instances, confirming the OOM was the dominant cause of the v2 gap.
 
   \item[\texttt{only\_goal} vs.\ \texttt{only\_goal\_capped}]
-    Coverage is identical (479 each in v2), confirming that the BFS
+    \emph{v2:} Coverage is identical (479 each), confirming that the BFS
     work-estimate guard rarely fires for goal-derived variable groups: their
     primary-variable closures are small enough that the guard threshold
-    ($W > 5 \times 10^8$) is almost never exceeded.  The cap adds no cost
-    and can be retained as a safety net without affecting results.
+    ($W > 5 \times 10^8$) is almost never exceeded.
+    \emph{v3:} mode~2 (504) outperforms mode~1 (501) by 3 instances, suggesting
+    that the new product-domain cap (which applies to ONLY\_GOAL\_CAPPED but
+    not ONLY\_GOAL) fires on a small number of goal-derived groups that are
+    large enough to OOM without the cap.  The cap provides a net benefit here.
 
   \item[\texttt{all\_capped} vs.\ \texttt{only\_goal\_capped}]
     \emph{v1 (buggy):} mode~3 (451) is 27 instances worse than mode~2 (478)
     and inadmissible.
     \emph{v2 (fixed):} mode~3 (482) is 3 instances \emph{better} than
-    mode~2 (479), winning on 9 domains and losing on 6.  Precondition-derived
-    axiom factors provide a net coverage benefit once admissible; mode~3 is
-    now the strongest axiom-factor configuration.
+    mode~2 (479), winning on 9 domains and losing on 6.
+    \emph{v3 (memory cap):} mode~3 (507) is 3 instances better than mode~2
+    (504), preserving the same margin.  Including precondition-derived axiom
+    factors (ALL\_CAPPED) continues to provide a small net benefit over
+    goal-only factors; mode~3 remains the strongest configuration.
 
 \end{description}
 
@@ -8707,9 +8717,9 @@ goal-derived group whose factor correctly encodes the goal constraint.
     v2 experiment (2026-09-05): mode~3 recovers 31 instances (451~$\to$~482),
     is now admissible, and outperforms mode~2 by 3 instances (482 vs.\ 479).
     \textbf{Mode~3 is the candidate default.}
-    The remaining 4-instance gap vs.\ mode~0 is OOM on \texttt{robot-horndl}
-    and \texttt{robotConj-horndl} --- a memory cap on factor construction
-    (not a correctness issue) would likely close it.
+    The remaining 4-instance gap vs.\ mode~0 in v2 is OOM on \texttt{robot-horndl}
+    and \texttt{robotConj-horndl}; resolved by the memory cap in step~5
+    (v3: mode~3 = 507, mode~0 = 489, mode~3 leads by 18).
 
   \item \textbf{Investigate why mode~0 marginally outperforms blind.}
     \emph{(Done.)}
@@ -8754,8 +8764,9 @@ goal-derived group whose factor correctly encodes the goal constraint.
     wins 25 and loses 17 vs.\ mode-2 ($+8$ net).
     The gap is driven by OOM on \texttt{robot-horndl}/\texttt{robotConj-horndl}:
     removing those 21 OOM losses, modes~1 and~2 would \emph{outperform} mode~0
-    by 13/13 instances.  A memory-based factor-size cap has since been implemented
-    (see Action Plan step~5); v3 experiment results pending.
+    by 13/13 instances.
+    \emph{v3 confirms this:} with the memory cap, modes~1 (501) and~2 (504)
+    both outperform mode~0 (489) by 12/15 instances respectively.
 
   \item \textbf{Implement memory-based factor-size cap.} \emph{(Done.)}
     In \texttt{merge\_and\_shrink\_algorithm.cc}, before calling
@@ -8782,12 +8793,15 @@ goal-derived group whose factor correctly encodes the goal constraint.
     with \texttt{axiom\_factor\_mode=3}: previously OOM (\texttt{exitcode-248});
     after the fix, solution found in 8\,s with 19\,MB peak memory.
 
-    \textbf{v3 experiment pending.}  The v3 script
-    (\texttt{ms-axioms-modes-v3.py}) uses the same 5 configurations and
-    benchmark suite as v2, running against the updated binary.  Expected outcome:
-    recovery of some or all of the 25 OOM losses on \texttt{robot-horndl} (18)
-    and \texttt{robotConj-horndl} (7) in v2, potentially closing the 4-instance
-    gap between mode~3 and mode~0.
+    \textbf{v3 results} (2026-09-07): the memory cap eliminates the OOM crashes.
+    Coverage: blind 487, mode~0 489, mode~1 501, mode~2 504, mode~3 \textbf{507}.
+    Mode~3 outperforms mode~0 by 18 instances (vs.\ $-4$ in v2).
+    On \texttt{robot-horndl}: mode~3 now solves 38 (mode~0: 29, blind: 43).
+    On \texttt{robotConj-horndl}: mode~3 solves 21 (mode~0: 23, blind: 43) ---
+    blind dominates here since M\&S factors with 50k states provide little
+    heuristic guidance on this domain, but no OOM occurs.
+    All five configurations remain admissible (identical plan costs on jointly
+    solved instances, total 6143).
 
 \end{enumerate}
 

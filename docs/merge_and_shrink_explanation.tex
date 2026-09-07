@@ -8605,11 +8605,17 @@ as follows.
     27 losses, of which 25 are OOM on \texttt{robot-horndl} (18) and
     \texttt{robotConj-horndl} (7).
     \emph{v3 (memory cap):} mode~3 (507) \emph{outperforms} mode~0 (489) by
-    18 instances.  The memory cap recovers most of the OOM losses:
-    \texttt{robot-horndl} rises from an OOM-dominated count to 38 solved
-    (vs.\ 29 for mode~0); \texttt{robotConj-horndl} reaches 21 (vs.\ 23 for
-    mode~0, where blind at 43 dominates --- M\&S factors with 50k states
-    provide little guidance here).  Mode~3 is now the clear best configuration.
+    18 instances.  \texttt{exitcode-248} (construction-phase OOM) does not
+    appear anywhere in v3 --- the memory cap completely eliminates it.
+    The remaining unsolved instances on \texttt{robot-horndl} and
+    \texttt{robotConj-horndl} are all \texttt{search-out-of-time}: axiom-factor
+    construction consumes part of the 5-minute budget, leaving less time for
+    search.  Blind (h=0) avoids construction entirely and therefore
+    outperforms all DFP variants on these two domains (blind: 43; mode~3: 38
+    on \texttt{robot-horndl}, 21 on \texttt{robotConj-horndl}).
+    Timeout counts on \texttt{robot-horndl}: blind 14, mode~0 28, mode~3 19;
+    on \texttt{robotConj-horndl}: blind 14, mode~0 34, mode~3 36.
+    Mode~3 is now the clear best configuration overall.
 
   \item[\texttt{only\_goal\_capped} vs.\ \texttt{none}]
     Mode~2 (478) falls 8 instances below mode~0 (486).  The gap decomposes
@@ -8798,8 +8804,12 @@ goal-derived group whose factor correctly encodes the goal constraint.
     Mode~3 outperforms mode~0 by 18 instances (vs.\ $-4$ in v2).
     On \texttt{robot-horndl}: mode~3 now solves 38 (mode~0: 29, blind: 43).
     On \texttt{robotConj-horndl}: mode~3 solves 21 (mode~0: 23, blind: 43) ---
-    blind dominates here since M\&S factors with 50k states provide little
-    heuristic guidance on this domain, but no OOM occurs.
+    \texttt{exitcode-248} is absent from v3 entirely: the memory cap
+    fully eliminates construction-phase OOM.  The remaining unsolved instances
+    are \texttt{search-out-of-time} --- axiom-factor construction consumes
+    part of the 5-minute budget, leaving less time for search, while blind
+    (h=0) avoids construction and dominates both domains (43 solved vs.\
+    mode~3's 38/21).
     All five configurations remain admissible (identical plan costs on jointly
     solved instances, total 6143).
 

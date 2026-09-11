@@ -3595,6 +3595,41 @@ When any variable in the group is non-goal (\texttt{all\_are\_goal\_vars}
 is false), the all-goal check is skipped entirely regardless of the
 \texttt{goal\_states} contents.
 
+\paragraph{Additional bug: unconditional \texttt{all\_goal} check before Improvement~1.}
+During testing of mode~3 on the \texttt{robot-horndl} domain a second bug was
+found in \texttt{build\_axiom\_factor}: an unconditional \texttt{all\_goal}
+block that appeared \emph{before} the \texttt{all\_are\_goal\_vars}-gated
+Improvement~1 check, and fired for \emph{every} factor regardless of whether
+its variables are goal-derived.
+
+\begin{lstlisting}[language=C++, caption={Buggy unconditional check (removed from fts\_factory.cc)}]
+// Removed: this block caused non-goal-derived variable factors to always
+// return -1 and be discarded, making mode 3 behave identically to mode 1.
+bool all_goal = true;
+for (bool g : goal_states) {
+    if (!g) { all_goal = false; break; }
+}
+if (all_goal) {
+    if (log.is_at_least_normal())
+        log << "  Axiom factor: all " << num_reachable_states
+            << " reachable state(s) are goal states (h=0 everywhere); "
+               "skipping factor (heuristic remains admissible)." << endl;
+    return -1;
+}
+\end{lstlisting}
+
+For a non-goal-derived variable, \texttt{goal\_value\_for\_derived\_var} is
+empty, so the inner loop that marks individual BFS states as non-goals never
+executes, and every state receives \texttt{is\_goal = true} by default.  The
+unconditional check then finds \texttt{all\_goal = true} and discards the
+factor immediately --- before the \texttt{all\_are\_goal\_vars} gate can fire.
+The net effect is that mode~3 with this bug behaved identically to mode~1:
+non-goal-derived factors were never built.
+
+The fix is to remove the unconditional block entirely.  The
+\texttt{all\_are\_goal\_vars}-gated Improvement~1 check already present handles
+the goal-only case correctly without discarding non-goal-derived factors.
+
 A matching \texttt{count\_relevant\_derived\_variables} helper is added to
 \texttt{merge\_scoring\_function\_total\_order.cc} to keep the precomputed
 merge order in sync with the actual number of initial factors, avoiding the
@@ -8812,6 +8847,44 @@ goal-derived group whose factor correctly encodes the goal constraint.
     mode~3's 38/21).
     All five configurations remain admissible (identical plan costs on jointly
     solved instances, total 6143).
+
+  \item \textbf{Investigate mode~3 = mode~1 equivalence on
+    \texttt{robot-horndl}.}  \emph{(Done; open research question identified.)}
+
+    After removing the unconditional \texttt{all\_goal} block from
+    \texttt{build\_axiom\_factor} (\S\ref{sec:fix-c}), mode~3 on
+    \texttt{robot-horndl/compiledProblem01.pddl} builds 3 axiom factors
+    (136 primary variables selected) versus mode~1's 1 factor.  Despite the
+    larger set of factors, search statistics are \emph{identical}: both modes
+    produce $h = 2$, evaluate 81\,308 states, expand 77\,901 states, and find
+    0 dead ends.
+
+    \textbf{Root cause.}  Non-goal-derived factors have
+    \texttt{goal\_value\_for\_derived\_var} empty, so \emph{every} BFS state
+    satisfies the goal condition vacuously ($h = 0$ everywhere).  Exact
+    bisimulation therefore collapses each such factor to a single abstract
+    state.  Merging a 1-state factor into the product adds no new information:
+    the merged abstraction is isomorphic to the one built without the factor,
+    and the heuristic value is unchanged.
+
+    \textbf{Admissibility constraint.}  Assigning non-trivial goal structure
+    to these factors --- for example, declaring ``$d$ has non-default value''
+    as the goal --- is not straightforwardly admissible.  Admissibility requires
+    that every concrete task-goal state maps to an abstract goal state; but if
+    a task-goal state exists where $d$ was never derived (its value remains the
+    default), such a goal definition would wrongly classify that state as a
+    non-goal, making the heuristic inadmissible.  Correct goal semantics for
+    non-goal-derived variable factors that preserve admissibility is an open
+    research question.
+
+    \textbf{Conclusion.}  The v3 coverage improvement (+25 instances vs.\ v2,
+    +18 vs.\ mode~0) comes entirely from the memory cap (step~5), which
+    eliminates OOM on \texttt{robot-horndl} and \texttt{robotConj-horndl}.
+    Non-goal-derived factors contribute no heuristic information in the current
+    implementation because bisimulation collapses them to a single abstract
+    state.  Mode~3's coverage lead over mode~0 is driven by the broader
+    applicability of Fix~C together with the memory cap, not by heuristic
+    strengthening from non-goal-derived variable factors.
 
 \end{enumerate}
 

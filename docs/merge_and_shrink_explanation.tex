@@ -8849,7 +8849,9 @@ goal-derived group whose factor correctly encodes the goal constraint.
     solved instances, total 6143).
 
   \item \textbf{Investigate mode~3 = mode~1 equivalence on
-    \texttt{robot-horndl}.}  \emph{(Done; open research question identified.)}
+    \texttt{robot-horndl}.}  \emph{(Done; root cause identified; fix proposed in item~\ref{item:derivability-partition}.)}
+
+
 
     After removing the unconditional \texttt{all\_goal} block from
     \texttt{build\_axiom\_factor} (\S\ref{sec:fix-c}), two domains were tested
@@ -8885,24 +8887,268 @@ goal-derived group whose factor correctly encodes the goal constraint.
     the merged abstraction is isomorphic to the one built without the factor,
     and the heuristic value is unchanged.
 
-    \textbf{Admissibility constraint.}  Assigning non-trivial goal structure
-    to these factors --- for example, declaring ``$d$ has non-default value''
-    as the goal --- is not straightforwardly admissible.  Admissibility requires
-    that every concrete task-goal state maps to an abstract goal state; but if
-    a task-goal state exists where $d$ was never derived (its value remains the
-    default), such a goal definition would wrongly classify that state as a
-    non-goal, making the heuristic inadmissible.  Correct goal semantics for
-    non-goal-derived variable factors that preserve admissibility is an open
-    research question.
+    \textbf{Why the naive fix is inadmissible.}
+    The instinctive repair is to declare ``$d$ evaluates to its non-default
+    value'' as the goal for the factor: mark \texttt{goal\_states[s] = true}
+    iff stratified forward chaining fires $d$ at state $s$.  This gives a
+    non-trivial goal partition and breaks the bisimulation collapse, but it
+    is \emph{inadmissible}.
 
-    \textbf{Conclusion.}  The v3 coverage improvement (+25 instances vs.\ v2,
-    +18 vs.\ mode~0) comes entirely from the memory cap (step~5), which
-    eliminates OOM on \texttt{robot-horndl} and \texttt{robotConj-horndl}.
-    Non-goal-derived factors contribute no heuristic information in the current
-    implementation because bisimulation collapses them to a single abstract
-    state.  Mode~3's coverage lead over mode~0 is driven by the broader
-    applicability of Fix~C together with the memory cap, not by heuristic
-    strengthening from non-goal-derived variable factors.
+    Admissibility (the reconstruction-property condition in
+    \S\ref{sec:when-clause-theory}) requires that the factor's goal set is an
+    \emph{over-approximation} of the projected task goal: every product state
+    that corresponds to any valid task-goal state must be marked as a goal.
+    Because the task goal places \emph{no constraint} on $d$, every product
+    state is consistent with some task-goal state regardless of $d$'s value.
+    The projected task goal onto the factor is therefore \emph{all states}.
+    Marking only the $d$-derivable states as goals is an
+    \emph{under-approximation}: a concrete plan that terminates in a state
+    where $d$ was never fired (a state mapped to an abstract non-goal) would
+    be declared a non-solution by the abstraction even though it truly solves
+    the task.  The heuristic would overestimate, violating admissibility.
+
+    \textbf{Conclusion (current implementation).}
+    The v3 coverage improvement (+25 instances vs.\ v2, +18 vs.\ mode~0)
+    comes entirely from the memory cap (step~5), which eliminates OOM on
+    \texttt{robot-horndl} and \texttt{robotConj-horndl}.  Non-goal-derived
+    factors contribute no heuristic information in the current implementation
+    because bisimulation collapses them to a single abstract state.  Mode~3's
+    coverage lead over mode~0 is driven by the broader applicability of Fix~C
+    together with the memory cap, not by heuristic strengthening from
+    non-goal-derived variable factors.  The proposed fix (item~\ref{item:derivability-partition})
+    addresses this limitation without sacrificing admissibility.
+
+  \item \label{item:derivability-partition}
+    \textbf{Proposed fix: use derivability as the bisimulation initial
+    partition for non-goal-derived variable factors.}
+    \emph{(Theoretical design; not yet implemented.)}
+
+    \subsubsection*{Problem statement}
+
+    The bisimulation collapse shown in item~6 is not a bug in the
+    bisimulation algorithm itself; it is a consequence of initialising
+    bisimulation from a \emph{trivial} partition.  Standard bisimulation
+    starts from the two-set partition $\{G, \overline{G}\}$ and iteratively
+    splits classes whose members behave differently under the transition
+    relation.  When $G$ is the full state space ($G = S$), the initial
+    partition contains a \emph{single class}; bisimulation can only refine
+    existing classes, so a single class can never be split, and the algorithm
+    terminates immediately with the 1-state abstraction.  No amount of
+    structural information in the transition relation can help: refinement
+    only fires when two states are in the same class \emph{and} have
+    different successors under some label, but a class of size~1 trivially
+    has no such pair.
+
+    The root issue is therefore: \textit{how can we give bisimulation a
+    non-trivial starting partition for a factor whose goal marking must remain
+    all-true for admissibility?}
+
+    \subsubsection*{Key observation: partition choice and goal marking are
+    independent}
+
+    Bisimulation is parameterised by two inputs: (a)~the transition relation,
+    and (b)~the \emph{initial partition}.  The initial partition guides which
+    distinctions the algorithm attempts to preserve; it is \emph{not} required
+    to coincide with the goal assignment stored in the resulting FTS.  The
+    only requirement on the FTS goal assignment is the admissibility
+    condition (over-approximation of the projected task goal).
+
+    This opens a two-step strategy:
+    \begin{enumerate}
+      \item Compute a \emph{semantically meaningful} partition of the product
+        states --- one that captures real distinctions in operator
+        applicability.
+      \item Feed that partition into bisimulation to shrink the factor.
+      \item After shrinking, re-mark all abstract states as goals (restoring
+        the all-true, admissible goal assignment).
+    \end{enumerate}
+
+    The final factor is admissible by construction (all abstract states are
+    goals), but it is no longer the trivial 1-state abstraction: the shrunk
+    factor retains the distinctions that the initial partition introduced,
+    wherever those distinctions are stable under the transition structure.
+
+    \subsubsection*{The derivability partition}
+
+    For a derived variable $d$ with axiom rules, the natural semantic
+    partition of product states is:
+    \[
+      P_d \;=\; \bigl\{\,s \mid \text{forward chaining fires } d \text{ at } s\bigr\}
+      \;\cup\;
+      \bigl\{\,s \mid \text{forward chaining does \emph{not} fire } d \text{ at } s\bigr\}
+    \]
+    i.e.\ the two-set partition $\{D, \overline{D}\}$ where $D$ is the set of
+    product states in which stratified forward chaining (the $(\cdot)^A$
+    transformation) causes $d$ to evaluate to its non-default value, and
+    $\overline{D}$ is the complement.
+
+    This partition is already computed in Step~4 of \texttt{build\_axiom\_factor}
+    for goal-derived variables (it is stored as \texttt{goal\_states}); the
+    code already runs the stratified fixpoint loop over the axiom rules.  For
+    non-goal-derived variables the same loop produces the correct $D /
+    \overline{D}$ partition but the result is currently written into
+    \texttt{goal\_states} and then silently overridden to all-true.  The
+    proposed fix retains the fixpoint result as the \emph{bisimulation seed},
+    separate from the FTS goal assignment.
+
+    \subsubsection*{Why the fix is admissible}
+
+    After shrinking with the $\{D, \overline{D}\}$ seed, every abstract state
+    is re-marked as a goal:
+    \begin{itemize}
+      \item The projected task goal onto the factor is all product states
+        (the task goal places no constraint on $d$).
+      \item All-true $\supseteq$ all-states: the abstract goal set is a valid
+        over-approximation.
+      \item The heuristic value $h(s) = 0$ for every abstract state in the
+        factor alone; merging with other factors never over-estimates.
+    \end{itemize}
+    Admissibility is therefore preserved regardless of the partition used to
+    seed bisimulation.
+
+    \subsubsection*{Why the fix is effective}
+
+    Bisimulation with the $\{D, \overline{D}\}$ seed will \emph{preserve}
+    the $D / \overline{D}$ distinction whenever the two sets are not
+    bisimilar: two states $s \in D$ and $t \in \overline{D}$ are kept in
+    different abstract states iff there is some operator label $\ell$ for
+    which $s$ and $t$ have successors in different classes (or exactly one
+    of them has a successor under $\ell$).
+
+    For a derived variable $d$ that appears in operator preconditions, the
+    operators requiring $d$ to be derived will typically be \emph{applicable}
+    from $D$-states and \emph{inapplicable} from $\overline{D}$-states (or
+    vice versa), because the BFS product-state construction already encodes
+    the primary-variable configurations that enable or block axiom firing.
+    Those operators create transitions in $D$ that are absent in $\overline{D}$,
+    stabilising the partition through bisimulation.
+
+    The shrunk factor therefore has at least two abstract states.  When this
+    factor is merged with a goal-bearing factor, the merged bisimulation can
+    produce $h > 0$ at product states that are goal-distant \emph{precisely
+    because they have not yet enabled $d$}.  Concretely: from an abstract
+    state representing $\overline{D}$, any operator that requires $d$ as a
+    precondition has no outgoing transition in the factor; the merged
+    heuristic correctly assigns a positive cost to reaching a state where $d$
+    is enabled before the operator can fire.
+
+    In the \texttt{optical-telegraphs} example (item~6), var32 (\texttt{blocked})
+    appears in preconditions of move-type operators.  With the current all-true
+    goal assignment, the 1-state factor tells the merged product ``always
+    enabled''; with the $\{D, \overline{D}\}$ seed, the shrunk factor retains
+    the \texttt{blocked}/\texttt{not-blocked} distinction, and move operators
+    requiring \texttt{blocked = false} are correctly gated.  The merged
+    heuristic would then be able to assign $h > 0$ to initial states where
+    the required clearance has not yet been established.
+
+    \subsubsection*{Comparison of approaches}
+
+    \begin{center}
+    \begin{tabular}{p{4.5cm} p{4.5cm} p{4.5cm}}
+    \toprule
+    & \textbf{Naive (derivability as goal)} & \textbf{Proposed (derivability as partition seed)} \\
+    \midrule
+    \textbf{FTS goal marking} & $d$-derivable states only & All states \\
+    \textbf{Admissible?} & \textbf{No} --- under-approx.\ of projected task goal & \textbf{Yes} --- exact over-approx. \\
+    \textbf{Bisimulation seed} & $\{D, \overline{D}\}$ & $\{D, \overline{D}\}$ \\
+    \textbf{Abstract states after shrink} & $\ge 2$ & $\ge 2$ \\
+    \textbf{Merged $h > 0$ possible?} & Yes, but unsound & \textbf{Yes, and sound} \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+
+    The only difference between the two approaches is whether the derivability
+    partition is used as the goal definition (inadmissible) or as the
+    bisimulation seed (admissible).  The proposed fix exploits the fact that
+    these are independent design choices.
+
+    \subsubsection*{Implementation sketch}
+
+    The change is localised to \texttt{build\_axiom\_factor} in
+    \texttt{fts\_factory.cc}.  After the existing Step~4 (stratified forward
+    chaining, lines~975--982 approximately), introduce a separate
+    \texttt{shrink\_goal\_states} vector that holds the derivability partition
+    for non-goal-derived variable groups:
+
+    \begin{lstlisting}[language=C++,
+        caption={Proposed change to build\_axiom\_factor (fts\_factory.cc)}]
+bool all_are_goal_vars =
+    (goal_value_for_derived_var.size() == derived_var_ids.size());
+
+// goal_states holds the FTS goal assignment (all-true for non-goal vars
+// after the Step 4 forward-chaining loop --- the inner loop never fires
+// because goal_value_for_derived_var is empty).
+//
+// For the bisimulation call we want a meaningful seed.
+// For non-goal vars: use the derivability partition computed by Step 4.
+// For goal vars:     seed equals goal_states (existing behaviour).
+
+vector<bool> shrink_seed = goal_states;  // copy
+
+if (!all_are_goal_vars) {
+    // Re-run forward chaining to compute d_derives[s] for the seed.
+    // This is identical to the Step-4 loop; separate result buffer.
+    vector<bool> d_derives(num_reachable_states, false);
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (int s = 0; s < num_reachable_states; ++s) {
+            if (d_derives[s]) continue;
+            // evaluate axiom rules for derived vars in derived_var_ids
+            // using the current-state primary-var values + d_derives[.];
+            // if any rule fires, set d_derives[s] = true, changed = true.
+            // (same logic as existing Step-4 fixpoint)
+        }
+    }
+    shrink_seed = d_derives;
+    // goal_states remains all-true for the FTS goal assignment.
+}
+
+// Call shrink with shrink_seed as the bisimulation goal input.
+// (Currently the call passes goal_states directly; replace with shrink_seed.)
+// After shrinking, restore all abstract states to goal = true using goal_states.
+    \end{lstlisting}
+
+    In practice the forward-chaining loop for \texttt{shrink\_seed} can be
+    unified with the existing Step~4 loop by running it unconditionally for
+    all variables in the group and writing results to a separate buffer; the
+    existing write to \texttt{goal\_states} is retained for goal-derived
+    variables and suppressed for non-goal-derived variables (where
+    \texttt{goal\_states} must stay all-true).
+
+    The shrink API (\texttt{ShrinkBisimulation::shrink}) accepts a
+    \texttt{TransitionSystem} reference; the \texttt{TransitionSystem} object
+    holds the goal-state vector.  One clean implementation is:
+    \begin{enumerate}
+      \item Temporarily overwrite the \texttt{TransitionSystem}'s goal vector
+        with \texttt{shrink\_seed} before calling \texttt{shrink}.
+      \item Restore the all-true goal vector after \texttt{shrink} returns
+        and before the factor is added to the FTS.
+    \end{enumerate}
+    This avoids changes to the \texttt{ShrinkStrategy} interface and requires
+    only a small wrapper around the existing call site.
+
+    \subsubsection*{Expected outcome}
+
+    With the fix applied to \texttt{optical-telegraphs}:
+    \begin{itemize}
+      \item The var32 factor would shrink to at least 2 abstract states
+        (\texttt{blocked=true} and \texttt{blocked=false} regions).
+      \item After merging with the 4-variable goal-derived factor, the merged
+        bisimulation can produce $h > 0$ at states where the \texttt{blocked}
+        predicate blocks required move operators.
+      \item Whether $h > 0$ actually fires at the initial state depends on
+        the specific instance; but the structural prerequisite (a non-trivial
+        non-goal-derived factor) is satisfied.
+    \end{itemize}
+
+    On \texttt{robot-horndl}, mode~3 currently builds 3 non-goal-derived
+    factors that all collapse to 1 state.  With the fix each of those factors
+    would retain the derivability partition, potentially providing separate
+    heuristic signals for the \texttt{DATALOG\_COLUMNS} and
+    \texttt{DATALOG\_INCONSISTENT} derived predicates.  Whether this
+    translates to improved coverage requires a new benchmark run after
+    implementation.
 
 \end{enumerate}
 

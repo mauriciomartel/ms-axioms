@@ -8852,12 +8852,30 @@ goal-derived group whose factor correctly encodes the goal constraint.
     \texttt{robot-horndl}.}  \emph{(Done; open research question identified.)}
 
     After removing the unconditional \texttt{all\_goal} block from
-    \texttt{build\_axiom\_factor} (\S\ref{sec:fix-c}), mode~3 on
-    \texttt{robot-horndl/compiledProblem01.pddl} builds 3 axiom factors
-    (136 primary variables selected) versus mode~1's 1 factor.  Despite the
-    larger set of factors, search statistics are \emph{identical}: both modes
-    produce $h = 2$, evaluate 81\,308 states, expand 77\,901 states, and find
-    0 dead ends.
+    \texttt{build\_axiom\_factor} (\S\ref{sec:fix-c}), two domains were tested
+    to verify the behaviour of non-goal-derived variable factors.
+
+    \textit{\texttt{robot-horndl/compiledProblem01.pddl}.}
+    Mode~3 builds 3 axiom factors (136 primary variables selected) versus
+    mode~1's 1 factor.  Despite the larger set of factors, search statistics
+    are \emph{identical}: both modes produce $h = 2$, evaluate 81\,308 states,
+    expand 77\,901 states, and find 0 dead ends.
+
+    \textit{\texttt{optical-telegraphs} (one instance).}
+    Mode~1 selects 4 goal-derived variables (var161, var162, var169, var176)
+    and builds 1 joint factor.  Mode~3 additionally selects var32 (a
+    non-goal-derived variable) and builds a second factor with 6 primary
+    variables and 286 relevant operators.  The factor's own diagnostic reports:
+    \begin{verbatim}
+  states=729 goal_states=729 init=0 init_goal_dist=0 solvable=YES
+    \end{verbatim}
+    All 729 reachable product states are goal states.  Both modes produce
+    $h = 0$ at the initial state (the WARNING fires in both runs), evaluate
+    11\,292 states, expand 10\,662 states, and find the same plan of cost~28.
+    Mode~3 incurs $\approx 0.9$\,s extra build time with no search benefit.
+    Notably, the goal-derived factor also collapses to $h = 0$ on this
+    instance, so the domain is one where M\&S provides no guidance regardless
+    of axiom-factor mode.
 
     \textbf{Root cause.}  Non-goal-derived factors have
     \texttt{goal\_value\_for\_derived\_var} empty, so \emph{every} BFS state

@@ -154,6 +154,14 @@ bool FactoredTransitionSystem::apply_abstraction(
     return true;
 }
 
+void FactoredTransitionSystem::restore_all_goal_states(int index) {
+    assert(is_active(index));
+    transition_systems[index]->set_all_goal_states();
+    // Distances cached from the shrink_seed goals are now stale, but
+    // goal_distance will read as all-zeros (all states are goals) once
+    // recomputed. No code between this call and the merge reads distances.
+}
+
 int FactoredTransitionSystem::merge(
     int index1, int index2, utils::LogProxy &log) {
     assert(is_component_valid(index1));

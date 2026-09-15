@@ -650,4 +650,8 @@ void TransitionSystem::statistics(utils::LogProxy &log) const {
             << " arcs " << endl;
     }
 }
+
+void TransitionSystem::set_all_goal_states() {
+    fill(goal_states.begin(), goal_states.end(), true);
+}
 }

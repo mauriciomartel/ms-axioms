@@ -550,7 +550,8 @@ int build_axiom_factor(
     utils::LogProxy &log,
     vector<int> *out_pending_var_order,
     vector<vector<int>> *out_state_pending_values,
-    bool apply_work_cap) {
+    bool apply_work_cap,
+    bool *out_all_are_goal_vars) {
 
     const Labels &labels = fts.get_labels();
     VariablesProxy variables = task_proxy.get_variables();
@@ -942,6 +943,10 @@ int build_axiom_factor(
     // This is done lazily — only for the num_reachable_states states
     // discovered above, not for every one of the full product states.
     // -----------------------------------------------------------------------
+    bool all_are_goal_vars =
+    (goal_value_for_derived_var.size() == derived_var_ids.size());
+
+    vector<bool> shrink_seed(num_reachable_states, false);
     vector<int> derived_vals(variables.size());
     vector<bool> goal_states(num_reachable_states, false);
     for (int d = 0; d < num_reachable_states; ++d) {
@@ -980,28 +985,51 @@ int build_axiom_factor(
             }
         }
         goal_states[d] = is_goal;
+
+        // Populate shrink_seed: the bisimulation initial partition.
+        // For goal-derived groups: same as goal_states (existing semantics).
+        // For non-goal-derived groups: true iff any derived variable in the group
+        // has been fired by forward chaining (derivability partition).
+        if (all_are_goal_vars) {
+            shrink_seed[d] = is_goal;
+        } else {
+            for (int dvar : derived_var_ids) {
+                if (derived_vals[dvar] != derived_default.at(dvar)) {
+                    shrink_seed[d] = true;
+                    break;
+                }
+            }
+        }
     }
 
-    // If no BFS state satisfies all derived goal conditions, the factor
-    // provides no useful heuristic information and would return h=INF for
-    // the initial state (inadmissible). Skip it, same as the BFS-cap case.
+    // If no state satisfies the shrink_seed criterion, skip the factor.
+    // For goal-derived groups: no state satisfies the goal conditions, so
+    //   h=INF at the initial state would be inadmissible.
+    // For non-goal-derived groups: d is never derivable in the product
+    //   space, so operators requiring d are permanently inapplicable; the
+    //   factor contributes nothing and can be safely omitted.
     bool has_any_goal = false;
-    for (bool g : goal_states) {
+    for (bool g : shrink_seed) {
         if (g) { has_any_goal = true; break; }
     }
     if (!has_any_goal) {
         if (log.is_at_least_normal())
-            log << "  Axiom factor BFS: no goal states reachable; skipping factor"
-                   " (heuristic remains admissible)." << endl;
+            log << "  Axiom factor: no state satisfies the partition criterion "
+                   "(goal-derived: no goal state reachable; non-goal-derived: "
+                   "d never derivable); skipping factor "
+                   "(heuristic remains admissible)." << endl;
         return -1;
     }
 
-    // Guard: if the dense initial state cannot reach any goal state via the
-    // transitions built above, the factor would give h=INF for the task's
-    // actual initial state — inadmissible. Skip for the same reason as Fix A.
+    // Guard: if the initial state cannot reach any state satisfying the
+    // shrink_seed criterion via the built transitions, skip the factor.
+    // For goal-derived groups: no path to a goal state → h=INF at init,
+    //   inadmissible.
+    // For non-goal-derived groups: d is never reachable from init → the
+    //   derivability partition provides no information from the start state.
     {
         int init_dense = full_to_dense.at(init_full_state);
-        if (!goal_states[init_dense]) {
+        if (!shrink_seed[init_dense]) {   // init is not in partition "D"
             // Build a compact successor list to avoid rescanning label_trans
             // for every BFS state.
             vector<vector<int>> succ(num_reachable_states);
@@ -1023,52 +1051,52 @@ int build_axiom_factor(
                 for (int t : succ[s]) {
                     if (!visited[t]) {
                         visited[t] = true;
-                        if (goal_states[t]) { found = true; break; }
+                        if (shrink_seed[t]) { found = true; break; }
                         fw.push(t);
                     }
                 }
             }
             if (!found) {
                 if (log.is_at_least_normal())
-                    log << "  Axiom factor: initial state cannot reach any goal "
-                           "state; skipping factor (heuristic remains admissible)."
-                        << endl;
+                    log << "  Axiom factor: initial state cannot reach any "
+                       "state satisfying the partition criterion "
+                       "(goal-derived: no reachable goal; non-goal-derived: "
+                       "d unreachable from init); skipping factor "
+                       "(heuristic remains admissible)." << endl;
                 return -1;
             }
         }
     }
 
-    // Improvement 1: if every reachable state is a goal state, the factor
-    // contributes h=0 everywhere. Only skip when the group is purely
-    // goal-derived — non-goal derived variable factors must be kept for
-    // correct operator applicability even though h=0 throughout.
+    // Improvement 1: if every reachable state satisfies the shrink_seed
+    // criterion, bisimulation collapses the factor to a single abstract state
+    // (h=0 everywhere). Skip in both cases:
+    //   Goal-derived groups:     all states satisfy the goal conditions.
+    //   Non-goal-derived groups: d is always derivable — trivial partition.
     {
-        bool all_are_goal_vars =
-            (goal_value_for_derived_var.size() == derived_var_ids.size());
-        if (all_are_goal_vars) {
-            bool all_goal = true;
-            for (bool g : goal_states) {
-                if (!g) { all_goal = false; break; }
-            }
-            if (all_goal) {
-                if (log.is_at_least_normal())
-                    log << "  Axiom factor: all " << num_reachable_states
-                        << " reachable state(s) are goal states (h=0 everywhere);"
-                           " skipping factor (heuristic remains admissible)."
-                        << endl;
-                return -1;
-            }
+        bool all_goal = true;
+        for (bool g : shrink_seed) {
+            if (!g) { all_goal = false; break; }
+        }
+        if (all_goal) {
+            if (log.is_at_least_normal())
+                log << "  Axiom factor: all " << num_reachable_states
+                    << " reachable state(s) satisfy the partition criterion "
+                       "(h=0 everywhere); skipping factor "
+                       "(heuristic remains admissible)." << endl;
+            return -1;
         }
     }
 
     // Deferred operators: those whose only connection to this factor is a
-    // precondition on a target derived variable. The derived variable is true
-    // exactly in goal states, so add self-loops there and nothing elsewhere.
+    // precondition on a target derived variable. The operator is applicable
+    // exactly when d is derivable (shrink_seed[s] = true), so add self-loops
+    // at those states and nothing elsewhere.
     for (const RelevantOperator &rop : relevant_ops) {
         if (!rop.has_derived_pre)
             continue;
         for (int s = 0; s < num_reachable_states; ++s) {
-            if (goal_states[s])
+            if (shrink_seed[s])
                 label_trans[rop.label].emplace_back(s, s);
         }
     }
@@ -1143,11 +1171,13 @@ int build_axiom_factor(
     // is still also represented exactly by a separate atomic factor.
     // -----------------------------------------------------------------------
 
-    // Find the first goal state's dense id to use as the fallback
-    // for primary variable configurations absent from the BFS.
+    // Find the first state satisfying the shrink_seed criterion (a goal state
+    // for goal-derived groups; a d-derivable state for non-goal-derived groups)
+    // to use as the fallback for primary variable configurations absent from
+    // the BFS.
     int goal_dense_id = -1;
     for (int d = 0; d < num_reachable_states; ++d)
-        if (goal_states[d]) { goal_dense_id = d; break; }
+        if (shrink_seed[d]) { goal_dense_id = d; break; }
 
     auto ts = make_unique<TransitionSystem>(
         num_total_vars,
@@ -1156,7 +1186,7 @@ int build_axiom_factor(
         move(label_to_local_label),
         move(local_label_infos),
         num_reachable_states,
-        move(goal_states),
+        all_are_goal_vars ? move(goal_states) : move(shrink_seed),
         full_to_dense.at(init_full_state),
         /* axiom_derived */ true);
 
@@ -1193,6 +1223,8 @@ int build_axiom_factor(
         log << " solvable=" << (fts.is_factor_solvable(added_index) ? "YES" : "NO")
             << endl;
     }
+    if (out_all_are_goal_vars)
+        *out_all_are_goal_vars = all_are_goal_vars;
     return added_index;
 }
 }

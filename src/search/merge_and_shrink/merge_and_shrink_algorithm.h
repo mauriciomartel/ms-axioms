@@ -62,6 +62,10 @@ class MergeAndShrinkAlgorithm {
     std::unordered_map<int, std::vector<int>> axiom_factor_pending_var_order;
     std::unordered_map<int, std::vector<std::vector<int>>>
         axiom_factor_pending_values;
+    // Indices of axiom factors built for non-goal-derived variable groups.
+    // These factors use the derivability partition as the bisimulation seed;
+    // goals must be restored to all-true after shrinking, before merging.
+    std::unordered_set<int> non_goal_derived_axiom_indices;
     void report_peak_memory_delta(bool final = false) const;
     void dump_options() const;
     void warn_on_unusual_options() const;

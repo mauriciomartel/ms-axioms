@@ -322,6 +322,16 @@ void MergeAndShrinkAlgorithm::main_loop(
             log_main_loop_progress("after shrinking");
         }
 
+        // Restore all-true goals for non-goal-derived axiom factors before
+        // merging. Bisimulation ran with the derivability partition as seed;
+        // restoring here ensures the merged factor has correct admissible goals
+        // (merged_goal = ts1.goal AND ts2.goal; both must be all-true).
+        for (int idx : {merge_index1, merge_index2}) {
+            if (non_goal_derived_axiom_indices.erase(idx)) {
+                fts.restore_all_goal_states(idx);
+            }
+        }
+
         if (ran_out_of_time(timer)) {
             break;
         }
@@ -636,18 +646,24 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
                 }
                 if (factor_too_large) break;
             }
+            bool axiom_all_goal_vars = true;
             int axiom_index = factor_too_large
                 ? -1
                 : build_axiom_factor(
                       task_proxy, derived_var_ids, fts, log,
-                      &pending_var_order, &pending_state_values, apply_cap);
+                      &pending_var_order, &pending_state_values, apply_cap,
+                      &axiom_all_goal_vars);
 
             // Collapse dead-end axiom factor states (goal_dist=INF) into the
             // goal state. Task states mapping to dead-end axiom factor states
             // receive h=INF; if those task states can reach the goal in the
             // real task, this is inadmissible. Merging them into the goal
             // state gives h=0 (admissible: 0 <= h*).
-            if (axiom_index >= 0) {
+            // Skipped for non-goal-derived factors (axiom_all_goal_vars=false):
+            // those factors use the derivability partition as the bisimulation
+            // seed, so states unreachable from any d-derivable state represent
+            // legitimate primary-variable configurations and must be preserved.
+            if (axiom_index >= 0 && axiom_all_goal_vars) {
                 const TransitionSystem &ax_ts =
                     fts.get_transition_system(axiom_index);
                 const Distances &ax_d = fts.get_distances(axiom_index);
@@ -678,6 +694,9 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
                     }
                 }
             }
+
+            if (axiom_index >= 0 && !axiom_all_goal_vars)
+                non_goal_derived_axiom_indices.insert(axiom_index);
 
             // Collapse each derived-variable atomic factor to a single
             // abstract state. Operators cannot set derived variables, so

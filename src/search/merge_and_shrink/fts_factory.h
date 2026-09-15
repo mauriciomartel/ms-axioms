@@ -53,6 +53,9 @@ extern std::unordered_set<int> compute_axiom_factor_primary_vars(
   into it (see MergeAndShrinkAlgorithm::axiom_factor_pending_vars).
 
   Returns the index of the newly added factor in the FTS.
+  If out_all_are_goal_vars is non-null, it is set to true iff every derived
+  variable in the group is a planning goal variable. The caller uses this to
+  decide whether to apply the dead-end collapse to the new factor.
 */
 extern int build_axiom_factor(
     const TaskProxy &task_proxy,
@@ -61,7 +64,8 @@ extern int build_axiom_factor(
     utils::LogProxy &log,
     std::vector<int> *out_pending_var_order = nullptr,
     std::vector<std::vector<int>> *out_state_pending_values = nullptr,
-    bool apply_work_cap = true);
+    bool apply_work_cap = true,
+    bool *out_all_are_goal_vars = nullptr);
 }
 
 #endif

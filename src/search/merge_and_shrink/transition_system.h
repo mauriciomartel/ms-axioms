@@ -280,6 +280,8 @@ public:
         return goal_states[state];
     }
 
+    void set_all_goal_states();   // mark every abstract state as a goal
+
     const std::vector<int> &get_incorporated_variables() const {
         return incorporated_variables;
     }

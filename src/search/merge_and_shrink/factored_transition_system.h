@@ -128,6 +128,14 @@ public:
         utils::LogProxy &log);
 
     /*
+      Restore all abstract states to goal=true for a non-goal-derived axiom
+      factor, after bisimulation has already run with the derivability partition
+      as its seed. Must be called before merging to prevent the merged factor
+      from inheriting the temporary seed goal assignment.
+    */
+    void restore_all_goal_states(int index);
+
+    /*
       Merge the two factors at index1 and index2.
     */
     int merge(int index1, int index2, utils::LogProxy &log);

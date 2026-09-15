@@ -9263,24 +9263,34 @@ with \texttt{bisimulation\_limit=50000} unless noted.
 \subsubsection*{Results}
 
 \begin{center}
-\begin{tabular}{lcccc}
+\begin{tabular}{lccccc}
 \toprule
 \textbf{Domain / instance} & \boldmath$h(\text{init})$ M3 &
   \boldmath$h(\text{init})$ M1 & \textbf{Expanded M3} &
-  \textbf{Expanded M1} \\
+  \textbf{Expanded M1} & \textbf{Max interm.\ M3 / M1} \\
 \midrule
-robot-horndl \texttt{p01}             & 2 & 2 & 77\,901 & 77\,901 \\
-optical-telegraphs \texttt{tc-x-4} (50k) & 0 & 0 & 10\,662 & 10\,662 \\
-optical-telegraphs \texttt{tc-x-4} (100k) & 0 & 0 & 10\,662 & 10\,662 \\
-robotConj-horndl \texttt{p01}         & 0 & 0 & 16      & 16      \\
-psr-middle \texttt{p01}               & 0 & 0 & 104     & 104     \\
+robot-horndl \texttt{p01}
+  & 2 & 2 & 77\,901 & 77\,901 & --- \\
+optical-telegraphs \texttt{tc-x-4} (50k)
+  & 0 & 0 & 10\,662 & 10\,662 & --- \\
+optical-telegraphs \texttt{tc-x-4} (100k)
+  & 0 & 0 & 10\,662 & 10\,662 & --- \\
+robotConj-horndl \texttt{p01}
+  & 0 & 0 & 16      & 16      & --- \\
+psr-middle \texttt{p01}
+  & 0 & 0 & 104     & 104     & --- \\
+psr-middle \texttt{p05} (34 switches)
+  & 0 & 0 & 794     & 794     & 4 / 2 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 In every tested case mode~3 produces identical heuristic quality and
-identical search behaviour to mode~1.  The extra computation time for
-mode~3 (constructing non-goal-derived axiom factors and then discarding
+identical search behaviour to mode~1.  The only observable difference is
+the maximum intermediate abstraction size: in psr-middle p05 mode~3
+reaches 4~states vs.\ 2~states for mode~1, because the trivial 2-state
+var3 factor is merged before being discarded.  The extra computation time
+for mode~3 (constructing non-goal-derived axiom factors and then discarding
 them) is at most a few seconds, making mode~3 strictly worse in wall-clock
 terms with no compensating benefit.
 
@@ -9314,12 +9324,26 @@ derived predicate \texttt{affected} (non-goal-derived) appears directly in
 the preconditions of \texttt{open}/\texttt{close}/\texttt{wait} operators.
 In principle, restricted operator applicability in non-derivable states could
 create longer minimum-distance paths in the merged product even after goal
-restoration.  In practice, the p01 instance (17~switches) is too small for
-this effect to be observed: \texttt{affected} corresponds to variable~0 with
-\texttt{shrink\_seed} all-false (\emph{never derivable} in the abstract
-reachable states), so the factor is skipped entirely; the remaining factors
-all collapse to $h = 0$.  Larger instances (p02 and above) were not
-benchmarked in the current round.
+restoration.  In practice, this effect is not observed at any tested scale:
+
+\begin{itemize}
+  \item \textbf{p01} (17~switches): \texttt{affected} corresponds to var0;
+        \texttt{shrink\_seed} is all-false (\emph{never derivable}), factor
+        skipped.  All remaining factors collapse to $h = 0$.
+  \item \textbf{p05} (34~switches, 3~non-feeders): mode~3 selects 6~derived
+        variables (var0, var1, var3, var13, var93, var95).  Both var0 and var1
+        (\texttt{affected}-type) are again \emph{never derivable} and skipped.
+        var3 produces a 2-state factor with \texttt{init\_goal\_dist=0},
+        collapsing to $h = 0$.  The vars-\{13,93,95\} group is kept in mode~3
+        but also 0~factors are retained.  Search is identical to mode~1:
+        $h = 0$, 794~states expanded, same plan.
+\end{itemize}
+
+The \emph{never derivable} result for \texttt{affected} appears structural in
+PSR-middle: the axiom factor BFS starts from an abstract initial state where
+the fault has not yet propagated through the network, and the abstracted
+primary variables never reach a configuration where the derivation fires.
+This holds regardless of instance size.
 
 \subsubsection*{Theoretical improvement path}
 

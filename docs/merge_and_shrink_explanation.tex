@@ -9296,71 +9296,71 @@ terms with no compensating benefit.
 
 \subsubsection*{Root cause}
 
-The failure is structural, not domain-specific.  For any non-goal-derived
-variable $d$ the following chain of facts forces $h = 0$:
+Three distinct failure modes are observed across the tested instances.
 
-\begin{enumerate}
-  \item The planning task contains no goal constraint on $d$.
-  \item Therefore, after calling \texttt{restore\_all\_goal\_states()} (required
-        for admissibility), every abstract state in the $d$-factor is a goal.
-  \item Bisimulation with a trivial goal partition $(\text{all states goal})$
-        collapses the factor to a single abstract state.
-  \item A single-state factor contributes $h = 0$ to the merged abstraction.
-\end{enumerate}
+\paragraph{Case~1: never derivable ($D = \emptyset$).}
+When \texttt{shrink\_seed} is all-false for a non-goal-derived factor, the
+factor is skipped entirely (returns $-1$).  No bisimulation is run, no factor
+is added, and mode~3 provides exactly the same FTS as mode~1.  This is the
+cause for \texttt{affected} variables in psr-middle p01 and p05.
 
-The derivability partition $\{D, \overline{D}\}$ computed during factor
-construction captures which concrete states can derive $d$.  This information
-is non-trivial only when $D \neq \emptyset$ and $D \neq S$.  However, the
-\texttt{TransitionSystem} constructor receives \texttt{shrink\_seed} (the
-derivability partition) as its goal argument for non-goal-derived factors, and
-the subsequent \texttt{restore\_all\_goal\_states()} call \emph{overwrites}
-that assignment with all-true before the factor participates in any merge.
-The useful partition therefore never reaches the bisimulation computation in
-the merged product.
+The \emph{never derivable} result is a topological property of the PSR network:
+the specific breakers corresponding to var0 and var1 are on sides of the
+network that share no \texttt{upstream} path to the fault location.  Because
+all \texttt{connected}$(x, s_x, \mathrm{cb}, s)$ facts for those breakers are
+static and false, every ground axiom rule whose head is
+\texttt{upstream}$(?, ?, \mathrm{cb}, s)$ has a permanently unsatisfied body;
+therefore \texttt{affected}$(\mathrm{cb})$ can never fire for any combination
+of switch values in any reachable state.
 
-\paragraph{Why preconditions do not help.}
-The PSR domain (\texttt{psr-middle}) was specifically chosen because the
-derived predicate \texttt{affected} (non-goal-derived) appears directly in
-the preconditions of \texttt{open}/\texttt{close}/\texttt{wait} operators.
-In principle, restricted operator applicability in non-derivable states could
-create longer minimum-distance paths in the merged product even after goal
-restoration.  In practice, this effect is not observed at any tested scale:
+\paragraph{Case~2: derivable at init ($\mathrm{init} \in D$).}
+When the initial state already satisfies the derivability condition, the axiom
+factor is built but the initial abstract state is a goal state; goal distance
+from init is 0.  After bisimulation (which does use the derivability partition
+as seed), \texttt{restore\_all\_goal\_states()} makes both abstract states
+goals before the merge.  Because the initial state's distance to goal is~0 in
+the isolated factor, it also contributes~0 to the merged abstraction.
+This is the cause for var3 in psr-middle p05 (\texttt{init\_goal\_dist=0}).
 
-\begin{itemize}
-  \item \textbf{p01} (17~switches): \texttt{affected} corresponds to var0;
-        \texttt{shrink\_seed} is all-false (\emph{never derivable}), factor
-        skipped.  All remaining factors collapse to $h = 0$.
-  \item \textbf{p05} (34~switches, 3~non-feeders): mode~3 selects 6~derived
-        variables (var0, var1, var3, var13, var93, var95).  Both var0 and var1
-        (\texttt{affected}-type) are again \emph{never derivable} and skipped.
-        var3 produces a 2-state factor with \texttt{init\_goal\_dist=0},
-        collapsing to $h = 0$.  The vars-\{13,93,95\} group is kept in mode~3
-        but also 0~factors are retained.  Search is identical to mode~1:
-        $h = 0$, 794~states expanded, same plan.
-\end{itemize}
+\paragraph{Case~3: the derivability partition is used, but h=0 persists.}
+For factors that pass cases~1 and~2 (non-trivial $D$, init $\notin D$),
+bisimulation \emph{does} run with the derivability partition as seed ---
+\texttt{shrink\_before\_merge\_step} is called \emph{before}
+\texttt{restore\_all\_goal\_states()} in the main loop, so the useful
+$\{D, \overline{D}\}$ partition reaches bisimulation.  After shrinking, the
+factor has at least two abstract states.  Restoration then makes both states
+goals, and the merged product's goal set is determined solely by the other
+factor's goals.  The non-goal-derived factor contributes only via transition
+structure: operators requiring $d$ are absent in $\overline{D}$ states,
+potentially blocking abstract paths.  For the tested instances, however, no
+such blocking effect changes $h$ from~0.
 
-The \emph{never derivable} result for \texttt{affected} appears structural in
-PSR-middle: the axiom factor BFS starts from an abstract initial state where
-the fault has not yet propagated through the network, and the abstracted
-primary variables never reach a configuration where the derivation fires.
-This holds regardless of instance size.
+The vars-\{13,93,95\} group in psr-middle p05 falls into this category:
+the factor is retained but search remains identical to mode~1 because the
+transition-blocking effect does not alter any path length in the merged
+product at this instance size.
 
 \subsubsection*{Theoretical improvement path}
 
-A fix that preserves non-goal-derived information would require one of:
+The partition \emph{is} used by bisimulation in the current implementation.
+The limitation is that the resulting transition-structure signal (blocked
+operators in $\overline{D}$ states) does not raise any $h$-value in the
+tested instances.  A stronger approach would require:
 
 \begin{itemize}
   \item \textbf{Pre-merging before restoration.}  Merge the non-goal-derived
         factor with the goal-derived factors \emph{before} calling
-        \texttt{restore\_all\_goal\_states()}, so that the derivability
-        partition influences the joint bisimulation.  Goal restoration is then
-        applied to the merged factor, which already encodes the coupling
-        between goal achievement and derivability.  This requires changing the
-        merge order so that non-goal-derived factors are always merged first.
+        \texttt{restore\_all\_goal\_states()}, so that the joint bisimulation
+        operates on goal states $\{(d, g) \mid d \in D,\, g \in G\}$ rather
+        than $\{(d, g) \mid g \in G\}$.  Restoration is then applied to the
+        already-merged factor; the resulting h-values encode the cost of
+        reaching a state where $d$ is derivable \emph{and} the goal-derived
+        variable is satisfied.  This requires changing the merge order so that
+        non-goal-derived factors are always merged before restoration.
+        (Current order: shrink $\to$ restore $\to$ merge.)
 
-  \item \textbf{Transition-structure signal.}  Retain the non-goal-derived
-        factor's transition system but derive the heuristic value from
-        \emph{reachability under restricted transitions} rather than from
+  \item \textbf{Transition-structure signal.}  Derive the heuristic value
+        from reachability under restricted transitions rather than from
         goal-state distance.  Operators with an unsatisfied precondition on
         $d$ are absent in non-derivable states, giving longer paths.  This
         requires a new shrinking strategy that is sound with respect to
@@ -9369,6 +9369,6 @@ A fix that preserves non-goal-derived information would require one of:
 
 Neither approach is implemented in the current codebase; this benchmark
 evaluation confirms that mode~3 as currently implemented provides no benefit
-over mode~1.
+over mode~1 on the tested domains.
 
 \end{document}

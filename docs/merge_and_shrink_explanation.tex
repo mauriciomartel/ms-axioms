@@ -8919,9 +8919,10 @@ goal-derived group whose factor correctly encodes the goal constraint.
     addresses this limitation without sacrificing admissibility.
 
   \item \label{item:derivability-partition}
-    \textbf{Proposed fix: use derivability as the bisimulation initial
+    \textbf{Fix: use derivability as the bisimulation initial
     partition for non-goal-derived variable factors.}
-    \emph{(Theoretical design; not yet implemented.)}
+    \emph{(Implemented; commit \texttt{a11ee90} on \texttt{feature/axioms-in-ms}.)}
+
 
     \subsubsection*{Problem statement}
 
@@ -9062,93 +9063,158 @@ goal-derived group whose factor correctly encodes the goal constraint.
     bisimulation seed (admissible).  The proposed fix exploits the fact that
     these are independent design choices.
 
-    \subsubsection*{Implementation sketch}
+    \subsubsection*{Implementation}
 
-    The change is localised to \texttt{build\_axiom\_factor} in
-    \texttt{fts\_factory.cc}.  After the existing Step~4 (stratified forward
-    chaining, lines~975--982 approximately), introduce a separate
-    \texttt{shrink\_goal\_states} vector that holds the derivability partition
-    for non-goal-derived variable groups:
+    The implementation spans six files.  The key changes are described below.
 
-    \begin{lstlisting}[language=C++,
-        caption={Proposed change to build\_axiom\_factor (fts\_factory.cc)}]
-bool all_are_goal_vars =
-    (goal_value_for_derived_var.size() == derived_var_ids.size());
-
-// goal_states holds the FTS goal assignment (all-true for non-goal vars
-// after the Step 4 forward-chaining loop --- the inner loop never fires
-// because goal_value_for_derived_var is empty).
-//
-// For the bisimulation call we want a meaningful seed.
-// For non-goal vars: use the derivability partition computed by Step 4.
-// For goal vars:     seed equals goal_states (existing behaviour).
-
-vector<bool> shrink_seed = goal_states;  // copy
-
-if (!all_are_goal_vars) {
-    // Re-run forward chaining to compute d_derives[s] for the seed.
-    // This is identical to the Step-4 loop; separate result buffer.
-    vector<bool> d_derives(num_reachable_states, false);
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (int s = 0; s < num_reachable_states; ++s) {
-            if (d_derives[s]) continue;
-            // evaluate axiom rules for derived vars in derived_var_ids
-            // using the current-state primary-var values + d_derives[.];
-            // if any rule fires, set d_derives[s] = true, changed = true.
-            // (same logic as existing Step-4 fixpoint)
-        }
-    }
-    shrink_seed = d_derives;
-    // goal_states remains all-true for the FTS goal assignment.
+    \paragraph{\texttt{transition\_system.h/.cc} --- new \texttt{set\_all\_goal\_states}.}
+    A single public method marks every abstract state as a goal:
+    \begin{lstlisting}[language=C++]
+void TransitionSystem::set_all_goal_states() {
+    fill(goal_states.begin(), goal_states.end(), true);
 }
-
-// Call shrink with shrink_seed as the bisimulation goal input.
-// (Currently the call passes goal_states directly; replace with shrink_seed.)
-// After shrinking, restore all abstract states to goal = true using goal_states.
     \end{lstlisting}
 
-    In practice the forward-chaining loop for \texttt{shrink\_seed} can be
-    unified with the existing Step~4 loop by running it unconditionally for
-    all variables in the group and writing results to a separate buffer; the
-    existing write to \texttt{goal\_states} is retained for goal-derived
-    variables and suppressed for non-goal-derived variables (where
-    \texttt{goal\_states} must stay all-true).
+    \paragraph{\texttt{factored\_transition\_system.h/.cc} --- new \texttt{restore\_all\_goal\_states}.}
+    Exposes goal restoration through the FTS interface without requiring
+    callers to reach into \texttt{TransitionSystem} internals:
+    \begin{lstlisting}[language=C++]
+void FactoredTransitionSystem::restore_all_goal_states(int index) {
+    assert(is_active(index));
+    transition_systems[index]->set_all_goal_states();
+    // Distances cached from the shrink_seed goals are now stale, but no
+    // code between this call and the subsequent merge() reads distances.
+}
+    \end{lstlisting}
 
-    The shrink API (\texttt{ShrinkBisimulation::shrink}) accepts a
-    \texttt{TransitionSystem} reference; the \texttt{TransitionSystem} object
-    holds the goal-state vector.  One clean implementation is:
-    \begin{enumerate}
-      \item Temporarily overwrite the \texttt{TransitionSystem}'s goal vector
-        with \texttt{shrink\_seed} before calling \texttt{shrink}.
-      \item Restore the all-true goal vector after \texttt{shrink} returns
-        and before the factor is added to the FTS.
-    \end{enumerate}
-    This avoids changes to the \texttt{ShrinkStrategy} interface and requires
-    only a small wrapper around the existing call site.
+    \paragraph{\texttt{fts\_factory.h/.cc} --- \texttt{shrink\_seed} and new output parameter.}
+
+    \texttt{build\_axiom\_factor} gains one optional output parameter:
+    \begin{lstlisting}[language=C++]
+extern int build_axiom_factor(
+    ...,
+    bool apply_work_cap = true,
+    bool *out_all_are_goal_vars = nullptr);
+    \end{lstlisting}
+
+    Inside the function, \texttt{all\_are\_goal\_vars} is computed before
+    Step~4 and a \texttt{shrink\_seed} vector is populated alongside
+    \texttt{goal\_states} in the forward-chaining loop:
+
+    \begin{lstlisting}[language=C++]
+bool all_are_goal_vars =
+    (goal_value_for_derived_var.size() == derived_var_ids.size());
+vector<bool> shrink_seed(num_reachable_states, false);
+// ... (Step 4 loop) ...
+        goal_states[d] = is_goal;
+        if (all_are_goal_vars) {
+            shrink_seed[d] = is_goal;
+        } else {
+            for (int dvar : derived_var_ids) {
+                if (derived_vals[dvar] != derived_default.at(dvar)) {
+                    shrink_seed[d] = true; break;
+                }
+            }
+        }
+    \end{lstlisting}
+
+    All subsequent uses of \texttt{goal\_states} that drive the bisimulation
+    partition --- the no-goal skip, the init-reachability check, Improvement~1,
+    the deferred operator self-loops, \texttt{goal\_dense\_id}, and the
+    \texttt{TransitionSystem} constructor --- are replaced with
+    \texttt{shrink\_seed}:
+
+    \begin{lstlisting}[language=C++]
+// has_any_goal check
+for (bool g : shrink_seed) { ... }
+
+// init-reachability BFS
+if (!shrink_seed[init_dense]) {
+    ...
+    if (shrink_seed[t]) { found = true; break; }
+}
+
+// Improvement 1 (unified for goal and non-goal groups)
+bool all_goal = true;
+for (bool g : shrink_seed) { if (!g) { all_goal = false; break; } }
+if (all_goal) { return -1; }   // h=0 everywhere
+
+// Deferred operator self-loops
+if (shrink_seed[s])
+    label_trans[rop.label].emplace_back(s, s);
+
+// goal_dense_id fallback
+if (shrink_seed[d]) { goal_dense_id = d; break; }
+
+// TransitionSystem constructor
+auto ts = make_unique<TransitionSystem>(
+    ...,
+    all_are_goal_vars ? move(goal_states) : move(shrink_seed),
+    ...);
+    \end{lstlisting}
+
+    The constructor call is the key step: for goal-derived groups the TS
+    receives the real goal assignment (unchanged); for non-goal-derived groups
+    it receives the derivability partition, so bisimulation starts from
+    $\{D, \overline{D}\}$ rather than the trivial single-class partition.
+
+    \paragraph{\texttt{merge\_and\_shrink\_algorithm.h/.cc} --- tracking and restoration.}
+
+    A new member set tracks the indices of non-goal-derived axiom factors:
+    \begin{lstlisting}[language=C++]
+std::unordered_set<int> non_goal_derived_axiom_indices;
+    \end{lstlisting}
+
+    At the \texttt{build\_axiom\_factor} call site, the new output parameter
+    is captured and the dead-end collapse is gated on \texttt{axiom\_all\_goal\_vars}
+    (non-goal-derived factors must preserve states that can never derive $d$,
+    since those represent real primary-variable configurations):
+
+    \begin{lstlisting}[language=C++]
+bool axiom_all_goal_vars = true;
+int axiom_index = factor_too_large
+    ? -1
+    : build_axiom_factor(..., apply_cap, &axiom_all_goal_vars);
+
+if (axiom_index >= 0 && axiom_all_goal_vars) {
+    // dead-end collapse (goal-derived factors only)
+}
+if (axiom_index >= 0 && !axiom_all_goal_vars)
+    non_goal_derived_axiom_indices.insert(axiom_index);
+    \end{lstlisting}
+
+    In the main merge loop, after \texttt{shrink\_before\_merge\_step} and
+    before \texttt{fts.merge}, goals are restored so that the merged factor
+    inherits the correct all-true goal assignment:
+
+    \begin{lstlisting}[language=C++]
+bool shrunk = shrink_before_merge_step(...);
+
+for (int idx : {merge_index1, merge_index2}) {
+    if (non_goal_derived_axiom_indices.erase(idx)) {
+        fts.restore_all_goal_states(idx);
+    }
+}
+    \end{lstlisting}
 
     \subsubsection*{Expected outcome}
 
-    With the fix applied to \texttt{optical-telegraphs}:
-    \begin{itemize}
-      \item The var32 factor would shrink to at least 2 abstract states
-        (\texttt{blocked=true} and \texttt{blocked=false} regions).
-      \item After merging with the 4-variable goal-derived factor, the merged
-        bisimulation can produce $h > 0$ at states where the \texttt{blocked}
-        predicate blocks required move operators.
-      \item Whether $h > 0$ actually fires at the initial state depends on
-        the specific instance; but the structural prerequisite (a non-trivial
-        non-goal-derived factor) is satisfied.
-    \end{itemize}
+    With the fix applied, non-goal-derived variable factors have a non-trivial
+    bisimulation seed $\{D, \overline{D}\}$ and retain at least 2 abstract
+    states after shrinking (wherever $D \neq \emptyset$ and $D \neq S$).
 
-    On \texttt{robot-horndl}, mode~3 currently builds 3 non-goal-derived
-    factors that all collapse to 1 state.  With the fix each of those factors
-    would retain the derivability partition, potentially providing separate
-    heuristic signals for the \texttt{DATALOG\_COLUMNS} and
-    \texttt{DATALOG\_INCONSISTENT} derived predicates.  Whether this
-    translates to improved coverage requires a new benchmark run after
-    implementation.
+    For \texttt{optical-telegraphs} (var32, \texttt{blocked}): the factor
+    retains the \texttt{blocked=true}/\texttt{blocked=false} distinction.
+    After merging with the 4-variable goal-derived factor, the merged
+    bisimulation can assign $h > 0$ at states where \texttt{blocked} has not
+    yet been established and move operators requiring it are blocked.
+
+    For \texttt{robot-horndl}: the 3 non-goal-derived factors (\texttt{DATALOG\_COLUMNS},
+    \texttt{DATALOG\_INCONSISTENT}) previously collapsed to 1 state each and
+    contributed zero heuristic information.  With the fix each retains the
+    derivability partition and can provide separate signals in the merged
+    abstraction.  Whether this translates to improved coverage over mode~0 and
+    blind requires a new benchmark run.
 
 \end{enumerate}
 

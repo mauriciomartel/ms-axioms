@@ -9251,4 +9251,100 @@ Remove axiom abort &
 \end{tabular}
 \end{center}
 
+\subsection{Benchmark Evaluation: Mode~3 vs.\ Mode~1}
+\label{sec:mode3-benchmark}
+
+Four domains were tested to evaluate whether \texttt{axiom\_factor\_mode=3}
+(\textsc{all\_capped}) improves over \texttt{axiom\_factor\_mode=1}
+(\textsc{only\_goal}) in practice.  All runs used the implementation
+described above (commit \texttt{a11ee90} on \texttt{feature/axioms-in-ms})
+with \texttt{bisimulation\_limit=50000} unless noted.
+
+\subsubsection*{Results}
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Domain / instance} & \boldmath$h(\text{init})$ M3 &
+  \boldmath$h(\text{init})$ M1 & \textbf{Expanded M3} &
+  \textbf{Expanded M1} \\
+\midrule
+robot-horndl \texttt{p01}             & 2 & 2 & 77\,901 & 77\,901 \\
+optical-telegraphs \texttt{tc-x-4} (50k) & 0 & 0 & 10\,662 & 10\,662 \\
+optical-telegraphs \texttt{tc-x-4} (100k) & 0 & 0 & 10\,662 & 10\,662 \\
+robotConj-horndl \texttt{p01}         & 0 & 0 & 16      & 16      \\
+psr-middle \texttt{p01}               & 0 & 0 & 104     & 104     \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+In every tested case mode~3 produces identical heuristic quality and
+identical search behaviour to mode~1.  The extra computation time for
+mode~3 (constructing non-goal-derived axiom factors and then discarding
+them) is at most a few seconds, making mode~3 strictly worse in wall-clock
+terms with no compensating benefit.
+
+\subsubsection*{Root cause}
+
+The failure is structural, not domain-specific.  For any non-goal-derived
+variable $d$ the following chain of facts forces $h = 0$:
+
+\begin{enumerate}
+  \item The planning task contains no goal constraint on $d$.
+  \item Therefore, after calling \texttt{restore\_all\_goal\_states()} (required
+        for admissibility), every abstract state in the $d$-factor is a goal.
+  \item Bisimulation with a trivial goal partition $(\text{all states goal})$
+        collapses the factor to a single abstract state.
+  \item A single-state factor contributes $h = 0$ to the merged abstraction.
+\end{enumerate}
+
+The derivability partition $\{D, \overline{D}\}$ computed during factor
+construction captures which concrete states can derive $d$.  This information
+is non-trivial only when $D \neq \emptyset$ and $D \neq S$.  However, the
+\texttt{TransitionSystem} constructor receives \texttt{shrink\_seed} (the
+derivability partition) as its goal argument for non-goal-derived factors, and
+the subsequent \texttt{restore\_all\_goal\_states()} call \emph{overwrites}
+that assignment with all-true before the factor participates in any merge.
+The useful partition therefore never reaches the bisimulation computation in
+the merged product.
+
+\paragraph{Why preconditions do not help.}
+The PSR domain (\texttt{psr-middle}) was specifically chosen because the
+derived predicate \texttt{affected} (non-goal-derived) appears directly in
+the preconditions of \texttt{open}/\texttt{close}/\texttt{wait} operators.
+In principle, restricted operator applicability in non-derivable states could
+create longer minimum-distance paths in the merged product even after goal
+restoration.  In practice, the p01 instance (17~switches) is too small for
+this effect to be observed: \texttt{affected} corresponds to variable~0 with
+\texttt{shrink\_seed} all-false (\emph{never derivable} in the abstract
+reachable states), so the factor is skipped entirely; the remaining factors
+all collapse to $h = 0$.  Larger instances (p02 and above) were not
+benchmarked in the current round.
+
+\subsubsection*{Theoretical improvement path}
+
+A fix that preserves non-goal-derived information would require one of:
+
+\begin{itemize}
+  \item \textbf{Pre-merging before restoration.}  Merge the non-goal-derived
+        factor with the goal-derived factors \emph{before} calling
+        \texttt{restore\_all\_goal\_states()}, so that the derivability
+        partition influences the joint bisimulation.  Goal restoration is then
+        applied to the merged factor, which already encodes the coupling
+        between goal achievement and derivability.  This requires changing the
+        merge order so that non-goal-derived factors are always merged first.
+
+  \item \textbf{Transition-structure signal.}  Retain the non-goal-derived
+        factor's transition system but derive the heuristic value from
+        \emph{reachability under restricted transitions} rather than from
+        goal-state distance.  Operators with an unsatisfied precondition on
+        $d$ are absent in non-derivable states, giving longer paths.  This
+        requires a new shrinking strategy that is sound with respect to
+        transition reachability rather than goal reachability.
+\end{itemize}
+
+Neither approach is implemented in the current codebase; this benchmark
+evaluation confirms that mode~3 as currently implemented provides no benefit
+over mode~1.
+
 \end{document}

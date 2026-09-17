@@ -8544,6 +8544,52 @@ therefore useless.  The code detects this and discards the factor, which is
 correct: a factor contributing only $h = 0$ adds no information to the
 heuristic and can be safely omitted.
 
+After all groups have been processed, a summary line reports how many
+factors were successfully built and, when any were skipped, a per-reason
+breakdown:
+\begin{lstlisting}
+Axiom factors built: 1 / 1 group(s).
+Axiom factors built: 0 / 2 group(s). Skipped: never_derivable=2
+Axiom factors built: 1 / 3 group(s). Skipped: never_derivable=1 all_satisfy=1
+\end{lstlisting}
+The six skip reasons are:
+
+\begin{description}
+  \item[\texttt{product\_too\_large}]
+    The full product domain of the $S_d$ primary variables exceeds
+    \texttt{max\_states} before the BFS even starts.  Checked in
+    \texttt{build\_factored\_transition\_system} before calling
+    \texttt{build\_axiom\_factor}.
+
+  \item[\texttt{work\_cap}]
+    The pre-BFS estimate $\min(\lvert\text{product}\rvert,
+    \texttt{max\_axiom\_states}) \times \lvert\text{relevant\_ops}\rvert$
+    exceeds $5 \times 10^8$.  The cap prevents runaway build times on
+    dense operator sets.
+
+  \item[\texttt{state\_cap}]
+    The BFS discovered more than \texttt{max\_axiom\_states} ($= 100\,000$)
+    reachable states before completing.
+
+  \item[\texttt{never\_derivable}]
+    After BFS and axiom evaluation, no reachable state has
+    \texttt{shrink\_seed} $= \mathrm{true}$: for goal-derived groups this
+    means no goal state is reachable; for non-goal-derived groups it means
+    the derived variable $d$ cannot fire for any reachable primary-variable
+    configuration.
+
+  \item[\texttt{goal\_unreachable}]
+    At least one state satisfies \texttt{shrink\_seed}, but the initial
+    abstract state cannot reach any such state via the built transitions.
+    Adding the factor would contribute $h = \infty$ at the initial state,
+    which is inadmissible.
+
+  \item[\texttt{all\_satisfy}]
+    Every reachable state satisfies \texttt{shrink\_seed}: bisimulation
+    with this trivial partition collapses the factor to a single abstract
+    state ($h = 0$ everywhere), making it useless.
+\end{description}
+
 \subsubsection{Experimental Setup}
 
 The experiment runs five configurations (blind search as reference, plus the

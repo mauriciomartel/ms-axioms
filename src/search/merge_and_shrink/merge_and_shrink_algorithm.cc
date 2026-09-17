@@ -609,12 +609,13 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
         for (size_t i = 0; i < goal_derived_vars.size(); ++i)
             groups[uf_find(i)].push_back(goal_derived_vars[i]);
 
+                int num_axiom_factors_built = 0;
                 for (auto &[root, derived_var_ids] : groups) {
-            if (log.is_at_least_normal()) {
-                log << "Building axiom factor for derived variable(s)";
-                for (int d : derived_var_ids) log << " " << d;
-                log << "." << endl;
-            }
+                    if (log.is_at_least_normal()) {
+                    log << "Building axiom factor for derived variable(s)";
+                    for (int d : derived_var_ids) log << " " << d;
+                    log << "." << endl;
+                }
 
             // Build one joint product factor for all derived variables in
             // this group. The output parameters capture, for every reachable
@@ -721,6 +722,7 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
             // remain represented only by their existing atomic factors and
             // can be shrunk freely by the main loop.
             if (axiom_index >= 0) {
+                ++num_axiom_factors_built;
                 // Collect every primary variable that belongs to the S_d
                 // closure of any derived variable in this group. Each of
                 // these is now represented TWICE in the FTS: exactly (one
@@ -772,6 +774,9 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
             if (log.is_at_least_normal())
                 log_progress(timer, "after building axiom factor", log);
         }
+        if (log.is_at_least_normal())
+            log << "Axiom factors built: " << num_axiom_factors_built
+                << " / " << groups.size() << " group(s)." << endl;
     }
 
     /*

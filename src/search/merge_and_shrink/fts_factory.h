@@ -21,6 +21,17 @@ class LogProxy;
 }
 
 namespace merge_and_shrink {
+
+enum class AxiomSkipReason {
+    NONE,             // factor was built successfully
+    PRODUCT_TOO_LARGE,// product domain exceeds max_states (checked in algorithm)
+    WORK_CAP,         // estimated BFS work exceeds 500M limit
+    STATE_CAP,        // BFS hit max_axiom_states during exploration
+    NEVER_DERIVABLE,  // no reachable state satisfies the partition criterion
+    GOAL_UNREACHABLE, // init cannot reach any partition-satisfying state
+    ALL_SATISFY,      // all states satisfy criterion (trivial partition)
+};
+
 class FactoredTransitionSystem;
 
 extern FactoredTransitionSystem create_factored_transition_system(
@@ -65,7 +76,8 @@ extern int build_axiom_factor(
     std::vector<int> *out_pending_var_order = nullptr,
     std::vector<std::vector<int>> *out_state_pending_values = nullptr,
     bool apply_work_cap = true,
-    bool *out_all_are_goal_vars = nullptr);
+    bool *out_all_are_goal_vars = nullptr,
+    AxiomSkipReason *out_skip_reason = nullptr);
 }
 
 #endif

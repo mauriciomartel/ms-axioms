@@ -551,7 +551,13 @@ int build_axiom_factor(
     vector<int> *out_pending_var_order,
     vector<vector<int>> *out_state_pending_values,
     bool apply_work_cap,
-    bool *out_all_are_goal_vars) {
+    bool *out_all_are_goal_vars,
+    AxiomSkipReason *out_skip_reason) {
+
+    auto set_skip = [&](AxiomSkipReason r) {
+        if (out_skip_reason) *out_skip_reason = r;
+    };
+    set_skip(AxiomSkipReason::NONE);
 
     const Labels &labels = fts.get_labels();
     VariablesProxy variables = task_proxy.get_variables();
@@ -832,6 +838,7 @@ int build_axiom_factor(
                     << estimated_work
                     << " exceeds limit; skipping factor"
                        " (heuristic remains admissible)." << endl;
+            set_skip(AxiomSkipReason::WORK_CAP);
             return -1;
         }
     }
@@ -876,6 +883,7 @@ int build_axiom_factor(
                 log << "  Axiom factor BFS reached " << max_axiom_states
                     << " states; skipping factor (heuristic remains admissible)."
                     << endl;
+            set_skip(AxiomSkipReason::STATE_CAP);
             return -1;
         }
         long long s_full = frontier.front();
@@ -1018,6 +1026,7 @@ int build_axiom_factor(
                    "(goal-derived: no goal state reachable; non-goal-derived: "
                    "d never derivable); skipping factor "
                    "(heuristic remains admissible)." << endl;
+        set_skip(AxiomSkipReason::NEVER_DERIVABLE);
         return -1;
     }
 
@@ -1063,6 +1072,7 @@ int build_axiom_factor(
                        "(goal-derived: no reachable goal; non-goal-derived: "
                        "d unreachable from init); skipping factor "
                        "(heuristic remains admissible)." << endl;
+                set_skip(AxiomSkipReason::GOAL_UNREACHABLE);
                 return -1;
             }
         }
@@ -1084,6 +1094,7 @@ int build_axiom_factor(
                     << " reachable state(s) satisfy the partition criterion "
                        "(h=0 everywhere); skipping factor "
                        "(heuristic remains admissible)." << endl;
+            set_skip(AxiomSkipReason::ALL_SATISFY);
             return -1;
         }
     }

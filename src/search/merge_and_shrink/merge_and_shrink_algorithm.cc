@@ -27,6 +27,7 @@
 #include <cassert>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -610,6 +611,7 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
             groups[uf_find(i)].push_back(goal_derived_vars[i]);
 
                 int num_axiom_factors_built = 0;
+                map<AxiomSkipReason, int> skip_counts;
                 for (auto &[root, derived_var_ids] : groups) {
                     if (log.is_at_least_normal()) {
                     log << "Building axiom factor for derived variable(s)";
@@ -648,12 +650,17 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
                 if (factor_too_large) break;
             }
             bool axiom_all_goal_vars = true;
-            int axiom_index = factor_too_large
-                ? -1
-                : build_axiom_factor(
-                      task_proxy, derived_var_ids, fts, log,
-                      &pending_var_order, &pending_state_values, apply_cap,
-                      &axiom_all_goal_vars);
+            AxiomSkipReason skip_reason = AxiomSkipReason::NONE;
+            int axiom_index;
+            if (factor_too_large) {
+                skip_reason = AxiomSkipReason::PRODUCT_TOO_LARGE;
+                axiom_index = -1;
+            } else {
+                axiom_index = build_axiom_factor(
+                    task_proxy, derived_var_ids, fts, log,
+                    &pending_var_order, &pending_state_values, apply_cap,
+                    &axiom_all_goal_vars, &skip_reason);
+            }
 
             // Collapse dead-end axiom factor states (goal_dist=INF) into the
             // goal state. Task states mapping to dead-end axiom factor states
@@ -769,14 +776,29 @@ MergeAndShrinkAlgorithm::build_factored_transition_system(
                     move(pending_var_order);
                 axiom_factor_pending_values[axiom_index] =
                     move(pending_state_values);
+            } else {
+                ++skip_counts[skip_reason];
             }
 
             if (log.is_at_least_normal())
                 log_progress(timer, "after building axiom factor", log);
         }
-        if (log.is_at_least_normal())
+        if (log.is_at_least_normal()) {
             log << "Axiom factors built: " << num_axiom_factors_built
-                << " / " << groups.size() << " group(s)." << endl;
+                << " / " << groups.size() << " group(s).";
+            if (!skip_counts.empty()) {
+                static const char *reason_names[] = {
+                    "none", "product_too_large", "work_cap",
+                    "state_cap", "never_derivable",
+                    "goal_unreachable", "all_satisfy"
+                };
+                log << " Skipped:";
+                for (auto &[r, cnt] : skip_counts)
+                    log << " " << reason_names[static_cast<int>(r)]
+                        << "=" << cnt;
+            }
+            log << endl;
+        }
     }
 
     /*

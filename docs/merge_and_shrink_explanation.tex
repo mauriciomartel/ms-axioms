@@ -9509,4 +9509,121 @@ significant overhead.  For experiment scripts, domains where
 comparisons, as the overhead cost dominates with no compensating heuristic
 improvement.
 
+% =============================================================================
+\subsection{Planned Experiment: \texttt{ms-axioms-modes-v4-eval}}
+\label{sec:v4-experiment}
+
+\subsubsection*{Motivation}
+
+The v3 evaluation established which axiom-factor mode performs best at a fixed
+abstraction size of 50\,000 states.  Two open questions remain:
+
+\begin{enumerate}
+  \item \textbf{Sensitivity to abstraction size.}  How does coverage and
+        heuristic quality for \texttt{none} (mode~0) and \texttt{all\_capped}
+        (mode~3) change as \texttt{max\_states} varies from very small
+        (1\,000) to unlimited (\texttt{infinity})?
+
+  \item \textbf{Skip-reason breakdown.}  For runs where axiom factors are
+        skipped, which reason dominates?  Is it the product-domain guard
+        (\texttt{product\_too\_large}), the BFS work-estimate guard
+        (\texttt{work\_cap}), or another cause?  This determines whether
+        loosening the guards would increase coverage.
+\end{enumerate}
+
+\subsubsection*{Experiment Script: \texttt{ms-axioms-modes-v4-eval}}
+
+The experiment is defined in
+\texttt{experiments/ms-axioms-modes-v4-eval/ms-axioms-modes-v4.py}.
+It extends the v3 script with the following changes.
+
+\paragraph{Benchmark suite.}
+\texttt{miconic-axioms} is removed (the domain was found to be insufficiently
+informative).  \texttt{baba-is-axioms} is added as a stress-test domain with
+a large axiom-dependency graph.  All other 32 domains are retained.
+
+\paragraph{Algorithms.}
+The five base configurations from v3 (all at \texttt{max\_states=50000}) are
+kept unchanged to preserve comparability with prior results.  Additionally,
+\texttt{dfp-none} (mode~0) and \texttt{dfp-all-capped} (mode~3) are each run
+at four extra abstraction sizes:
+
+\begin{center}
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Suffix} & \textbf{\texttt{max\_states}} \\
+\midrule
+\texttt{-1k}  & 1\,000 \\
+\texttt{-5k}  & 5\,000 \\
+\texttt{-10k} & 10\,000 \\
+\texttt{-inf} & \texttt{infinity} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The 50\,000-state point is covered by the base \texttt{dfp-none} and
+\texttt{dfp-all-capped} configs (no \texttt{-50k} suffix needed).
+This gives 13 configurations in total:
+
+\begin{center}
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Config name} & \textbf{Description} \\
+\midrule
+\texttt{blind}                   & A* with blind heuristic (reference) \\
+\texttt{dfp-none}                & Mode~0, \texttt{max\_states=50000} \\
+\texttt{dfp-only-goal}           & Mode~1, \texttt{max\_states=50000} \\
+\texttt{dfp-only-goal-capped}    & Mode~2, \texttt{max\_states=50000} \\
+\texttt{dfp-all-capped}          & Mode~3, \texttt{max\_states=50000} \\
+\texttt{dfp-none-1k}             & Mode~0, \texttt{max\_states=1000} \\
+\texttt{dfp-none-5k}             & Mode~0, \texttt{max\_states=5000} \\
+\texttt{dfp-none-10k}            & Mode~0, \texttt{max\_states=10000} \\
+\texttt{dfp-none-inf}            & Mode~0, \texttt{max\_states=infinity} \\
+\texttt{dfp-all-capped-1k}       & Mode~3, \texttt{max\_states=1000} \\
+\texttt{dfp-all-capped-5k}       & Mode~3, \texttt{max\_states=5000} \\
+\texttt{dfp-all-capped-10k}      & Mode~3, \texttt{max\_states=10000} \\
+\texttt{dfp-all-capped-inf}      & Mode~3, \texttt{max\_states=infinity} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Parser additions.}
+The custom parser (\texttt{custom\_parser.py}) is extended to extract
+axiom-factor statistics from the log line emitted by the implementation
+(Section~\ref{sec:diagnostic-logging}):
+
+\begin{verbatim}
+Axiom factors built: X / Y group(s). Skipped: reason1=n1 reason2=n2 ...
+\end{verbatim}
+
+The following attributes are added to the Lab report:
+
+\begin{description}
+  \item[\texttt{axiom\_factors\_built}] Number of axiom factors successfully
+        built (integer; absent for \texttt{blind} and mode~0 runs).
+  \item[\texttt{axiom\_factors\_groups}] Total number of union-find groups
+        attempted.
+  \item[\texttt{axiom\_skip\_product\_too\_large}] Groups skipped because
+        the product domain exceeded the threshold before BFS.
+  \item[\texttt{axiom\_skip\_work\_cap}] Groups skipped by the BFS
+        work-estimate guard.
+  \item[\texttt{axiom\_skip\_state\_cap}] Groups skipped by the mid-BFS
+        state-count cap.
+  \item[\texttt{axiom\_skip\_never\_derivable}] Groups skipped because
+        \texttt{shrink\_seed} was all-false (derived variable never
+        reachable).
+  \item[\texttt{axiom\_skip\_goal\_unreachable}] Groups skipped because no
+        goal state was reachable in the abstract factor.
+  \item[\texttt{axiom\_skip\_all\_satisfy}] Groups skipped because all
+        abstract states already satisfy the goal.
+\end{description}
+
+Attributes are absent (shown as \texttt{---} in the report) for configurations
+that do not emit the log line (\texttt{blind} and \texttt{dfp-none-*}).
+
+\paragraph{Resource limits.}
+Unchanged from v3: 5 minutes wall time, 8\,GB memory, 16 parallel processes.
+
 \end{document}

@@ -9417,4 +9417,96 @@ Neither approach is implemented in the current codebase; this benchmark
 evaluation confirms that mode~3 as currently implemented provides no benefit
 over mode~1 on the tested domains.
 
+\subsection{Pathological Case: \texttt{baba-is-axioms}}
+\label{sec:baba-pathological}
+
+The \texttt{baba-is-axioms} domain encodes the Baba~Is~You puzzle game in
+PDDL\@.  Its rule system (who is \texttt{you}, \texttt{win}, \texttt{stop},
+etc.) is represented as a large set of deeply interdependent axioms.  The
+\texttt{small\_10} instance was tested as a manual sanity check; it is an
+$8\times 8$ grid with 6 sprites and was solved by blind A* in approximately
+1~second (12-step plan, 1843~states expanded).
+
+\subsubsection*{Axiom scale}
+
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Mode} & \textbf{Variables selected} & \textbf{Groups formed} \\
+\midrule
+\texttt{axiom\_factor\_mode=1} & 1 (goal var only: \texttt{var4423}) & 1 \\
+\texttt{axiom\_factor\_mode=3} & 2699 & 2 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+For mode~3 the union-find groups the 2699 derived variables into two groups:
+\texttt{var4423} alone and the remaining 2698 variables together.  The second
+group is trivially too large; the first group (a single variable) is also
+\texttt{product\_too\_large} because its BFS state space is enormous.
+
+\subsubsection*{Results}
+
+Both modes produce \textbf{0 axiom factors} (all groups skipped as
+\texttt{product\_too\_large}), so the FTS passed to the main loop is
+identical.  The M\&S main loop did not terminate in either case within a
+reasonable time limit; blind search is strictly faster for this instance.
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Mode} & \textbf{Factors built} & \textbf{Skip reason} &
+  \textbf{Axiom-phase time} & \textbf{Main loop} \\
+\midrule
+Blind A*          & ---  & ---                 & ---    & 1.13\,s (solved) \\
+\texttt{mode=1}   & 0/1  & \texttt{product\_too\_large} & 0.2\,s & did not terminate \\
+\texttt{mode=3}   & 0/2  & \texttt{product\_too\_large} & 49\,s  & did not terminate \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection*{Key observations}
+
+\begin{enumerate}
+  \item \textbf{Mode~3 overhead is severe.}  Even though no factors are
+        built, mode~3 spends $\approx$49~seconds on the single-variable group
+        (\texttt{var4423}) before hitting the cap.  Mode~1's axiom phase costs
+        only 0.2~seconds because it attempts the same variable but with a
+        tighter exit path.
+
+  \item \textbf{All groups too large is a new failure mode.}  The tested PSR
+        and robot domains each produced at least one successfully built factor.
+        Here every group exceeds the BFS budget before a derivability partition
+        can be constructed.  This is a consequence of the domain's highly
+        connected axiom dependency graph, which collapses almost all derived
+        variables into a single group and makes the individual BFS per variable
+        expensive.
+
+  \item \textbf{M\&S itself does not terminate.}  With 4424 total variables
+        and no useful abstraction from axiom factors, the merge loop cannot
+        reduce the state space below the 50k limit and fails to converge.
+        This is a property of the M\&S configuration, not of the axiom-factor
+        mode; the domain simply exceeds what M\&S can handle at this instance
+        size with these settings.
+
+  \item \textbf{Diagnostic value.}  The skip-reason log line confirms the
+        failure quickly:
+\begin{verbatim}
+Axiom factors built: 0 / 2 group(s). Skipped: product_too_large=2
+\end{verbatim}
+        For mode~3 this line appears after 49 seconds; for mode~1 it appears
+        after 0.2 seconds.  The log thus gives an early signal that the domain
+        is unsuitable for axiom factors with the current budget.
+\end{enumerate}
+
+\subsubsection*{Conclusion}
+
+\texttt{baba-is-axioms} is a useful negative data point: a domain rich in
+axioms where the axiom-factor approach provides no benefit and mode~3 incurs
+significant overhead.  For experiment scripts, domains where
+\texttt{Axiom factors built: 0 / N} appears with all groups
+\texttt{product\_too\_large} should be flagged for exclusion from mode~3
+comparisons, as the overhead cost dominates with no compensating heuristic
+improvement.
+
 \end{document}

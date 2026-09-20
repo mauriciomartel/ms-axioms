@@ -65,8 +65,8 @@ def _ms(axiom_factor_mode: int, max_states=50000) -> list[str]:
     ]
 
 
-_EXTRA_MAX_STATES = [1000, 5000, 10000, "infinity"]
-_EXTRA_MAX_STATES_NICKS = ["1k", "5k", "10k", "inf"]
+_EXTRA_MAX_STATES = [5000, 10000]
+_EXTRA_MAX_STATES_NICKS = ["5k", "10k"]
 
 CONFIGS = (
     # Reference

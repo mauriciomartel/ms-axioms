@@ -313,7 +313,7 @@ wheels = [
 ]
 
 [[package]]
-name = "ms-axioms-modes-eval"
+name = "ms-axioms-modes-v4-eval"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

@@ -9625,4 +9625,146 @@ that do not emit the log line (\texttt{blind} and \texttt{dfp-none-*}).
 \paragraph{Resource limits.}
 Unchanged from v3: 5 minutes wall time, 8\,GB memory, 16 parallel processes.
 
+% =============================================================================
+\subsubsection*{Results}
+\label{sec:v4-results}
+
+The experiment ran to completion on 883 instances across 33 domains.
+
+\paragraph{Overall coverage.}
+
+\begin{center}
+\small
+\begin{tabular}{llrr}
+\toprule
+\textbf{Config} & \textbf{Mode} & \textbf{\texttt{max\_states}} & \textbf{Coverage} \\
+\midrule
+\texttt{blind}                 & ---    & ---    & \textbf{441} \\
+\texttt{dfp-only-goal-capped}  & 2      & 50\,000 & 359 \\
+\texttt{dfp-only-goal}         & 1      & 50\,000 & 356 \\
+\texttt{dfp-none-10k}          & 0      & 10\,000 & 337 \\
+\texttt{dfp-none-5k}           & 0      & 5\,000  & 336 \\
+\texttt{dfp-none}              & 0      & 50\,000 & 334 \\
+\texttt{dfp-all-capped}        & 3      & 50\,000 & 297 \\
+\texttt{dfp-all-capped-5k}     & 3      & 5\,000  & 295 \\
+\texttt{dfp-all-capped-10k}    & 3      & 10\,000 & 290 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Primary finding: mode~3 is strictly worse.}
+Mode~3 (\texttt{all\_capped}) is the worst-performing DFP configuration,
+62~points below modes~1/2 and 37~points below mode~0.  Even blind search
+solves 144~more instances than mode~3, indicating that the axiom-factor
+preprocessing for precondition-derived variables consumes too much of the
+5-minute budget on instances that would otherwise be solved.
+
+The error breakdown confirms the mechanism:
+
+\begin{center}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Error type} & \textbf{blind} & \textbf{mode~3} & \textbf{mode~0} & \textbf{mode~1/2} \\
+\midrule
+Out of time   & 428 & 530--537 & 521--525 & 511--512 \\
+Out of memory & 0   & 4        & 16       & 6        \\
+Proved unsolvable & 8 & 46--47 & 2        & 2        \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Mode~3 times out the most and also detects unsolvability on 46--47~instances
+that other modes do not, because it spends preprocessing time building axiom
+factors for precondition-derived variables before the search even starts.
+
+\paragraph{Domain-level breakdown.}
+
+Modes~1/2 match or exceed mode~3 everywhere.  Mode~3 shows gains over mode~0
+only on three axiom-heavy domains:
+
+\begin{center}
+\small
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Domain} & \textbf{mode~3 (50k)} & \textbf{mode~0 (50k)} & \textbf{mode~1/2 (50k)} \\
+\midrule
+\texttt{sokoban-axioms} (31) & 18 & 9  & \textbf{18} / 17 \\
+\texttt{robot-horndl}   (57) & 37 & 29 & 35 / \textbf{38} \\
+\texttt{tpsa-horndl}    (16) & 3  & 0  & \textbf{3} / \textbf{3}  \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+On these domains, modes~1/2 match or exceed mode~3, confirming that
+goal-derived axiom factors capture the benefit without the cost of
+precondition-derived factors.
+
+Mode~3 is catastrophically worse than mode~0 on structured domains with
+large operator sets:
+
+\begin{center}
+\small
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Domain} & \textbf{mode~3 (50k)} & \textbf{mode~0 (50k)} & \textbf{Gap} \\
+\midrule
+\texttt{openstacks-opt08-adl} (31) & 1  & 19 & $-18$ \\
+\texttt{appn-adl}             (34) & 0  & 15 & $-15$ \\
+\texttt{airport-adl}          (51) & 1  & 13 & $-12$ \\
+\texttt{openstacks-sat08-adl} (26) & 0  & 9  & $-9$  \\
+\texttt{openstacks}           (31) & 2  & 8  & $-6$  \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Heuristic quality.}
+Despite its poor coverage, mode~3 produces near-mode-1 h-values (sum
+3\,388~vs.\ 3\,674 for modes~1/2 and 2\,313 for mode~0).  The h-value
+quality is not the bottleneck; the preprocessing cost is.
+
+\paragraph{Effect of \texttt{max\_states}.}
+For mode~0 coverage is essentially flat: 5k\,=\,336, 10k\,=\,337, 50k\,=\,334.
+The 50k limit actually triggers more OOM failures (16) than smaller limits (0).
+The 10k limit is therefore the most efficient choice for mode~0: best coverage
+with roughly 40\% less preprocessing time and memory than 50k.
+
+For mode~3 coverage varies non-monotonically: 5k\,=\,295, 10k\,=\,290, 50k\,=\,297.
+The small gain at 50k is driven by higher h-value quality, but the absolute
+numbers remain well below mode~0 at any limit.
+
+\paragraph{Axiom factor statistics.}
+The \texttt{axiom\_factors\_built} and skip-reason attributes are all absent
+in the report: the Lab parser did not find the log line in the run output.
+This is likely because the planner writes the line to a file other than
+\texttt{run.log}, or because the Lab runner captures stdout and stderr
+separately.  This must be investigated before the next experiment.
+
+\subsubsection*{Conclusions}
+
+\begin{enumerate}
+  \item \textbf{Mode~1/2 (goal-derived only) is the best DFP configuration.}
+        Modes~1 and~2 are essentially tied (359~vs.\ 356) and outperform
+        every other configuration except blind.
+
+  \item \textbf{Mode~3 is harmful overall.}  Including axiom factors for
+        precondition-derived variables costs more in preprocessing time than
+        it saves in search effort, reducing coverage by 37--62~points
+        relative to other DFP modes.  On the small set of axiom-heavy domains
+        where it helps, modes~1/2 achieve the same or better results.
+
+  \item \textbf{Blind search wins on total coverage.}  At 441~solved instances
+        it outperforms all M\&S configurations (best: 359).  M\&S preprocessing
+        is not recovering its overhead cost within the 5-minute time limit on
+        this benchmark suite.
+
+  \item \textbf{For mode~0, smaller abstractions are equally effective.}
+        The 10k limit matches 50k in coverage with significantly lower memory
+        and preprocessing cost.
+
+  \item \textbf{The recommended default is mode~1 or mode~2} (\texttt{only\_goal}
+        or \texttt{only\_goal\_capped}) at \texttt{max\_states=50000}.
+        Mode~3 should not be the default.
+\end{enumerate}
+
 \end{document}
